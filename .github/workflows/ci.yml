@@ -1,0 +1,175 @@
+# QuantumLife CI Pipeline
+#
+# Enforces Canon invariants on every push and pull request.
+#
+# Reference:
+#   - docs/QUANTUMLIFE_CANON_V1.md (meaning)
+#   - docs/TECHNICAL_SPLIT_V1.md (boundaries)
+#   - docs/TECHNOLOGY_SELECTION_V1.md (technology)
+#
+# IMPORTANT: New dependencies require ADR + explicit approval.
+# See docs/TECHNOLOGY_SELECTION_V1.md §11 Non-Choices
+
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+env:
+  GO_VERSION: '1.22'
+
+jobs:
+  # Format check - fail if code is not gofmt'd
+  format:
+    name: Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Check formatting
+        run: |
+          echo "Checking code formatting..."
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "ERROR: The following files are not formatted:"
+            echo "$unformatted"
+            echo ""
+            echo "Run 'gofmt -w -s .' to fix."
+            exit 1
+          fi
+          echo "All files are properly formatted."
+
+  # Static analysis with go vet
+  vet:
+    name: Go Vet
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Run go vet
+        run: go vet ./...
+
+  # Build verification
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Build
+        run: go build ./...
+
+  # Run all tests
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: [build]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Run tests
+        run: go test -v ./...
+
+  # Forbidden terms check - Canon enforcement
+  forbidden-terms:
+    name: Forbidden Terms Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check for forbidden terms
+        run: |
+          echo "Checking for terms forbidden by Canon..."
+          echo "Reference: docs/QUANTUMLIFE_CANON_V1.md §Forbidden at Core"
+          chmod +x ./scripts/guardrails/forbidden_terms.sh
+          ./scripts/guardrails/forbidden_terms.sh
+
+  # Forbidden imports check - Architecture enforcement
+  forbidden-imports:
+    name: Forbidden Imports Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check for forbidden imports
+        run: |
+          echo "Checking for imports forbidden by Technical Split..."
+          echo "Reference: docs/TECHNICAL_SPLIT_V1.md §4 Control Plane vs Data Plane"
+          chmod +x ./scripts/guardrails/forbidden_imports.sh
+          ./scripts/guardrails/forbidden_imports.sh
+
+  # Dependency policy check - No external deps without ADR
+  dependency-policy:
+    name: Dependency Policy Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check dependency policy
+        run: |
+          echo "Checking dependency policy..."
+          echo "Policy: Standard library only for v1"
+          echo ""
+          echo "IMPORTANT: New dependencies require:"
+          echo "  1. ADR in docs/ADR/ with justification"
+          echo "  2. Security and license review"
+          echo "  3. Explicit approval"
+          echo ""
+          chmod +x ./scripts/guardrails/dependency_policy.sh
+          ./scripts/guardrails/dependency_policy.sh
+
+  # Final status check - all guardrails must pass
+  guardrails-status:
+    name: Guardrails Status
+    runs-on: ubuntu-latest
+    needs: [format, vet, build, test, forbidden-terms, forbidden-imports, dependency-policy]
+    steps:
+      - name: All guardrails passed
+        run: |
+          echo "========================================"
+          echo "All CI Guardrails Passed"
+          echo "========================================"
+          echo ""
+          echo "Canon invariants enforced:"
+          echo "  ✓ Code formatting"
+          echo "  ✓ Static analysis (go vet)"
+          echo "  ✓ Build successful"
+          echo "  ✓ Tests pass"
+          echo "  ✓ No forbidden terms (Canon §Forbidden)"
+          echo "  ✓ No forbidden imports (Technical Split §4)"
+          echo "  ✓ Dependency policy (standard library only)"
+          echo ""
+          echo "Reference documents:"
+          echo "  - docs/QUANTUMLIFE_CANON_V1.md"
+          echo "  - docs/TECHNICAL_SPLIT_V1.md"
+          echo "  - docs/TECHNOLOGY_SELECTION_V1.md"

@@ -1,0 +1,87 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#E8F5E9', 'primaryBorderColor': '#2E7D32', 'secondaryColor': '#FFF3E0', 'secondaryBorderColor': '#E65100', 'lineColor': '#424242'}}}%%
+flowchart TB
+    subgraph SOVEREIGNTY["CIRCLE SOVEREIGNTY"]
+        direction TB
+        CIRCLE((Your<br/>Circle))
+        IDENTITY["Identity: Yours alone"]
+        MEMORY["Memory: Private by default"]
+        POLICY["Policy: You declare boundaries"]
+
+        CIRCLE --- IDENTITY
+        CIRCLE --- MEMORY
+        CIRCLE --- POLICY
+    end
+
+    subgraph AUTHORITY_MODEL["AUTHORITY & AUTONOMY"]
+        direction TB
+
+        subgraph AUTONOMY_GRADIENT["Autonomy Gradient"]
+            direction LR
+            A1["Pre-Action<br/>Approval"]
+            A2["Exception-Only<br/>Intervention"]
+            A3["Post-Action<br/>Review"]
+            A1 --> A2 --> A3
+        end
+
+        subgraph TIME_BOUNDS["Time-Bounded Authority"]
+            direction TB
+            TB1["Grants expire by default"]
+            TB2["Explicit time windows"]
+            TB3["'Forever' is rare and visible"]
+        end
+    end
+
+    subgraph SHARING["INTERSECTION-ONLY SHARING"]
+        direction TB
+        INT((Intersection))
+        INT_PROPS["Explicit contract<br/>Versioned terms<br/>All parties consent<br/>Auditable"]
+        INT --- INT_PROPS
+    end
+
+    subgraph SAFETY["SAFETY & REVOCATION"]
+        direction TB
+
+        REVOKE["Revocation"]
+        PAUSE["Pause / Abort"]
+        SETTLE["Settlement"]
+
+        REVOKE -->|"Halts immediately"| PAUSE
+        PAUSE -->|"Only after completion"| SETTLE
+
+        SAFE_NOTE["No 'finish what you started'<br/>Consistent state after failure<br/>No partial settlement"]
+    end
+
+    subgraph RECOVERY["RECOVERY & SUCCESSION"]
+        direction TB
+
+        KEY_RECOVERY["Key Recovery<br/>(Quorum / Time-Delay)"]
+        SUCCESSION["Succession Intersection<br/>(Predeclared, Opt-In)"]
+        DORMANCY["Dormancy Policy<br/>(Inactivity triggers review)"]
+
+        KEY_RECOVERY ~~~ SUCCESSION
+        SUCCESSION ~~~ DORMANCY
+
+        RECOVERY_NOTE["All recovery is intersection-governed<br/>No backdoors, no silent overrides"]
+    end
+
+    subgraph AUDIT["CONTINUOUS AUDIT"]
+        direction LR
+        AUDIT_LOG["Every action logged"]
+        AUDIT_EXPLAIN["Every decision explainable"]
+        AUDIT_VERSION["Every change versioned"]
+    end
+
+    SOVEREIGNTY -->|"Grants authority via"| SHARING
+    SHARING -->|"Actions governed by"| SAFETY
+    AUTHORITY_MODEL -->|"Constrains"| SHARING
+    SAFETY -->|"All outcomes to"| AUDIT
+    RECOVERY -->|"Governed through"| SHARING
+
+    subgraph GUARANTEES["PERMANENT GUARANTEES"]
+        direction TB
+        G1["You own your circle"]
+        G2["Sharing requires your consent"]
+        G3["Authority can always be revoked"]
+        G4["Actions are auditable"]
+        G5["Recovery is opt-in, not backdoor"]
+    end

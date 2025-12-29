@@ -1,0 +1,38 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#F3E5F5', 'primaryBorderColor': '#9C27B0'}}}%%
+flowchart LR
+    subgraph LOOP["THE IRREDUCIBLE LOOP"]
+        direction LR
+
+        INTENT([INTENT])
+        DISCOVERY[Intersection<br/>Discovery]
+        NEGOTIATION[Authority<br/>Negotiation]
+        COMMITMENT[Commitment]
+        ACTION[Action]
+        SETTLEMENT[Settlement]
+        MEMORY[Memory<br/>Update]
+
+        INTENT --> DISCOVERY
+        DISCOVERY --> NEGOTIATION
+        NEGOTIATION --> COMMITMENT
+        COMMITMENT --> ACTION
+        ACTION --> SETTLEMENT
+        SETTLEMENT --> MEMORY
+        MEMORY -.->|Informs Next| INTENT
+    end
+
+    subgraph SCALE["SCALES UNIFORMLY"]
+        direction TB
+        SINGLE[Single Person]
+        FAMILY[Family]
+        ENTERPRISE[Enterprise]
+        MARKET[Market]
+
+        SINGLE --> FAMILY
+        FAMILY --> ENTERPRISE
+        ENTERPRISE --> MARKET
+    end
+
+    LOOP --- SCALE
+
+    NOTE1[/"Every interaction follows this loop<br/>No shortcuts, no exceptions"/]
+    LOOP -.-> NOTE1

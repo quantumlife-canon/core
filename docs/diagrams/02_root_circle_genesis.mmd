@@ -1,0 +1,26 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#E3F2FD', 'primaryBorderColor': '#1976D2'}}}%%
+flowchart TD
+    START([Human Arrives]) --> ONBOARD[Onboarding Begins]
+
+    ONBOARD --> IDENTITY[/"Identity Claimed<br/>(Self-Sovereign)"/]
+    IDENTITY --> MEMORY[/"Memory Initialized<br/>(Private Store)"/]
+    MEMORY --> POLICY[/"Policy Declared<br/>(Boundaries + Preferences)"/]
+
+    POLICY --> GENESIS{Root Circle<br/>Genesis}
+
+    GENESIS --> CIRCLE((YOUR<br/>SOVEREIGN<br/>CIRCLE))
+
+    CIRCLE --> AGENT[Agent Activated]
+    AGENT --> READY([Agent Ready to Act<br/>on Your Behalf])
+
+    subgraph GENESIS_PACKAGE["Root Circle Contains"]
+        G1[Identity: Who you are]
+        G2[Memory: What you know]
+        G3[Policy: What you allow]
+        G4[Authority: What you delegate]
+    end
+
+    GENESIS -.-> GENESIS_PACKAGE
+
+    %% No accounts, no users, no roles
+    %% Circle is the primitive

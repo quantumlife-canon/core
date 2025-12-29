@@ -1,0 +1,51 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#E8F4FD', 'primaryBorderColor': '#2196F3', 'lineColor': '#666666', 'tertiaryColor': '#FFF3E0'}}}%%
+flowchart TB
+    subgraph YOU["YOU (Root Circle)"]
+        direction TB
+        Y_IDENTITY[Identity]
+        Y_MEMORY[Memory]
+        Y_POLICY[Policy]
+    end
+
+    subgraph SPOUSE["SPOUSE (Sovereign Circle)"]
+        S_AGENT[Agent]
+    end
+
+    subgraph KIDS["KIDS (Sovereign Circle)"]
+        K_AGENT[Agent]
+    end
+
+    subgraph WORK["WORK (Sovereign Circle)"]
+        W_AGENT[Agent]
+    end
+
+    subgraph FINANCE["FINANCE POOL (Sovereign Circle)"]
+        F_AGENT[Agent]
+    end
+
+    subgraph FRIEND["FRIEND (Sovereign Circle)"]
+        FR_AGENT[Agent]
+    end
+
+    %% Intersections as explicit negotiated domains
+    I1((Family\nIntersection))
+    I2((Work\nIntersection))
+    I3((Finance\nIntersection))
+    I4((Social\nIntersection))
+
+    YOU --- I1
+    SPOUSE --- I1
+    KIDS --- I1
+
+    YOU --- I2
+    WORK --- I2
+
+    YOU --- I3
+    SPOUSE --- I3
+    FINANCE --- I3
+
+    YOU --- I4
+    FRIEND --- I4
+
+    %% Note: Each intersection is a versioned, negotiated contract
+    %% No global state - all sharing is explicit

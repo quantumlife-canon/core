@@ -1,0 +1,32 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#E8F5E9', 'primaryBorderColor': '#4CAF50'}}}%%
+sequenceDiagram
+    autonumber
+    participant A as Circle A<br/>(Inviter)
+    participant T as Invite Token
+    participant B as Circle B<br/>(Invitee)
+    participant I as Intersection
+
+    A->>T: Generate Invite Token
+    Note over T: Contains:<br/>- Intersection Template<br/>- Proposed Scopes<br/>- Expiry<br/>- Authority Offer
+
+    T->>B: Token Delivered<br/>(Any Channel)
+
+    B->>B: Human Reviews Proposal
+
+    alt Acceptance
+        B->>T: Accept Token
+        T->>B: Circle B Created<br/>(if new)
+        Note over B: Sovereign Circle<br/>Genesis for B
+
+        T->>I: Intersection Created
+        Note over I: Version 1.0<br/>Bilateral Contract<br/>Explicit Scopes<br/>Audit Trail Begins
+
+        I->>A: Intersection Active
+        I->>B: Intersection Active
+
+        A-->>B: Agents Can Now<br/>Negotiate in Intersection
+    else Rejection
+        B->>T: Reject Token
+        T->>A: Invitation Declined
+        Note over A,B: No intersection created<br/>No data shared<br/>No traces
+    end

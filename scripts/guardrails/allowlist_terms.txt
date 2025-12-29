@@ -1,0 +1,13 @@
+# Allowlist for forbidden terms
+#
+# Add file paths here to exempt them from forbidden terms check.
+# One path per line, relative to repo root.
+# Supports glob patterns.
+#
+# Example:
+#   internal/legacy/user_migration.go
+#   pkg/compat/*.go
+#
+# WARNING: Adding entries here weakens Canon enforcement.
+# Each exception should be justified and temporary.
+#

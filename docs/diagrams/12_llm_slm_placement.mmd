@@ -1,0 +1,72 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#FFF3E0', 'primaryBorderColor': '#E65100', 'secondaryColor': '#E3F2FD', 'secondaryBorderColor': '#1565C0', 'lineColor': '#424242'}}}%%
+flowchart TB
+    subgraph CONTROL_PLANE["CONTROL PLANE (May Use Models)"]
+        direction TB
+
+        INTENT([Intent])
+
+        subgraph SLM_FIRST["SLM FIRST PASS"]
+            SLM["Small Language Model"]
+            SLM_TASKS["- Classification<br/>- Summarization<br/>- Routing decision<br/>- Simple extraction"]
+            SLM_CONF["Confidence Score"]
+        end
+
+        subgraph ESCALATION["ESCALATION RULES"]
+            ESC_LOW["Low confidence < 0.7"]
+            ESC_HIGH["High-risk action"]
+            ESC_COMPLEX["Complex negotiation"]
+        end
+
+        subgraph LLM_CALL["LLM ESCALATION"]
+            LLM["Azure OpenAI"]
+            LLM_TASKS["- Complex reasoning<br/>- High-risk decisions<br/>- Counterproposal generation<br/>- Disambiguation"]
+        end
+
+        subgraph EXPLAIN["EXPLAINABILITY CAPTURE"]
+            EXP_WHAT["What was decided"]
+            EXP_WHY["Why (reasoning trace)"]
+            EXP_WHO["Which model"]
+            EXP_CONF["Confidence level"]
+        end
+
+        COMMIT[Commitment<br/>Formation]
+
+        INTENT --> SLM_FIRST
+        SLM_FIRST --> SLM_CONF
+        SLM_CONF -->|"High confidence"| COMMIT
+        SLM_CONF -->|"Low confidence"| ESCALATION
+        ESCALATION --> LLM_CALL
+        LLM_CALL --> COMMIT
+        SLM_FIRST --> EXPLAIN
+        LLM_CALL --> EXPLAIN
+    end
+
+    subgraph FALLBACK["FALLBACK MODE"]
+        direction TB
+        FB_TRIGGER["LLM Unavailable"]
+        FB_MODE["SUGGEST-ONLY MODE"]
+        FB_RULES["- No execution<br/>- Proposals only<br/>- Human must approve<br/>- Guarantees preserved"]
+        FB_TRIGGER --> FB_MODE --> FB_RULES
+    end
+
+    subgraph DATA_PLANE["DATA PLANE (Deterministic Only)"]
+        direction TB
+        EXECUTE["Action Execution"]
+        SETTLE["Settlement"]
+        MEMORY_WRITE["Memory Update"]
+
+        EXECUTE --> SETTLE --> MEMORY_WRITE
+
+        DP_RULE["NO SLM<br/>NO LLM<br/>NO DECISIONS<br/>DETERMINISTIC ONLY"]
+    end
+
+    COMMIT -->|"Committed action"| DATA_PLANE
+    FALLBACK -.->|"Degraded path"| CONTROL_PLANE
+
+    subgraph INVARIANTS["MODEL PLACEMENT INVARIANTS"]
+        direction TB
+        INV1["Models ONLY in control plane"]
+        INV2["All model outputs explainable"]
+        INV3["Data plane is model-free"]
+        INV4["Fallback preserves guarantees"]
+    end

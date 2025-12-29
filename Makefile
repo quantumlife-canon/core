@@ -1,0 +1,119 @@
+# QuantumLife Makefile
+#
+# Reference:
+#   - docs/QUANTUMLIFE_CANON_V1.md (meaning)
+#   - docs/TECHNICAL_SPLIT_V1.md (boundaries)
+#   - docs/TECHNOLOGY_SELECTION_V1.md (technology)
+#
+# Guardrails enforce Canon invariants at build time.
+
+.PHONY: all build test fmt lint vet guardrails ci clean help
+
+# Default target
+all: ci
+
+# Help
+help:
+	@echo "QuantumLife Build Targets"
+	@echo ""
+	@echo "  make build      - Build all packages"
+	@echo "  make test       - Run all tests"
+	@echo "  make fmt        - Format code with gofmt"
+	@echo "  make fmt-check  - Check if code is formatted"
+	@echo "  make lint       - Run go vet"
+	@echo "  make vet        - Run go vet (alias)"
+	@echo "  make guardrails - Run all guardrail checks"
+	@echo "  make ci         - Run full CI pipeline"
+	@echo "  make clean      - Clean build artifacts"
+	@echo ""
+	@echo "Guardrail Checks:"
+	@echo "  make check-terms    - Check for forbidden terms"
+	@echo "  make check-imports  - Check for forbidden imports"
+	@echo "  make check-deps     - Check dependency policy"
+	@echo ""
+
+# Build
+build:
+	@echo "Building all packages..."
+	go build ./...
+
+# Test
+test:
+	@echo "Running tests..."
+	go test ./...
+
+# Format
+fmt:
+	@echo "Formatting code..."
+	gofmt -w -s .
+
+# Format check (for CI)
+fmt-check:
+	@echo "Checking code formatting..."
+	@if [ -n "$$(gofmt -l .)" ]; then \
+		echo "ERROR: The following files are not formatted:"; \
+		gofmt -l .; \
+		echo ""; \
+		echo "Run 'make fmt' to fix."; \
+		exit 1; \
+	fi
+	@echo "All files are properly formatted."
+
+# Lint (go vet)
+lint: vet
+
+vet:
+	@echo "Running go vet..."
+	go vet ./...
+
+# Individual guardrail checks
+check-terms:
+	@echo "Checking for forbidden terms..."
+	@./scripts/guardrails/forbidden_terms.sh
+
+check-imports:
+	@echo "Checking for forbidden imports..."
+	@./scripts/guardrails/forbidden_imports.sh
+
+check-deps:
+	@echo "Checking dependency policy..."
+	@./scripts/guardrails/dependency_policy.sh
+
+# All guardrails
+guardrails: check-terms check-imports check-deps
+	@echo ""
+	@echo "All guardrails passed."
+
+# Full CI pipeline
+ci: fmt-check vet build test guardrails
+	@echo ""
+	@echo "========================================"
+	@echo "CI Pipeline Complete - All Checks Passed"
+	@echo "========================================"
+	@echo ""
+	@echo "Canon invariants enforced:"
+	@echo "  ✓ Code formatting"
+	@echo "  ✓ Static analysis (go vet)"
+	@echo "  ✓ Tests pass"
+	@echo "  ✓ No forbidden terms"
+	@echo "  ✓ No forbidden imports"
+	@echo "  ✓ Dependency policy"
+
+# Clean
+clean:
+	@echo "Cleaning..."
+	go clean ./...
+	rm -f coverage.out
+
+# Development helpers
+.PHONY: dev-setup
+dev-setup:
+	@echo "Setting up development environment..."
+	@echo "Ensuring scripts are executable..."
+	chmod +x scripts/guardrails/*.sh
+	@echo "Done."
+
+# Run a quick check (faster than full CI)
+.PHONY: quick
+quick: fmt-check vet build
+	@echo "Quick check passed."

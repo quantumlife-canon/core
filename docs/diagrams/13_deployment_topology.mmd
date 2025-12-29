@@ -1,0 +1,79 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#E8EAF6', 'primaryBorderColor': '#3F51B5', 'secondaryColor': '#E3F2FD', 'secondaryBorderColor': '#1565C0', 'lineColor': '#424242'}}}%%
+flowchart TB
+    subgraph CLIENT["CLIENT LAYER"]
+        direction TB
+        subgraph MOBILE["Mobile App"]
+            APP_SLM["On-Device SLM"]
+            APP_STORE["Local Encrypted Store"]
+            APP_SYNC["Secure Sync"]
+        end
+        subgraph WEB["Web Client"]
+            WEB_UI["Browser UI"]
+        end
+    end
+
+    subgraph AZURE["AZURE (Multi-Tenant)"]
+        direction TB
+
+        subgraph EDGE["EDGE / INGRESS"]
+            AGW["Azure API Gateway"]
+            AUTH["Auth Service<br/>(Go)"]
+        end
+
+        subgraph CORE_SERVICES["CORE SERVICES (AKS)"]
+            direction TB
+            SVC_CIRCLE["Circle Runtime<br/>(Go)"]
+            SVC_INTER["Intersection Runtime<br/>(Go)"]
+            SVC_AUTH["Authority Engine<br/>(Go)"]
+            SVC_NEG["Negotiation Engine<br/>(Go)"]
+            SVC_EXEC["Action Executor<br/>(Go)"]
+            SVC_AUDIT["Audit Service<br/>(Go)"]
+            SVC_SEAL["Seal Validator<br/>(Go)"]
+            SVC_SLM["Server SLM<br/>(First-Pass)"]
+        end
+
+        subgraph DATA["DATA LAYER"]
+            direction TB
+            PG["Azure PostgreSQL<br/>(Authoritative)"]
+            QD["Qdrant<br/>(AKS Self-Hosted)"]
+            REDIS["Azure Redis<br/>(Cache)"]
+            KV["Azure Key Vault<br/>(KEK Storage)"]
+        end
+
+        subgraph AI["AI SERVICES"]
+            AOAI["Azure OpenAI<br/>(LLM Escalation)"]
+        end
+
+        subgraph MESSAGING["AGENT MESSAGING"]
+            MSG["Intersection-Scoped<br/>Message Channels"]
+            MSG_NOTE["Server-mediated<br/>No direct agent-to-agent"]
+        end
+    end
+
+    subgraph MARKETPLACE["CAPABILITY REGISTRY"]
+        REG["Manifest Registry<br/>(OCI-like)"]
+        SIGN["Signing Authority"]
+    end
+
+    CLIENT -->|"HTTPS/WSS"| EDGE
+    EDGE --> CORE_SERVICES
+    CORE_SERVICES --> DATA
+    SVC_NEG --> SVC_SLM
+    SVC_SLM -->|"Escalation"| AOAI
+    CORE_SERVICES --> MESSAGING
+    SVC_SEAL --> MARKETPLACE
+
+    subgraph TENANT_ISOLATION["TENANT ISOLATION"]
+        direction TB
+        ISO1["Tenant ID in all requests"]
+        ISO2["Row-level security in Postgres"]
+        ISO3["Per-tenant KEK in Key Vault"]
+        ISO4["Per-circle DEK"]
+        ISO5["Network policies per tenant"]
+    end
+
+    subgraph ENTERPRISE_UPGRADE["ENTERPRISE OPTION"]
+        direction TB
+        ENT["Dedicated Cell Deployment"]
+        ENT_NOTE["Isolated AKS + Postgres<br/>for enterprise tenants"]
+    end

@@ -1,0 +1,63 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#E3F2FD', 'primaryBorderColor': '#1565C0', 'lineColor': '#424242'}}}%%
+flowchart TB
+    subgraph RUNTIME_STACK["RUNTIME LAYERS"]
+        direction TB
+
+        subgraph LAYER_8["MARKETPLACE & SEAL VALIDATION LAYER"]
+            direction LR
+            L8_DESC["Validates certified capabilities<br/>Enforces seal requirements<br/>Gates external capability access"]
+        end
+
+        subgraph LAYER_7["AUDIT & GOVERNANCE LAYER"]
+            direction LR
+            L7_DESC["Immutable action logs<br/>Version history<br/>Compliance enforcement<br/>Explainability interface"]
+        end
+
+        subgraph LAYER_6["MEMORY LAYER"]
+            direction LR
+            L6_DESC["Circle-owned state<br/>Intersection-shared state<br/>Versioned memory writes<br/>Private by default"]
+        end
+
+        subgraph LAYER_5["ACTION EXECUTION LAYER"]
+            direction LR
+            L5_DESC["Executes committed actions<br/>No decision-making<br/>Reports outcomes<br/>Triggers settlement"]
+        end
+
+        subgraph LAYER_4["NEGOTIATION ENGINE"]
+            direction LR
+            L4_DESC["Proposal handling<br/>Counterproposal generation<br/>Consensus resolution<br/>Commitment formation"]
+        end
+
+        subgraph LAYER_3["AUTHORITY & POLICY ENGINE"]
+            direction LR
+            L3_DESC["Authority grant validation<br/>Policy enforcement<br/>Ceiling checks<br/>Scope boundaries"]
+        end
+
+        subgraph LAYER_2["INTERSECTION RUNTIME"]
+            direction LR
+            L2_DESC["Manages shared domains<br/>Contract versioning<br/>Multi-party coordination<br/>Bilateral/multilateral state"]
+        end
+
+        subgraph LAYER_1["CIRCLE RUNTIME"]
+            direction LR
+            L1_DESC["Sovereign identity<br/>Agent activation<br/>Root memory<br/>Policy declaration"]
+        end
+    end
+
+    LAYER_8 --> LAYER_7
+    LAYER_7 --> LAYER_6
+    LAYER_6 --> LAYER_5
+    LAYER_5 --> LAYER_4
+    LAYER_4 --> LAYER_3
+    LAYER_3 --> LAYER_2
+    LAYER_2 --> LAYER_1
+
+    subgraph INVARIANTS["LAYER INVARIANTS"]
+        direction TB
+        INV1["Each layer has single responsibility"]
+        INV2["No layer bypasses another"]
+        INV3["All state owned by Circle or Intersection"]
+        INV4["Every action auditable"]
+    end
+
+    RUNTIME_STACK ~~~ INVARIANTS

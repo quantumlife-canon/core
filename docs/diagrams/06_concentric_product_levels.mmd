@@ -1,0 +1,35 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#ECEFF1', 'primaryBorderColor': '#607D8B'}}}%%
+flowchart TB
+    subgraph MARKET["MARKET LAYER"]
+        direction TB
+        M_DESC["Certified Marketplace<br/>QuantumLife Seal<br/>Ecosystem Capabilities"]
+
+        subgraph ENTERPRISE["ENTERPRISE LAYER"]
+            direction TB
+            E_DESC["Org-Level Circles<br/>Department Intersections<br/>Compliance Boundaries"]
+
+            subgraph FAMILY["FAMILY LAYER"]
+                direction TB
+                F_DESC["Household Circles<br/>Family Intersections<br/>Shared Resources"]
+
+                subgraph SINGLE["SINGLE LAYER"]
+                    direction TB
+                    S_DESC["Root Circle<br/>Personal Agent<br/>Individual Sovereignty"]
+                    CORE((CORE<br/>PRIMITIVES))
+                end
+            end
+        end
+    end
+
+    %% Expansion rules
+    RULE1["Same primitives at every layer"]
+    RULE2["Geometry expands, not features"]
+    RULE3["Intersections multiply, complexity stays bounded"]
+
+    CORE -.-> RULE1
+    SINGLE -.-> RULE2
+    FAMILY -.-> RULE3
+
+    %% The path
+    PATH[/"Single → Family → Enterprise → Market<br/>Each layer adds circles, not concepts"/]
+    MARKET -.-> PATH

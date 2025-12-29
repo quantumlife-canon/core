@@ -1,0 +1,69 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#F3E5F5', 'primaryBorderColor': '#7B1FA2', 'lineColor': '#424242'}}}%%
+flowchart TB
+    subgraph CIRCLE_LIFECYCLE["CIRCLE LIFECYCLE"]
+        direction LR
+        C_GENESIS([Genesis]) --> C_ACTIVE[Active]
+        C_ACTIVE --> C_SUSPENDED[Suspended]
+        C_SUSPENDED --> C_ACTIVE
+        C_ACTIVE --> C_TERMINATED([Terminated])
+        C_SUSPENDED --> C_TERMINATED
+
+        C_NOTE["Version: Identity changes versioned<br/>Revoke: Human can terminate at any time<br/>Audit: All state changes logged"]
+    end
+
+    subgraph INTERSECTION_LIFECYCLE["INTERSECTION LIFECYCLE"]
+        direction LR
+        I_PROPOSED([Proposed]) --> I_NEGOTIATING[Negotiating]
+        I_NEGOTIATING --> I_ACTIVE[Active<br/>v1.0]
+        I_NEGOTIATING --> I_REJECTED([Rejected])
+        I_ACTIVE --> I_AMENDED[Amended<br/>v1.x]
+        I_AMENDED --> I_ACTIVE
+        I_ACTIVE --> I_DISSOLVED([Dissolved])
+
+        I_NOTE["Version: Every change bumps version<br/>Revoke: Any party can dissolve<br/>Audit: Full contract history preserved"]
+    end
+
+    subgraph AUTHORITY_LIFECYCLE["AUTHORITY GRANT LIFECYCLE"]
+        direction LR
+        A_REQUESTED([Requested]) --> A_GRANTED[Granted]
+        A_REQUESTED --> A_DENIED([Denied])
+        A_GRANTED --> A_ACTIVE[Active]
+        A_ACTIVE --> A_REVOKED([Revoked])
+        A_ACTIVE --> A_EXPIRED([Expired])
+
+        A_NOTE["Version: Scope changes versioned<br/>Revoke: Grantor can revoke instantly<br/>Audit: All grants and revocations logged"]
+    end
+
+    subgraph ACTION_LIFECYCLE["PROPOSAL → COMMITMENT → ACTION → SETTLEMENT"]
+        direction LR
+        P_DRAFT([Proposal<br/>Draft]) --> P_SUBMITTED[Submitted]
+        P_SUBMITTED --> P_COUNTER[Counter-<br/>proposal]
+        P_COUNTER --> P_SUBMITTED
+        P_SUBMITTED --> P_ACCEPTED[Accepted]
+        P_SUBMITTED --> P_REJECTED([Rejected])
+
+        P_ACCEPTED --> CM_FORMED[Commitment<br/>Formed]
+        CM_FORMED --> A_PENDING[Action<br/>Pending]
+        A_PENDING --> A_EXECUTING[Executing]
+        A_EXECUTING --> A_PAUSED[Paused]
+        A_PAUSED --> A_EXECUTING
+        A_PAUSED --> A_ABORTED([Aborted])
+        A_EXECUTING --> S_PENDING[Settlement<br/>Pending]
+        S_PENDING --> S_COMPLETE([Settled])
+        S_PENDING --> S_DISPUTED[Disputed]
+        S_DISPUTED --> S_RESOLVED([Resolved])
+
+        ACT_NOTE["Version: Commitment is immutable once formed<br/>Revoke: Can pause/abort before settlement<br/>Audit: Full action trace preserved"]
+    end
+
+    subgraph REVOCATION_POINTS["REVOCATION POINTS"]
+        direction TB
+        R1["Circle: Human can terminate"]
+        R2["Intersection: Any party can dissolve"]
+        R3["Authority: Grantor can revoke"]
+        R4["Action: Can pause/abort pre-settlement"]
+    end
+
+    CIRCLE_LIFECYCLE ~~~ INTERSECTION_LIFECYCLE
+    INTERSECTION_LIFECYCLE ~~~ AUTHORITY_LIFECYCLE
+    AUTHORITY_LIFECYCLE ~~~ ACTION_LIFECYCLE

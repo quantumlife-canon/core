@@ -1,0 +1,63 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#FFF3E0', 'primaryBorderColor': '#E65100', 'secondaryColor': '#E3F2FD', 'secondaryBorderColor': '#1565C0', 'lineColor': '#424242'}}}%%
+flowchart TB
+    subgraph CONTROL_PLANE["CONTROL PLANE (Decides)"]
+        direction TB
+
+        INTENT([Intent])
+        DISCOVERY[Intersection<br/>Discovery]
+        AUTH_CHECK[Authority<br/>Validation]
+        NEGOTIATION[Negotiation]
+        COMMITMENT[Commitment<br/>Formation]
+
+        INTENT --> DISCOVERY
+        DISCOVERY --> AUTH_CHECK
+        AUTH_CHECK --> NEGOTIATION
+        NEGOTIATION --> COMMITMENT
+
+        subgraph CP_PROPERTIES["Control Plane Properties"]
+            CP1["All decisions explainable"]
+            CP2["All state changes versioned"]
+            CP3["Human can inspect at any point"]
+            CP4["No hidden logic"]
+        end
+    end
+
+    subgraph BOUNDARY["COMMITMENT BOUNDARY"]
+        direction LR
+        HANDOFF["Committed Action<br/>Handed to Data Plane"]
+    end
+
+    subgraph DATA_PLANE["DATA PLANE (Executes)"]
+        direction TB
+
+        EXECUTE[Action<br/>Execution]
+        SETTLE[Settlement]
+        MEMORY_WRITE[Memory<br/>Update]
+        AUDIT_LOG[Audit<br/>Record]
+
+        EXECUTE --> SETTLE
+        SETTLE --> MEMORY_WRITE
+        SETTLE --> AUDIT_LOG
+
+        subgraph DP_PROPERTIES["Data Plane Properties"]
+            DP1["No decision-making"]
+            DP2["No scope expansion"]
+            DP3["Reports outcomes only"]
+            DP4["Revocable at any point"]
+        end
+    end
+
+    COMMITMENT --> BOUNDARY
+    BOUNDARY --> EXECUTE
+
+    subgraph FEEDBACK["FEEDBACK LOOP"]
+        direction LR
+        FB["Outcomes inform<br/>future intents"]
+    end
+
+    MEMORY_WRITE -.-> FEEDBACK
+    FEEDBACK -.-> INTENT
+
+    subgraph INVARIANT["CRITICAL INVARIANT"]
+        INV["Data Plane MUST NOT make decisions<br/>Control Plane MUST NOT execute directly"]
+    end

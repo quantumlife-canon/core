@@ -1,0 +1,47 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#FFF8E1', 'primaryBorderColor': '#FFC107'}}}%%
+flowchart TB
+    subgraph INTERSECTION["INTERSECTION CONTRACT"]
+        direction TB
+
+        subgraph HEADER["Contract Header"]
+            ID[Intersection ID]
+            VERSION[Version: 2.3.1]
+            PARTIES[Parties: Circle A, Circle B]
+            CREATED[Created: Timestamp]
+            MODIFIED[Last Modified: Timestamp]
+        end
+
+        subgraph SCOPES["Granted Scopes"]
+            S1[read:calendar]
+            S2[write:calendar.events]
+            S3[execute:booking.confirm]
+            S4[delegate:payment.under.100]
+        end
+
+        subgraph CEILINGS["Authority Ceilings"]
+            C1[Max Spend: $500/week]
+            C2[Time Window: 9am-9pm]
+            C3[Geographic: UK only]
+            C4[Duration: 90 days]
+        end
+
+        subgraph AUDIT["Audit Trail"]
+            A1[Every action logged]
+            A2[Every change versioned]
+            A3[Every party notified]
+            A4[Immutable history]
+        end
+
+        subgraph GOVERNANCE["Change Governance"]
+            G1[Proposal Required]
+            G2[All Parties Must Approve]
+            G3[Version Bump on Change]
+            G4[No Silent Expansion]
+        end
+    end
+
+    PROPOSAL([Scope Change Proposal]) --> NEGOTIATE[Negotiation]
+    NEGOTIATE --> APPROVE{All Parties<br/>Approve?}
+    APPROVE -->|Yes| BUMP[Version Bump]
+    BUMP --> INTERSECTION
+    APPROVE -->|No| REJECT([Proposal Rejected<br/>Contract Unchanged])

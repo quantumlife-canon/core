@@ -1,0 +1,85 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#E3F2FD', 'primaryBorderColor': '#1565C0', 'lineColor': '#424242'}}}%%
+flowchart TB
+    subgraph RUNTIME_STACK["RUNTIME LAYERS + TECHNOLOGY"]
+        direction TB
+
+        subgraph LAYER_8["MARKETPLACE & SEAL VALIDATION"]
+            direction LR
+            L8_TECH["Go Service"]
+            L8_STORE["Manifest Registry<br/>(OCI-like)"]
+            L8_SIGN["Signed Manifests<br/>(PQ-Hybrid)"]
+            L8_GATE["Seal Validator"]
+        end
+
+        subgraph LAYER_7["AUDIT & GOVERNANCE"]
+            direction LR
+            L7_TECH["Go Service"]
+            L7_STORE["Postgres<br/>(Append-Only)"]
+            L7_HASH["Hash Chain<br/>(Immutable)"]
+            L7_EXPORT["Export API"]
+        end
+
+        subgraph LAYER_6["MEMORY LAYER"]
+            direction LR
+            L6_AUTH["Postgres<br/>(Authoritative)"]
+            L6_ASSIST["Qdrant<br/>(Assistive)"]
+            L6_CACHE["Redis<br/>(Ephemeral)"]
+        end
+
+        subgraph LAYER_5["ACTION EXECUTION"]
+            direction LR
+            L5_TECH["Go Service"]
+            L5_PROP["Deterministic<br/>Execution"]
+            L5_CONN["Connector<br/>Framework"]
+            L5_NOTE["NO DECISIONS<br/>NO LLM/SLM"]
+        end
+
+        subgraph LAYER_4["NEGOTIATION ENGINE"]
+            direction LR
+            L4_TECH["Go Service"]
+            L4_SLM["SLM<br/>(First Pass)"]
+            L4_LLM["Azure OpenAI<br/>(Escalation)"]
+            L4_EXPLAIN["Explainability<br/>Capture"]
+        end
+
+        subgraph LAYER_3["AUTHORITY & POLICY"]
+            direction LR
+            L3_TECH["Go Service"]
+            L3_STORE["Postgres<br/>(Grants/Policies)"]
+            L3_PROP["Deterministic<br/>Enforcement"]
+        end
+
+        subgraph LAYER_2["INTERSECTION RUNTIME"]
+            direction LR
+            L2_TECH["Go Service"]
+            L2_STORE["Postgres<br/>(Contracts)"]
+            L2_VERSION["Versioned<br/>State"]
+        end
+
+        subgraph LAYER_1["CIRCLE RUNTIME"]
+            direction LR
+            L1_TECH["Go Service"]
+            L1_KEY["Per-Circle<br/>Vault"]
+            L1_STORE["Postgres<br/>(Identity)"]
+            L1_CRYPTO["PQ-Hybrid<br/>Keys"]
+        end
+    end
+
+    LAYER_8 --> LAYER_7
+    LAYER_7 --> LAYER_6
+    LAYER_6 --> LAYER_5
+    LAYER_5 --> LAYER_4
+    LAYER_4 --> LAYER_3
+    LAYER_3 --> LAYER_2
+    LAYER_2 --> LAYER_1
+
+    subgraph TECH_SUMMARY["TECHNOLOGY SUMMARY"]
+        direction TB
+        TS1["Language: Go"]
+        TS2["Authoritative: PostgreSQL"]
+        TS3["Assistive: Qdrant"]
+        TS4["Cache: Redis"]
+        TS5["LLM: Azure OpenAI"]
+        TS6["SLM: On-device + Server"]
+        TS7["Crypto: PQ-Hybrid"]
+    end

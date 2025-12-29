@@ -1,0 +1,81 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#E8F5E9', 'primaryBorderColor': '#2E7D32', 'secondaryColor': '#FFF3E0', 'secondaryBorderColor': '#E65100', 'lineColor': '#424242'}}}%%
+flowchart TB
+    subgraph PRIMITIVES["CANON PRIMITIVES"]
+        direction TB
+        CIRCLE((Circle))
+        INTERSECTION((Intersection))
+        AUTH_GRANT["Authority Grant"]
+        PROPOSAL["Proposal"]
+        COMMITMENT["Commitment"]
+        ACTION["Action"]
+        SETTLEMENT["Settlement"]
+        MEMORY["Memory"]
+    end
+
+    subgraph POSTGRES["POSTGRESQL (Authoritative)"]
+        direction TB
+
+        subgraph CIRCLE_OWNED["Circle-Owned Schema"]
+            PG_IDENTITY["circles.identity"]
+            PG_POLICY["circles.policy"]
+            PG_MEMORY["circles.memory"]
+            PG_KEYS["circles.keys (encrypted)"]
+        end
+
+        subgraph INTERSECTION_OWNED["Intersection-Owned Schema"]
+            PG_CONTRACTS["intersections.contracts"]
+            PG_VERSIONS["intersections.versions"]
+            PG_GRANTS["intersections.authority_grants"]
+            PG_PROPOSALS["intersections.proposals"]
+            PG_COMMITMENTS["intersections.commitments"]
+            PG_ACTIONS["intersections.actions"]
+            PG_SETTLEMENTS["intersections.settlements"]
+        end
+
+        subgraph AUDIT_SCHEMA["Audit Schema (Append-Only)"]
+            PG_AUDIT["audit.log"]
+            PG_HASH["audit.hash_chain"]
+            PG_EXPLAIN["audit.explanations"]
+        end
+    end
+
+    subgraph QDRANT["QDRANT (Assistive Only)"]
+        direction TB
+        QD_SEMANTIC["Semantic Memory Index"]
+        QD_EMBED["Embeddings"]
+        QD_NOTE["NOT authoritative<br/>Regenerable from Postgres"]
+    end
+
+    subgraph REDIS["REDIS (Ephemeral)"]
+        direction TB
+        RD_CACHE["Query Cache"]
+        RD_SESSION["Session State"]
+        RD_NOTE["Non-authoritative<br/>Evictable"]
+    end
+
+    CIRCLE --> CIRCLE_OWNED
+    INTERSECTION --> INTERSECTION_OWNED
+    AUTH_GRANT --> PG_GRANTS
+    PROPOSAL --> PG_PROPOSALS
+    COMMITMENT --> PG_COMMITMENTS
+    ACTION --> PG_ACTIONS
+    SETTLEMENT --> PG_SETTLEMENTS
+    MEMORY --> PG_MEMORY
+    MEMORY -.->|"Semantic index"| QDRANT
+
+    subgraph ENCRYPTION["ENCRYPTION MODEL"]
+        direction LR
+        KMS["Azure Key Vault<br/>(KEK per tenant)"]
+        DEK["Data Encryption Keys<br/>(per circle)"]
+        ENV["Envelope Encryption"]
+        KMS --> DEK --> ENV
+    end
+
+    subgraph OWNERSHIP_RULES["OWNERSHIP INVARIANTS"]
+        direction TB
+        OWN1["Circle data: circle-owned only"]
+        OWN2["Intersection data: intersection-scoped"]
+        OWN3["Audit: immutable, append-only"]
+        OWN4["Qdrant: assistive, not source of truth"]
+        OWN5["Redis: ephemeral, no authoritative state"]
+    end
