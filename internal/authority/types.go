@@ -88,6 +88,19 @@ type AuthorizationProof struct {
 
 	// TraceID links this proof to a distributed trace.
 	TraceID string
+
+	// ApprovedByHuman indicates if explicit human approval was provided.
+	// v6: Required for Execute mode with write scopes.
+	ApprovedByHuman bool
+
+	// ApprovalArtifact records how approval was obtained.
+	// Examples: "cli:--approve", "api:explicit_consent"
+	// v6: Required when ApprovedByHuman is true.
+	ApprovalArtifact string
+
+	// EvaluatedAt is when authorization was evaluated (more precise than Timestamp).
+	// v6: Used for temporal correlation with receipts.
+	EvaluatedAt time.Time
 }
 
 // CeilingCheck records the result of a single ceiling validation.

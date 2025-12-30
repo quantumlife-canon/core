@@ -94,6 +94,20 @@ const (
 	EventConnectorCallPerformed EventType = "connector.call.performed"
 	EventConnectorReadCompleted EventType = "connector.read.completed"
 	EventConnectorCallFailed    EventType = "connector.call.failed"
+
+	// v6 Execute mode events
+	EventExecutionApprovalRequired EventType = "execution.approval.required"
+	EventExecutionApproved         EventType = "execution.approved"
+	EventConnectorWriteAttempted   EventType = "connector.write.attempted"
+	EventConnectorWriteSucceeded   EventType = "connector.write.succeeded"
+	EventConnectorWriteFailed      EventType = "connector.write.failed"
+	EventRollbackAttempted         EventType = "rollback.attempted"
+	EventRollbackSucceeded         EventType = "rollback.succeeded"
+	EventRollbackFailed            EventType = "rollback.failed"
+	EventSettlementSettled         EventType = "settlement.settled"
+	EventSettlementAborted         EventType = "settlement.aborted"
+	EventRevocationReceived        EventType = "revocation.received"
+	EventRevocationApplied         EventType = "revocation.applied"
 )
 
 // Event represents a system event for audit and observability.

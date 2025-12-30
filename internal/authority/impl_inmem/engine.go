@@ -48,12 +48,33 @@ func NewEngineWithClock(intersectionStore intersection.Runtime, clockFunc func()
 
 // AuthorizeAction performs a complete authorization check for an action.
 // Returns an AuthorizationProof that can be attached to audit events.
+// Note: For Execute mode with write scopes, use AuthorizeActionWithApproval instead.
 func (e *Engine) AuthorizeAction(
 	ctx context.Context,
 	action *primitives.Action,
 	requiredScopes []string,
 	mode primitives.RunMode,
 	traceID string,
+) (*authority.AuthorizationProof, error) {
+	return e.AuthorizeActionWithApproval(ctx, action, requiredScopes, mode, traceID, false, "")
+}
+
+// AuthorizeActionWithApproval performs authorization with explicit human approval.
+// v6: This is required for Execute mode with write scopes.
+//
+// Parameters:
+//   - approvedByHuman: true if explicit human approval was provided (e.g., --approve flag)
+//   - approvalArtifact: how approval was obtained (e.g., "cli:--approve")
+//
+// CRITICAL: Execute mode with write scopes REQUIRES approvedByHuman=true.
+func (e *Engine) AuthorizeActionWithApproval(
+	ctx context.Context,
+	action *primitives.Action,
+	requiredScopes []string,
+	mode primitives.RunMode,
+	traceID string,
+	approvedByHuman bool,
+	approvalArtifact string,
 ) (*authority.AuthorizationProof, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -63,17 +84,20 @@ func (e *Engine) AuthorizeAction(
 	now := e.clockFunc()
 
 	proof := &authority.AuthorizationProof{
-		ID:             proofID,
-		ActionID:       action.ID,
-		IntersectionID: action.IntersectionID,
-		ScopesUsed:     requiredScopes,
-		Timestamp:      now,
-		TraceID:        traceID,
-		Authorized:     true, // Assume authorized until a check fails
+		ID:               proofID,
+		ActionID:         action.ID,
+		IntersectionID:   action.IntersectionID,
+		ScopesUsed:       requiredScopes,
+		Timestamp:        now,
+		EvaluatedAt:      now,
+		TraceID:          traceID,
+		Authorized:       true, // Assume authorized until a check fails
+		ApprovedByHuman:  approvedByHuman,
+		ApprovalArtifact: approvalArtifact,
 	}
 
-	// 1. Validate run mode
-	modeCheck := e.validateMode(mode)
+	// 1. Validate run mode (with approval context)
+	modeCheck := e.validateModeWithApproval(mode, approvedByHuman, requiredScopes)
 	proof.ModeCheck = modeCheck
 	if !modeCheck.Allowed {
 		proof.Authorized = false
@@ -117,7 +141,19 @@ func (e *Engine) AuthorizeAction(
 		return proof, nil
 	}
 
-	// 4. Validate ceilings
+	// 4. For Execute mode with write scopes, verify approval is present
+	if mode == primitives.ModeExecute {
+		for _, scope := range requiredScopes {
+			if !primitives.IsReadOnlyScope(scope) && !approvedByHuman {
+				proof.Authorized = false
+				proof.DenialReason = fmt.Sprintf("write scope %s requires explicit human approval", scope)
+				e.proofs[proofID] = proof
+				return proof, nil
+			}
+		}
+	}
+
+	// 5. Validate ceilings
 	ceilingChecks := e.validateCeilings(action, contract.Ceilings, now)
 	proof.CeilingChecks = ceilingChecks
 	for _, check := range ceilingChecks {
@@ -133,8 +169,17 @@ func (e *Engine) AuthorizeAction(
 	return proof, nil
 }
 
-// validateMode checks if the run mode is allowed.
+// validateMode checks if the run mode is allowed (without approval context).
+// For Execute mode, use validateModeWithApproval instead.
 func (e *Engine) validateMode(mode primitives.RunMode) authority.ModeCheck {
+	return e.validateModeWithApproval(mode, false, nil)
+}
+
+// validateModeWithApproval checks if the run mode is allowed with approval context.
+// v6: Execute mode is allowed when:
+// - No write scopes are requested (read-only Execute)
+// - OR approvedByHuman is true (approved write Execute)
+func (e *Engine) validateModeWithApproval(mode primitives.RunMode, approvedByHuman bool, requestedScopes []string) authority.ModeCheck {
 	switch mode {
 	case primitives.ModeSuggestOnly:
 		return authority.ModeCheck{
@@ -149,10 +194,39 @@ func (e *Engine) validateMode(mode primitives.RunMode) authority.ModeCheck {
 			Reason:        "Simulate mode is allowed (no external writes)",
 		}
 	case primitives.ModeExecute:
+		// v6: Execute mode is allowed with proper authorization
+		// Check if any write scopes are requested
+		hasWriteScopes := false
+		for _, scope := range requestedScopes {
+			if !primitives.IsReadOnlyScope(scope) {
+				hasWriteScopes = true
+				break
+			}
+		}
+
+		// If no write scopes, Execute mode is allowed for reads
+		if !hasWriteScopes {
+			return authority.ModeCheck{
+				RequestedMode: string(mode),
+				Allowed:       true,
+				Reason:        "Execute mode allowed (read-only operation)",
+			}
+		}
+
+		// Write scopes require explicit approval
+		if approvedByHuman {
+			return authority.ModeCheck{
+				RequestedMode: string(mode),
+				Allowed:       true,
+				Reason:        "Execute mode allowed (explicit human approval provided)",
+			}
+		}
+
+		// Reject: write scopes without approval
 		return authority.ModeCheck{
 			RequestedMode: string(mode),
 			Allowed:       false,
-			Reason:        "Execute mode is not implemented",
+			Reason:        "Execute mode with write scopes requires explicit human approval (--approve flag)",
 		}
 	default:
 		return authority.ModeCheck{

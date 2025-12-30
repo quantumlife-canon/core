@@ -16,26 +16,35 @@ func NewScopeMapper() *ScopeMapper {
 	return &ScopeMapper{}
 }
 
-// QuantumLife to Google scope mapping.
+// QuantumLife to Google scope mapping (v6: includes write scopes).
 var googleScopeMap = map[string]string{
-	"calendar:read": "https://www.googleapis.com/auth/calendar.readonly",
-	// calendar:write is NOT mapped in v5 (read-only mode)
+	"calendar:read":  "https://www.googleapis.com/auth/calendar.readonly",
+	"calendar:write": "https://www.googleapis.com/auth/calendar.events",
 }
 
-// QuantumLife to Microsoft scope mapping.
+// QuantumLife to Microsoft scope mapping (v6: includes write scopes).
 var microsoftScopeMap = map[string]string{
-	"calendar:read": "Calendars.Read",
-	// calendar:write is NOT mapped in v5 (read-only mode)
+	"calendar:read":  "Calendars.Read",
+	"calendar:write": "Calendars.ReadWrite",
 }
 
-// Write scopes that are blocked in v5.
-var blockedWriteScopes = map[string]bool{
+// Write scopes that require Execute mode and explicit approval.
+// In v6, these are no longer blocked but require special handling.
+var executeOnlyScopes = map[string]bool{
 	"calendar:write": true,
 }
 
 // MapToProvider maps QuantumLife scopes to provider-specific scopes.
-// Returns an error if any scope cannot be mapped or is blocked.
+// Returns an error if any scope cannot be mapped.
+// NOTE: In v6, write scopes are allowed but require Execute mode validation elsewhere.
 func (m *ScopeMapper) MapToProvider(provider auth.ProviderID, quantumlifeScopes []string) ([]string, error) {
+	return m.MapToProviderWithMode(provider, quantumlifeScopes, false)
+}
+
+// MapToProviderWithMode maps scopes with explicit Execute mode flag.
+// When executeMode is false, write scopes are rejected.
+// When executeMode is true, write scopes are allowed.
+func (m *ScopeMapper) MapToProviderWithMode(provider auth.ProviderID, quantumlifeScopes []string, executeMode bool) ([]string, error) {
 	var scopeMap map[string]string
 	switch provider {
 	case auth.ProviderGoogle:
@@ -48,8 +57,8 @@ func (m *ScopeMapper) MapToProvider(provider auth.ProviderID, quantumlifeScopes 
 
 	var providerScopes []string
 	for _, qlScope := range quantumlifeScopes {
-		// Check if this is a blocked write scope
-		if blockedWriteScopes[qlScope] {
+		// Check if this is an execute-only scope
+		if executeOnlyScopes[qlScope] && !executeMode {
 			return nil, auth.ErrWriteScopeNotAllowed
 		}
 
@@ -73,6 +82,11 @@ func (m *ScopeMapper) MapToProvider(provider auth.ProviderID, quantumlifeScopes 
 	}
 
 	return providerScopes, nil
+}
+
+// IsExecuteOnlyScope returns true if the scope requires Execute mode.
+func (m *ScopeMapper) IsExecuteOnlyScope(scope string) bool {
+	return executeOnlyScopes[scope]
 }
 
 // MapFromProvider maps provider scopes back to QuantumLife scopes.
@@ -101,22 +115,24 @@ func (m *ScopeMapper) MapFromProvider(provider auth.ProviderID, providerScopes [
 // Reverse mappings (provider -> QuantumLife).
 var reverseGoogleScopeMap = map[string]string{
 	"https://www.googleapis.com/auth/calendar.readonly": "calendar:read",
+	"https://www.googleapis.com/auth/calendar.events":   "calendar:write",
 }
 
 var reverseMicrosoftScopeMap = map[string]string{
-	"Calendars.Read": "calendar:read",
+	"Calendars.Read":      "calendar:read",
+	"Calendars.ReadWrite": "calendar:write",
 }
 
 // IsWriteScope returns true if the scope is a write scope.
 func (m *ScopeMapper) IsWriteScope(scope string) bool {
-	return blockedWriteScopes[scope]
+	return executeOnlyScopes[scope]
 }
 
 // ValidateReadOnlyScopes validates that all scopes are read-only.
 // Returns an error if any write scope is found.
 func (m *ScopeMapper) ValidateReadOnlyScopes(scopes []string) error {
 	for _, scope := range scopes {
-		if blockedWriteScopes[scope] {
+		if executeOnlyScopes[scope] {
 			return auth.ErrWriteScopeNotAllowed
 		}
 	}

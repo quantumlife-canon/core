@@ -119,3 +119,89 @@ type ExtendedEvent struct {
 	// IsBusy indicates if this time should be considered busy.
 	IsBusy bool
 }
+
+// ============================================================================
+// v6 Write Types - Execute Mode Only
+// ============================================================================
+
+// CreateEventRequest contains parameters for creating a calendar event.
+// CRITICAL: This is only valid in Execute mode with explicit approval.
+type CreateEventRequest struct {
+	// Title is the event title.
+	Title string
+
+	// Description is the event description.
+	Description string
+
+	// StartTime is when the event starts.
+	StartTime time.Time
+
+	// EndTime is when the event ends.
+	EndTime time.Time
+
+	// Location is the event location.
+	Location string
+
+	// CalendarID identifies the target calendar (default: "primary").
+	CalendarID string
+
+	// Attendees lists email addresses of attendees.
+	Attendees []string
+}
+
+// CreateEventReceipt is the provider response after creating an event.
+// This is the proof of external write that must be recorded.
+type CreateEventReceipt struct {
+	// Provider identifies which provider created the event.
+	Provider SourceProvider
+
+	// CalendarID is the calendar where the event was created.
+	CalendarID string
+
+	// ExternalEventID is the provider-assigned event ID.
+	// This is required for rollback (delete) operations.
+	ExternalEventID string
+
+	// Status indicates the result (e.g., "confirmed", "tentative").
+	Status string
+
+	// CreatedAt is when the event was created (provider timestamp).
+	CreatedAt time.Time
+
+	// Link is the URL to the event (if available).
+	Link string
+}
+
+// DeleteEventRequest contains parameters for deleting a calendar event.
+// CRITICAL: This is only valid in Execute mode for rollback operations.
+type DeleteEventRequest struct {
+	// CalendarID identifies the calendar containing the event.
+	CalendarID string
+
+	// ExternalEventID is the provider-assigned event ID to delete.
+	ExternalEventID string
+}
+
+// DeleteEventReceipt is the provider response after deleting an event.
+type DeleteEventReceipt struct {
+	// Provider identifies which provider deleted the event.
+	Provider SourceProvider
+
+	// ExternalEventID is the event ID that was deleted.
+	ExternalEventID string
+
+	// Status indicates the result (e.g., "deleted", "not_found").
+	Status string
+
+	// DeletedAt is when the event was deleted.
+	DeletedAt time.Time
+}
+
+// RedactedExternalID returns the last 6 characters of an external event ID.
+// This is safe to include in output/logs while protecting full IDs.
+func RedactedExternalID(id string) string {
+	if len(id) <= 6 {
+		return "***"
+	}
+	return "..." + id[len(id)-6:]
+}

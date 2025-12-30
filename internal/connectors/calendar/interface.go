@@ -161,3 +161,61 @@ type MultiProviderConnector interface {
 	// GetConfiguredProviders returns info about all configured providers.
 	GetConfiguredProviders() []ProviderInfo
 }
+
+// ============================================================================
+// v6 Write Connector Interface - Execute Mode Only
+// ============================================================================
+
+// WriteConnector extends EnvelopeConnector with write operations.
+// CRITICAL: All write operations require:
+// - Mode == Execute
+// - Explicit human approval in the envelope
+// - calendar:write scope granted
+type WriteConnector interface {
+	EnvelopeConnector
+
+	// CreateEvent creates a new calendar event.
+	//
+	// CRITICAL: This performs an EXTERNAL WRITE. Requirements:
+	// - env.Mode MUST be Execute
+	// - ApprovedByHuman must be true (from authorization proof)
+	// - calendar:write scope must be granted
+	//
+	// Returns a receipt with the external event ID for rollback capability.
+	CreateEvent(ctx context.Context, env primitives.ExecutionEnvelope, req CreateEventRequest) (*CreateEventReceipt, error)
+
+	// DeleteEvent deletes a calendar event.
+	//
+	// CRITICAL: This performs an EXTERNAL WRITE (deletion). Requirements:
+	// - env.Mode MUST be Execute
+	// - ApprovedByHuman must be true (from authorization proof)
+	// - calendar:write scope must be granted
+	//
+	// This is used for rollback after failed settlement.
+	DeleteEvent(ctx context.Context, env primitives.ExecutionEnvelope, req DeleteEventRequest) (*DeleteEventReceipt, error)
+
+	// SupportsWrite returns true if the provider supports write operations.
+	SupportsWrite() bool
+}
+
+// Write operation errors.
+var (
+	// ErrExecuteModeRequired is returned when write is attempted without Execute mode.
+	ErrExecuteModeRequired = writeError("execute mode required for write operations")
+
+	// ErrApprovalRequired is returned when write is attempted without human approval.
+	ErrApprovalRequired = writeError("explicit human approval required for write operations")
+
+	// ErrWriteScopeRequired is returned when calendar:write scope is not granted.
+	ErrWriteScopeRequired = writeError("calendar:write scope required for write operations")
+
+	// ErrWriteNotSupported is returned when provider doesn't support writes.
+	ErrWriteNotSupported = writeError("write operations not supported by this provider")
+
+	// ErrRollbackFailed is returned when event deletion fails during rollback.
+	ErrRollbackFailed = writeError("rollback (event deletion) failed")
+)
+
+type writeError string
+
+func (e writeError) Error() string { return string(e) }

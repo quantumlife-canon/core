@@ -5,6 +5,7 @@
 //	auth <provider>      Start OAuth flow for a provider
 //	auth exchange        Exchange authorization code for tokens
 //	demo family          Run family calendar demo
+//	execute create-event Create a calendar event (v6 Execute mode)
 //
 // Reference: docs/TECHNOLOGY_SELECTION_V1.md
 package main
@@ -19,10 +20,21 @@ import (
 	"strings"
 	"time"
 
+	actionImpl "quantumlife/internal/action/impl_inmem"
+	auditImpl "quantumlife/internal/audit/impl_inmem"
+	authorityImpl "quantumlife/internal/authority/impl_inmem"
+	"quantumlife/internal/circle"
+	circleImpl "quantumlife/internal/circle/impl_inmem"
 	"quantumlife/internal/cli/state"
 	"quantumlife/internal/connectors/auth"
 	authImpl "quantumlife/internal/connectors/auth/impl_inmem"
+	"quantumlife/internal/connectors/calendar"
+	"quantumlife/internal/connectors/calendar/providers/google"
+	"quantumlife/internal/connectors/calendar/providers/microsoft"
 	demoCalendar "quantumlife/internal/demo_family_calendar"
+	"quantumlife/internal/intersection"
+	intersectionImpl "quantumlife/internal/intersection/impl_inmem"
+	revocationImpl "quantumlife/internal/revocation/impl_inmem"
 	"quantumlife/pkg/primitives"
 )
 
@@ -41,6 +53,8 @@ func main() {
 		handleAuth(os.Args[2:])
 	case "demo":
 		handleDemo(os.Args[2:])
+	case "execute":
+		handleExecute(os.Args[2:])
 	case "version":
 		fmt.Printf("quantumlife-cli v%s\n", version)
 	case "help", "-h", "--help":
@@ -61,7 +75,8 @@ func printUsage() {
 	fmt.Println("Commands:")
 	fmt.Println("  auth <provider>    Start OAuth flow (prints auth URL)")
 	fmt.Println("  auth exchange      Exchange authorization code for tokens")
-	fmt.Println("  demo family        Run family calendar demo")
+	fmt.Println("  demo family        Run family calendar demo (read-only)")
+	fmt.Println("  execute create-event Create a calendar event (v6 Execute mode)")
 	fmt.Println("  version            Print version")
 	fmt.Println("  help               Show this help")
 	fmt.Println()
@@ -75,6 +90,10 @@ func printUsage() {
 	fmt.Println()
 	fmt.Println("  # Run demo with mock provider")
 	fmt.Println("  quantumlife-cli demo family --provider mock --circleA parent --circleB child")
+	fmt.Println()
+	fmt.Println("  # Create a real calendar event (REQUIRES --approve)")
+	fmt.Println("  quantumlife-cli execute create-event --provider google --circle my-circle \\")
+	fmt.Println("    --title 'Team Meeting' --start '2025-01-20T10:00:00Z' --duration 60 --approve")
 	fmt.Println()
 	fmt.Println("Environment Variables:")
 	fmt.Println("  GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET     Google OAuth credentials")
@@ -477,4 +496,326 @@ func printDemoResult(result *demoCalendar.Result) {
 	for _, entry := range result.AuditEntries {
 		fmt.Printf("  - %s: %s (%s)\n", entry.EventType, entry.Action, entry.Outcome)
 	}
+}
+
+// ============================================================================
+// Execute Command - v6 Execute Mode
+// ============================================================================
+
+// handleExecute handles the execute command and subcommands.
+func handleExecute(args []string) {
+	if len(args) == 0 {
+		printExecuteUsage()
+		os.Exit(1)
+	}
+
+	subCmd := args[0]
+
+	switch subCmd {
+	case "create-event":
+		handleExecuteCreateEvent(args[1:])
+	case "help", "-h", "--help":
+		printExecuteUsage()
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown execute command: %s\n\n", subCmd)
+		printExecuteUsage()
+		os.Exit(1)
+	}
+}
+
+func printExecuteUsage() {
+	fmt.Println("Execute Mode Commands (v6)")
+	fmt.Println("==========================")
+	fmt.Println()
+	fmt.Println("CRITICAL: Execute mode performs REAL external writes.")
+	fmt.Println("All write operations REQUIRE the --approve flag.")
+	fmt.Println()
+	fmt.Println("Usage:")
+	fmt.Println("  quantumlife-cli execute create-event [options]")
+	fmt.Println()
+	fmt.Println("Create Event Options:")
+	fmt.Println("  --approve          REQUIRED: Explicit human approval for write")
+	fmt.Println("  --provider         Provider (google or microsoft)")
+	fmt.Println("  --circle           Circle ID that owns the credentials")
+	fmt.Println("  --title            Event title")
+	fmt.Println("  --start            Start time (RFC3339 format)")
+	fmt.Println("  --duration         Duration in minutes (default: 60)")
+	fmt.Println("  --description      Event description (optional)")
+	fmt.Println("  --location         Event location (optional)")
+	fmt.Println()
+	fmt.Println("Example:")
+	fmt.Println("  quantumlife-cli execute create-event \\")
+	fmt.Println("    --provider google \\")
+	fmt.Println("    --circle my-circle \\")
+	fmt.Println("    --title 'Team Meeting' \\")
+	fmt.Println("    --start '2025-01-20T10:00:00Z' \\")
+	fmt.Println("    --duration 60 \\")
+	fmt.Println("    --approve")
+}
+
+// handleExecuteCreateEvent handles creating a real calendar event.
+func handleExecuteCreateEvent(args []string) {
+	fs := flag.NewFlagSet("execute create-event", flag.ExitOnError)
+	approve := fs.Bool("approve", false, "REQUIRED: Explicit human approval")
+	provider := fs.String("provider", "", "Provider (google or microsoft)")
+	circleID := fs.String("circle", "", "Circle ID")
+	title := fs.String("title", "", "Event title")
+	startStr := fs.String("start", "", "Start time (RFC3339)")
+	duration := fs.Int("duration", 60, "Duration in minutes")
+	description := fs.String("description", "", "Event description")
+	location := fs.String("location", "", "Event location")
+
+	if err := fs.Parse(args); err != nil {
+		os.Exit(1)
+	}
+
+	// CRITICAL: Require explicit approval
+	if !*approve {
+		fmt.Fprintln(os.Stderr, "ERROR: Execute mode requires explicit approval.")
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, "This command will create a REAL calendar event on the external provider.")
+		fmt.Fprintln(os.Stderr, "Add --approve to confirm you understand and authorize this write operation.")
+		os.Exit(1)
+	}
+
+	// Validate required parameters
+	if *provider == "" {
+		fmt.Fprintln(os.Stderr, "Error: --provider is required")
+		os.Exit(1)
+	}
+	if *circleID == "" {
+		fmt.Fprintln(os.Stderr, "Error: --circle is required")
+		os.Exit(1)
+	}
+	if *title == "" {
+		fmt.Fprintln(os.Stderr, "Error: --title is required")
+		os.Exit(1)
+	}
+	if *startStr == "" {
+		fmt.Fprintln(os.Stderr, "Error: --start is required")
+		os.Exit(1)
+	}
+
+	// Parse start time
+	startTime, err := time.Parse(time.RFC3339, *startStr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: invalid start time format: %v\n", err)
+		fmt.Fprintln(os.Stderr, "Use RFC3339 format, e.g., '2025-01-20T10:00:00Z'")
+		os.Exit(1)
+	}
+	endTime := startTime.Add(time.Duration(*duration) * time.Minute)
+
+	// Validate provider
+	providerID := auth.ProviderID(*provider)
+	if !auth.IsValidProvider(providerID) {
+		fmt.Fprintf(os.Stderr, "Error: invalid provider '%s'. Use 'google' or 'microsoft'.\n", *provider)
+		os.Exit(1)
+	}
+
+	// Check CLI state for stored tokens
+	cliState, err := state.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading CLI state: %v\n", err)
+		os.Exit(1)
+	}
+
+	handleID, ok := cliState.GetTokenHandle(*circleID, *provider)
+	if !ok {
+		fmt.Fprintf(os.Stderr, "Error: No stored token for circle '%s' with provider '%s'.\n", *circleID, *provider)
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, "To authorize with write scope, run:")
+		fmt.Fprintf(os.Stderr, "  quantumlife-cli auth %s --circle %s --redirect <uri> --scopes calendar:read,calendar:write\n", *provider, *circleID)
+		os.Exit(1)
+	}
+
+	fmt.Println()
+	fmt.Println("╔═══════════════════════════════════════════════════════════════╗")
+	fmt.Println("║  EXECUTE MODE - Creating Real Calendar Event                  ║")
+	fmt.Println("╠═══════════════════════════════════════════════════════════════╣")
+	fmt.Printf("║  Provider:   %-48s ║\n", *provider)
+	fmt.Printf("║  Circle:     %-48s ║\n", *circleID)
+	fmt.Printf("║  Title:      %-48s ║\n", truncateString(*title, 48))
+	fmt.Printf("║  Start:      %-48s ║\n", startTime.Format("Mon 02 Jan 2006 15:04 MST"))
+	fmt.Printf("║  Duration:   %-48s ║\n", fmt.Sprintf("%d minutes", *duration))
+	fmt.Println("║                                                               ║")
+	fmt.Println("║  Approval:   GRANTED (--approve flag provided)                ║")
+	fmt.Println("╚═══════════════════════════════════════════════════════════════╝")
+	fmt.Println()
+
+	// Run the execution pipeline
+	ctx := context.Background()
+	result := runExecutePipeline(ctx, *provider, *circleID, handleID, calendar.CreateEventRequest{
+		Title:       *title,
+		Description: *description,
+		StartTime:   startTime,
+		EndTime:     endTime,
+		Location:    *location,
+		CalendarID:  "primary",
+	})
+
+	printExecuteResult(result)
+
+	if !result.Success {
+		os.Exit(1)
+	}
+}
+
+// runExecutePipeline runs the execution pipeline.
+func runExecutePipeline(ctx context.Context, provider, circleID, handleID string, createReq calendar.CreateEventRequest) *actionImpl.ExecuteResult {
+	// Load config and create broker
+	config := auth.LoadConfigFromEnv()
+
+	if config.TokenEncryptionKey == "" {
+		return &actionImpl.ExecuteResult{
+			Error: fmt.Errorf("TOKEN_ENC_KEY not set - cannot use persistent tokens"),
+		}
+	}
+
+	broker, err := authImpl.NewBrokerWithPersistence(config, nil)
+	if err != nil {
+		return &actionImpl.ExecuteResult{
+			Error: fmt.Errorf("failed to create broker: %w", err),
+		}
+	}
+
+	// Create write connector
+	var connector calendar.WriteConnector
+	providerID := auth.ProviderID(provider)
+	switch providerID {
+	case auth.ProviderGoogle:
+		connector = google.NewWriteAdapter(broker, true)
+	case auth.ProviderMicrosoft:
+		connector = microsoft.NewWriteAdapter(broker, true)
+	default:
+		return &actionImpl.ExecuteResult{
+			Error: fmt.Errorf("unsupported provider for write: %s", provider),
+		}
+	}
+
+	// Create infrastructure
+	circleStore := circleImpl.NewRuntime()
+	intersectionStore := intersectionImpl.NewRuntime()
+	auditStore := auditImpl.NewStore()
+	revocationRegistry := revocationImpl.NewRegistry()
+
+	// Create demo circle (in real system, would look up existing circle)
+	circ, err := circleStore.Create(ctx, circle.CreateRequest{TenantID: circleID})
+	if err != nil {
+		return &actionImpl.ExecuteResult{
+			Error: fmt.Errorf("failed to create circle: %w", err),
+		}
+	}
+
+	// Create intersection with calendar:write scope
+	inter, err := intersectionStore.Create(ctx, intersection.CreateRequest{
+		TenantID:    "cli-tenant",
+		InitiatorID: circ.ID,
+		AcceptorID:  circ.ID,
+		Contract: intersection.Contract{
+			Parties: []intersection.Party{
+				{CircleID: circ.ID, PartyType: "initiator", JoinedAt: time.Now()},
+			},
+			Scopes: []intersection.Scope{
+				{Name: "calendar:read", Description: "Read calendar events", ReadWrite: "read"},
+				{Name: "calendar:write", Description: "Write calendar events", ReadWrite: "write"},
+			},
+			Ceilings: []intersection.Ceiling{
+				{Type: "time_window", Value: "00:00-23:59", Unit: "daily"},
+			},
+		},
+	})
+	if err != nil {
+		return &actionImpl.ExecuteResult{
+			Error: fmt.Errorf("failed to create intersection: %w", err),
+		}
+	}
+
+	// Create authority engine
+	authorityEngine := authorityImpl.NewEngine(intersectionStore)
+
+	// Create pipeline
+	pipeline := actionImpl.NewPipeline(actionImpl.PipelineConfig{
+		AuthorityEngine:   authorityEngine,
+		RevocationChecker: revocationRegistry,
+		AuditStore:        auditStore,
+	})
+
+	// Generate trace ID
+	traceID := fmt.Sprintf("trace-execute-%d", time.Now().UnixNano())
+
+	// Create action
+	action := &primitives.Action{
+		ID:             fmt.Sprintf("action-create-event-%d", time.Now().UnixNano()),
+		IntersectionID: inter.ID,
+		Type:           "calendar.create_event",
+		Parameters:     map[string]string{"title": createReq.Title},
+	}
+
+	// Execute
+	return pipeline.Execute(ctx, actionImpl.ExecuteRequest{
+		TraceID:          traceID,
+		ActorCircleID:    circ.ID,
+		IntersectionID:   inter.ID,
+		ContractVersion:  inter.Version,
+		Action:           action,
+		ApprovalArtifact: "cli:--approve",
+		Connector:        connector,
+		CreateRequest:    createReq,
+	})
+}
+
+// printExecuteResult prints the execution result.
+func printExecuteResult(result *actionImpl.ExecuteResult) {
+	fmt.Println()
+	fmt.Println("Execution Result")
+	fmt.Println("================")
+	fmt.Println()
+
+	if result.Success {
+		fmt.Println("Status: ✓ SUCCESS")
+		fmt.Printf("Settlement: %s\n", result.SettlementStatus)
+		fmt.Println()
+
+		if result.Receipt != nil {
+			fmt.Println("Event Created:")
+			fmt.Printf("  Provider:     %s\n", result.Receipt.Provider)
+			fmt.Printf("  Calendar:     %s\n", result.Receipt.CalendarID)
+			fmt.Printf("  External ID:  %s\n", calendar.RedactedExternalID(result.Receipt.ExternalEventID))
+			fmt.Printf("  Status:       %s\n", result.Receipt.Status)
+			fmt.Printf("  Created At:   %s\n", result.Receipt.CreatedAt.Format(time.RFC3339))
+			if result.Receipt.Link != "" {
+				fmt.Printf("  Link:         %s\n", result.Receipt.Link)
+			}
+		}
+	} else {
+		fmt.Println("Status: ✗ FAILED")
+		fmt.Printf("Settlement: %s\n", result.SettlementStatus)
+		fmt.Printf("Error: %v\n", result.Error)
+
+		if result.RolledBack {
+			fmt.Println()
+			fmt.Println("Rollback: Event was deleted (rollback successful)")
+		}
+		if result.RollbackError != nil {
+			fmt.Println()
+			fmt.Printf("Rollback Error: %v\n", result.RollbackError)
+		}
+	}
+
+	fmt.Println()
+
+	if result.AuthorizationProof != nil {
+		fmt.Println("Authorization:")
+		fmt.Printf("  Proof ID:     %s\n", result.AuthorizationProof.ID)
+		fmt.Printf("  Authorized:   %v\n", result.AuthorizationProof.Authorized)
+		fmt.Printf("  Approved:     %v (artifact: %s)\n", result.AuthorizationProof.ApprovedByHuman, result.AuthorizationProof.ApprovalArtifact)
+	}
+}
+
+// truncateString truncates a string to maxLen characters.
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
 }
