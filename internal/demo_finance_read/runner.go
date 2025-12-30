@@ -2,11 +2,14 @@
 //
 // CRITICAL: This demo is READ-ONLY. No execution occurs.
 // The demo shows:
-// - Syncing financial data (mock provider)
+// - Syncing financial data (mock, TrueLayer, or Plaid provider)
 // - Generating observations (deterministic)
 // - Generating proposals (non-binding, optional)
 // - Dismissing proposals (suppression works)
 // - Silence policy (no proposals when nothing material changed)
+//
+// v8.2: Added TrueLayer support for real financial data.
+// v8.3: Added Plaid support for real financial data.
 //
 // Reference: docs/ACCEPTANCE_TESTS_V8_FINANCIAL_READ.md
 package demo_finance_read
@@ -17,8 +20,12 @@ import (
 	"strings"
 	"time"
 
+	"quantumlife/internal/connectors/auth"
+	authImpl "quantumlife/internal/connectors/auth/impl_inmem"
 	"quantumlife/internal/connectors/finance/read"
 	"quantumlife/internal/connectors/finance/read/providers/mock"
+	"quantumlife/internal/connectors/finance/read/providers/plaid"
+	"quantumlife/internal/connectors/finance/read/providers/truelayer"
 	"quantumlife/internal/finance"
 	"quantumlife/internal/finance/impl_inmem"
 	"quantumlife/pkg/primitives"
@@ -35,10 +42,10 @@ type DemoConfig struct {
 	// IntersectionID is the intersection identifier.
 	IntersectionID string
 
-	// ProviderID is the mock provider ID.
+	// ProviderID is the provider ID ("mock", "truelayer", or "plaid").
 	ProviderID string
 
-	// Seed controls deterministic data generation.
+	// Seed controls deterministic data generation (mock only).
 	Seed string
 
 	// DismissProposalID is a proposal ID to dismiss (optional).
@@ -46,6 +53,14 @@ type DemoConfig struct {
 
 	// Verbose enables detailed output.
 	Verbose bool
+
+	// TrueLayerAccessToken is the access token for TrueLayer (v8.2).
+	// If set and ProviderID is "truelayer", uses real financial data.
+	TrueLayerAccessToken string
+
+	// PlaidAccessToken is the access token for Plaid (v8.3).
+	// If set and ProviderID is "plaid", uses real financial data.
+	PlaidAccessToken string
 }
 
 // DefaultDemoConfig returns default configuration.
@@ -119,11 +134,11 @@ func Run(ctx context.Context, config DemoConfig) (*Result, error) {
 		Banner: generateBanner(),
 	}
 
-	// Create mock connector
-	connector := mock.NewConnector(mock.Config{
-		ProviderID: config.ProviderID,
-		Seed:       config.Seed,
-	})
+	// Create connector based on provider
+	connector, err := createConnector(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create connector: %w", err)
+	}
 
 	// Create audit collector
 	var auditEvents []string
@@ -173,11 +188,13 @@ func Run(ctx context.Context, config DemoConfig) (*Result, error) {
 		fmt.Println("\n=== Syncing Circle B Financial Data ===")
 	}
 
-	// Create different mock for circle B
-	connectorB := mock.NewConnector(mock.Config{
-		ProviderID: config.ProviderID,
-		Seed:       config.Seed + "-b",
-	})
+	// Create connector for circle B
+	configB := config
+	configB.Seed = config.Seed + "-b"
+	connectorB, err := createConnector(configB)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create connector B: %w", err)
+	}
 	engineB := impl_inmem.NewEngine(impl_inmem.EngineConfig{
 		Connector: connectorB,
 		AuditFunc: auditFunc,
@@ -374,4 +391,128 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen-3] + "..."
+}
+
+// createConnector creates a finance read connector based on configuration.
+// Returns a mock connector by default, or TrueLayer/Plaid if configured.
+func createConnector(config DemoConfig) (read.ReadConnector, error) {
+	switch config.ProviderID {
+	case "truelayer":
+		return createTrueLayerConnector(config)
+	case "plaid":
+		return createPlaidConnector(config)
+	default:
+		// Default to mock
+		return mock.NewConnector(mock.Config{
+			ProviderID: config.ProviderID,
+			Seed:       config.Seed,
+		}), nil
+	}
+}
+
+// createTrueLayerConnector creates a TrueLayer read connector.
+// CRITICAL: This connector is READ-ONLY. No payment operations are possible.
+func createTrueLayerConnector(config DemoConfig) (read.ReadConnector, error) {
+	// Load auth config from environment
+	authConfig := auth.LoadConfigFromEnv()
+
+	// Check if TrueLayer is configured
+	if !authConfig.TrueLayer.IsConfigured() {
+		return nil, fmt.Errorf("TrueLayer not configured. Set TRUELAYER_CLIENT_ID and TRUELAYER_CLIENT_SECRET")
+	}
+
+	// Check for access token
+	if config.TrueLayerAccessToken == "" {
+		// Try to get token from broker if available
+		broker, err := authImpl.NewBrokerWithPersistence(authConfig, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create broker: %w", err)
+		}
+
+		// Check if we have a stored token
+		hasToken, _ := broker.HasToken(nil, config.CircleAID, auth.ProviderTrueLayer)
+		if !hasToken {
+			return nil, fmt.Errorf("no TrueLayer token for circle %s. Run: quantumlife-cli auth truelayer --circle %s --redirect <uri>",
+				config.CircleAID, config.CircleAID)
+		}
+
+		// For now, we can't mint access tokens without a full envelope/authorization setup
+		// In a real implementation, we'd use the broker.MintAccessToken flow
+		return nil, fmt.Errorf("TrueLayer access token required. Use --access-token flag or run full auth flow")
+	}
+
+	// Create TrueLayer client
+	clientConfig := truelayer.ClientConfig{
+		Environment:  authConfig.TrueLayer.Environment,
+		ClientID:     authConfig.TrueLayer.ClientID,
+		ClientSecret: authConfig.TrueLayer.ClientSecret,
+	}
+
+	client, err := truelayer.NewClient(clientConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create TrueLayer client: %w", err)
+	}
+
+	// Create connector
+	connector := truelayer.NewConnector(truelayer.ConnectorConfig{
+		Client:       client,
+		AccessToken:  config.TrueLayerAccessToken,
+		ProviderID:   "truelayer",
+		ProviderName: "TrueLayer",
+	})
+
+	return connector, nil
+}
+
+// createPlaidConnector creates a Plaid read connector.
+// CRITICAL: This connector is READ-ONLY. No payment/transfer operations are possible.
+func createPlaidConnector(config DemoConfig) (read.ReadConnector, error) {
+	// Load auth config from environment
+	authConfig := auth.LoadConfigFromEnv()
+
+	// Check if Plaid is configured
+	if !authConfig.Plaid.IsConfigured() {
+		return nil, fmt.Errorf("Plaid not configured. Set PLAID_CLIENT_ID and PLAID_SECRET")
+	}
+
+	// Check for access token
+	if config.PlaidAccessToken == "" {
+		// Try to get token from broker if available
+		broker, err := authImpl.NewBrokerWithPersistence(authConfig, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create broker: %w", err)
+		}
+
+		// Check if we have a stored token
+		hasToken, _ := broker.HasToken(nil, config.CircleAID, auth.ProviderPlaid)
+		if !hasToken {
+			return nil, fmt.Errorf("no Plaid token for circle %s. Run: quantumlife-cli auth plaid --circle %s --redirect <uri>",
+				config.CircleAID, config.CircleAID)
+		}
+
+		// For now, we can't mint access tokens without a full envelope/authorization setup
+		// In a real implementation, we'd use the broker.MintAccessToken flow
+		return nil, fmt.Errorf("Plaid access token required. Use --access-token flag or run full auth flow")
+	}
+
+	// Create Plaid client
+	clientConfig := plaid.ClientConfig{
+		Environment: authConfig.Plaid.Environment,
+		ClientID:    authConfig.Plaid.ClientID,
+		Secret:      authConfig.Plaid.Secret,
+	}
+
+	client, err := plaid.NewClient(clientConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Plaid client: %w", err)
+	}
+
+	// Create connector
+	connector := plaid.NewConnector(plaid.ConnectorConfig{
+		Client:      client,
+		AccessToken: config.PlaidAccessToken,
+		ProviderID:  "plaid",
+	})
+
+	return connector, nil
 }

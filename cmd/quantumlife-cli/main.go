@@ -83,6 +83,7 @@ func printUsage() {
 	fmt.Println("  auth <provider>    Start OAuth flow (prints auth URL)")
 	fmt.Println("  auth exchange      Exchange authorization code for tokens")
 	fmt.Println("  demo family        Run family calendar demo (read-only)")
+	fmt.Println("  demo finance-read  Run financial read demo (v8)")
 	fmt.Println("  execute create-event Create a calendar event (v6 Execute mode)")
 	fmt.Println("  approval request   Request multi-party approval for an action (v7)")
 	fmt.Println("  approval approve   Submit approval for an action (v7)")
@@ -93,12 +94,21 @@ func printUsage() {
 	fmt.Println("  # Start OAuth for Google Calendar")
 	fmt.Println("  quantumlife-cli auth google --circle my-circle --redirect http://localhost:8080/callback")
 	fmt.Println()
+	fmt.Println("  # Start OAuth for TrueLayer (Open Banking)")
+	fmt.Println("  quantumlife-cli auth truelayer --circle my-circle --redirect http://localhost:8080/callback")
+	fmt.Println()
+	fmt.Println("  # Start Plaid Link flow (Financial Data)")
+	fmt.Println("  quantumlife-cli auth plaid --circle my-circle --redirect http://localhost:8080/callback")
+	fmt.Println()
 	fmt.Println("  # Exchange the authorization code")
 	fmt.Println("  quantumlife-cli auth exchange --provider google --circle my-circle \\")
 	fmt.Println("    --code AUTH_CODE --redirect http://localhost:8080/callback")
 	fmt.Println()
 	fmt.Println("  # Run demo with mock provider")
 	fmt.Println("  quantumlife-cli demo family --provider mock --circleA parent --circleB child")
+	fmt.Println()
+	fmt.Println("  # Run financial read demo (v8)")
+	fmt.Println("  quantumlife-cli demo finance-read --provider mock --circleA alice --circleB bob")
 	fmt.Println()
 	fmt.Println("  # Create a real calendar event (REQUIRES --approve)")
 	fmt.Println("  quantumlife-cli execute create-event --provider google --circle my-circle \\")
@@ -114,6 +124,8 @@ func printUsage() {
 	fmt.Println("Environment Variables:")
 	fmt.Println("  GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET     Google OAuth credentials")
 	fmt.Println("  MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET, MICROSOFT_TENANT_ID")
+	fmt.Println("  TRUELAYER_CLIENT_ID, TRUELAYER_CLIENT_SECRET, TRUELAYER_ENV (v8.2)")
+	fmt.Println("  PLAID_CLIENT_ID, PLAID_SECRET, PLAID_ENV (v8.3)")
 	fmt.Println("  TOKEN_ENC_KEY     Encryption key for token persistence (required for real providers)")
 }
 
@@ -129,7 +141,7 @@ func handleAuth(args []string) {
 	switch subCmd {
 	case "exchange":
 		handleAuthExchange(args[1:])
-	case "google", "microsoft":
+	case "google", "microsoft", "truelayer", "plaid":
 		handleAuthStart(subCmd, args[1:])
 	case "help", "-h", "--help":
 		printAuthUsage()
@@ -145,25 +157,42 @@ func printAuthUsage() {
 	fmt.Println("  quantumlife-cli auth <provider> [options]")
 	fmt.Println("  quantumlife-cli auth exchange [options]")
 	fmt.Println()
-	fmt.Println("Start OAuth flow:")
-	fmt.Println("  quantumlife-cli auth <google|microsoft> --circle <circle-id> --redirect <uri>")
+	fmt.Println("Start OAuth/Link flow:")
+	fmt.Println("  quantumlife-cli auth <google|microsoft|truelayer|plaid> --circle <circle-id> --redirect <uri>")
 	fmt.Println()
 	fmt.Println("Options:")
 	fmt.Println("  --circle     Circle ID that will own the credentials")
 	fmt.Println("  --redirect   OAuth redirect URI")
-	fmt.Println("  --scopes     Scopes to request (default: calendar:read)")
+	fmt.Println("  --scopes     Scopes to request")
+	fmt.Println("               Calendar providers: calendar:read (default)")
+	fmt.Println("               TrueLayer (finance): finance:read (default)")
+	fmt.Println("               Plaid (finance): finance:read (default)")
 	fmt.Println()
 	fmt.Println("Exchange authorization code:")
-	fmt.Println("  quantumlife-cli auth exchange --provider <google|microsoft> --circle <id> \\")
+	fmt.Println("  quantumlife-cli auth exchange --provider <google|microsoft|truelayer|plaid> --circle <id> \\")
 	fmt.Println("    --code <auth-code> --redirect <uri>")
+	fmt.Println()
+	fmt.Println("TrueLayer (Open Banking, v8.2):")
+	fmt.Println("  CRITICAL: TrueLayer is READ-ONLY. No payment scopes are allowed.")
+	fmt.Println("  Environment: TRUELAYER_CLIENT_ID, TRUELAYER_CLIENT_SECRET, TRUELAYER_ENV")
+	fmt.Println()
+	fmt.Println("Plaid (Financial Data, v8.3):")
+	fmt.Println("  CRITICAL: Plaid is READ-ONLY. No payment/transfer products are allowed.")
+	fmt.Println("  Environment: PLAID_CLIENT_ID, PLAID_SECRET, PLAID_ENV")
 }
 
 // handleAuthStart handles starting the OAuth flow.
 func handleAuthStart(provider string, args []string) {
+	// Determine default scopes based on provider
+	defaultScopes := "calendar:read"
+	if provider == "truelayer" || provider == "plaid" {
+		defaultScopes = "finance:read"
+	}
+
 	fs := flag.NewFlagSet("auth "+provider, flag.ExitOnError)
 	circleID := fs.String("circle", "", "Circle ID")
 	redirectURI := fs.String("redirect", "", "OAuth redirect URI")
-	scopesStr := fs.String("scopes", "calendar:read", "Comma-separated scopes")
+	scopesStr := fs.String("scopes", defaultScopes, "Comma-separated scopes")
 
 	if err := fs.Parse(args); err != nil {
 		os.Exit(1)
@@ -192,10 +221,15 @@ func handleAuthStart(provider string, args []string) {
 	if !config.IsProviderConfigured(providerID) {
 		fmt.Fprintf(os.Stderr, "Error: %s is not configured.\n", provider)
 		fmt.Fprintln(os.Stderr)
-		if provider == "google" {
+		switch provider {
+		case "google":
 			fmt.Fprintln(os.Stderr, "Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET environment variables.")
-		} else {
+		case "microsoft":
 			fmt.Fprintln(os.Stderr, "Set MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET, and MICROSOFT_TENANT_ID.")
+		case "truelayer":
+			fmt.Fprintln(os.Stderr, "Set TRUELAYER_CLIENT_ID, TRUELAYER_CLIENT_SECRET, and optionally TRUELAYER_ENV.")
+		case "plaid":
+			fmt.Fprintln(os.Stderr, "Set PLAID_CLIENT_ID, PLAID_SECRET, and optionally PLAID_ENV.")
 		}
 		os.Exit(1)
 	}
@@ -270,7 +304,7 @@ func handleAuthExchange(args []string) {
 	// Check provider configuration
 	providerID := auth.ProviderID(*provider)
 	if !auth.IsValidProvider(providerID) {
-		fmt.Fprintf(os.Stderr, "Error: invalid provider '%s'. Use 'google' or 'microsoft'.\n", *provider)
+		fmt.Fprintf(os.Stderr, "Error: invalid provider '%s'. Use 'google', 'microsoft', 'truelayer', or 'plaid'.\n", *provider)
 		os.Exit(1)
 	}
 
@@ -368,10 +402,14 @@ func printDemoUsage() {
 	fmt.Println("  --mode       Run mode: simulate (default)")
 	fmt.Println()
 	fmt.Println("finance-read options (v8):")
-	fmt.Println("  --provider   Provider to use: mock (default)")
-	fmt.Println("  --circleA    First circle ID")
-	fmt.Println("  --circleB    Second circle ID")
-	fmt.Println("  --dismiss    Proposal ID to dismiss (optional)")
+	fmt.Println("  --provider      Provider to use: mock, truelayer, or plaid (default: mock)")
+	fmt.Println("  --circleA       First circle ID")
+	fmt.Println("  --circleB       Second circle ID")
+	fmt.Println("  --access-token  Access token for real providers (required for truelayer/plaid)")
+	fmt.Println("  --dismiss       Proposal ID to dismiss (optional)")
+	fmt.Println()
+	fmt.Println("Note: TrueLayer and Plaid providers require valid access tokens.")
+	fmt.Println("      CRITICAL: These providers are READ-ONLY. No payment/transfer operations.")
 }
 
 // handleDemoFamily runs the family calendar demo.
@@ -526,21 +564,32 @@ func printDemoResult(result *demoCalendar.Result) {
 // handleDemoFinanceRead runs the financial read demo (v8).
 func handleDemoFinanceRead(args []string) {
 	fs := flag.NewFlagSet("demo finance-read", flag.ExitOnError)
-	provider := fs.String("provider", "mock", "Provider (mock)")
+	provider := fs.String("provider", "mock", "Provider (mock, truelayer, or plaid)")
 	circleA := fs.String("circleA", "circle-alice", "First circle ID")
 	circleB := fs.String("circleB", "circle-bob", "Second circle ID")
 	dismiss := fs.String("dismiss", "", "Proposal ID to dismiss (optional)")
 	seed := fs.String("seed", "demo-seed-v8", "Seed for deterministic data generation")
 	verbose := fs.Bool("verbose", true, "Enable verbose output")
+	accessToken := fs.String("access-token", "", "Access token for real providers (truelayer or plaid)")
 
 	if err := fs.Parse(args); err != nil {
 		os.Exit(1)
 	}
 
-	// Only mock provider is supported for v8.1
-	if *provider != "mock" {
-		fmt.Fprintln(os.Stderr, "Warning: Only 'mock' provider is supported for v8.1. Using mock.")
+	// Validate provider
+	validProviders := map[string]bool{"mock": true, "truelayer": true, "plaid": true}
+	if !validProviders[*provider] {
+		fmt.Fprintf(os.Stderr, "Warning: Invalid provider '%s'. Using mock.\n", *provider)
 		*provider = "mock"
+	}
+
+	// Real providers require access token
+	if (*provider == "truelayer" || *provider == "plaid") && *accessToken == "" {
+		fmt.Fprintf(os.Stderr, "Error: Provider '%s' requires --access-token flag.\n", *provider)
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, "To obtain an access token, first authenticate:")
+		fmt.Fprintf(os.Stderr, "  quantumlife-cli auth %s --circle %s --redirect <uri>\n", *provider, *circleA)
+		os.Exit(1)
 	}
 
 	config := demoFinance.DemoConfig{
@@ -551,6 +600,13 @@ func handleDemoFinanceRead(args []string) {
 		Seed:              *seed,
 		DismissProposalID: *dismiss,
 		Verbose:           *verbose,
+	}
+
+	// Set the appropriate access token
+	if *provider == "truelayer" {
+		config.TrueLayerAccessToken = *accessToken
+	} else if *provider == "plaid" {
+		config.PlaidAccessToken = *accessToken
 	}
 
 	ctx := context.Background()

@@ -24,17 +24,25 @@ const (
 
 	// ProviderMicrosoft is Microsoft Graph API.
 	ProviderMicrosoft ProviderID = "microsoft"
+
+	// ProviderTrueLayer is TrueLayer Open Banking API (v8.2).
+	// CRITICAL: This provider is READ-ONLY. No payment scopes are allowed.
+	ProviderTrueLayer ProviderID = "truelayer"
+
+	// ProviderPlaid is Plaid financial data API (v8.3).
+	// CRITICAL: This provider is READ-ONLY. No payment products are allowed.
+	ProviderPlaid ProviderID = "plaid"
 )
 
 // ValidProviders returns all valid provider IDs.
 func ValidProviders() []ProviderID {
-	return []ProviderID{ProviderGoogle, ProviderMicrosoft}
+	return []ProviderID{ProviderGoogle, ProviderMicrosoft, ProviderTrueLayer, ProviderPlaid}
 }
 
 // IsValidProvider checks if the provider ID is valid.
 func IsValidProvider(p ProviderID) bool {
 	switch p {
-	case ProviderGoogle, ProviderMicrosoft:
+	case ProviderGoogle, ProviderMicrosoft, ProviderTrueLayer, ProviderPlaid:
 		return true
 	default:
 		return false

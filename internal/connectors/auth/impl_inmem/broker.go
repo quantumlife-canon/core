@@ -133,6 +133,12 @@ func (b *Broker) BeginOAuth(provider auth.ProviderID, redirectURI string, state 
 	case auth.ProviderMicrosoft:
 		authURL = fmt.Sprintf(auth.MicrosoftAuthURLTemplate, b.config.Microsoft.TenantID)
 		clientID = b.config.Microsoft.ClientID
+	case auth.ProviderTrueLayer:
+		// TrueLayer uses a different auth flow
+		return b.buildTrueLayerAuthURL(redirectURI, state, providerScopes)
+	case auth.ProviderPlaid:
+		// Plaid uses Link token flow - return instructions
+		return b.buildPlaidLinkInstructions(redirectURI, state, providerScopes)
 	default:
 		return "", auth.ErrInvalidProvider
 	}
@@ -149,6 +155,93 @@ func (b *Broker) BeginOAuth(provider auth.ProviderID, redirectURI string, state 
 	return authURL + "?" + params.Encode(), nil
 }
 
+// buildTrueLayerAuthURL builds the TrueLayer authorization URL.
+// CRITICAL: Only read scopes are allowed.
+func (b *Broker) buildTrueLayerAuthURL(redirectURI, state string, scopes []string) (string, error) {
+	// Validate scopes - reject any payment/write scopes
+	for _, scope := range scopes {
+		if isForbiddenTrueLayerScope(scope) {
+			return "", fmt.Errorf("%w: scope '%s' is forbidden", auth.ErrWriteScopeNotAllowed, scope)
+		}
+	}
+
+	params := url.Values{}
+	params.Set("response_type", "code")
+	params.Set("client_id", b.config.TrueLayer.ClientID)
+	params.Set("redirect_uri", redirectURI)
+	params.Set("state", state)
+	params.Set("scope", strings.Join(scopes, " "))
+	// Enable all UK Open Banking providers
+	params.Set("providers", "uk-ob-all uk-oauth-all")
+
+	return b.config.TrueLayer.TrueLayerAuthURL() + "/?" + params.Encode(), nil
+}
+
+// isForbiddenTrueLayerScope checks if a TrueLayer scope is forbidden.
+// CRITICAL: Payment and write scopes are not allowed.
+func isForbiddenTrueLayerScope(scope string) bool {
+	forbiddenPatterns := []string{
+		"payment", "payments", "pay", "transfer", "write",
+		"initiate", "standing_order", "direct_debit", "beneficiar", "mandate",
+	}
+	scopeLower := strings.ToLower(scope)
+	for _, pattern := range forbiddenPatterns {
+		if strings.Contains(scopeLower, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+// buildPlaidLinkInstructions returns instructions for Plaid Link flow.
+// CRITICAL: Only read products are allowed.
+// Plaid Link requires a client-side widget; for CLI we provide manual instructions.
+func (b *Broker) buildPlaidLinkInstructions(redirectURI, state string, products []string) (string, error) {
+	// Validate products - reject any payment/transfer products
+	for _, product := range products {
+		if isForbiddenPlaidProduct(product) {
+			return "", fmt.Errorf("%w: product '%s' is forbidden", auth.ErrWriteScopeNotAllowed, product)
+		}
+	}
+
+	// For CLI, we return a placeholder URL with instructions
+	// In a real system, you'd create a Link token via the Plaid API
+	// and provide the link_token for Plaid Link initialization.
+	//
+	// The flow is:
+	// 1. Server calls /link/token/create to get a link_token
+	// 2. Client initializes Plaid Link with link_token
+	// 3. Circle owner completes Link flow
+	// 4. Client receives public_token
+	// 5. Server exchanges public_token for access_token
+	//
+	// For demo/testing, we return a manual instruction URL.
+	params := url.Values{}
+	params.Set("state", state)
+	params.Set("redirect_uri", redirectURI)
+	params.Set("products", strings.Join(products, ","))
+	params.Set("env", b.config.Plaid.Environment)
+
+	// Return instructions as a "URL" - CLI will display this as instructions
+	return "plaid-link://manual?" + params.Encode(), nil
+}
+
+// isForbiddenPlaidProduct checks if a Plaid product is forbidden.
+// CRITICAL: Payment and transfer products are not allowed.
+func isForbiddenPlaidProduct(product string) bool {
+	forbiddenPatterns := []string{
+		"payment", "transfer", "signal", "income",
+		"employment", "deposit_switch", "standing_order",
+	}
+	productLower := strings.ToLower(product)
+	for _, pattern := range forbiddenPatterns {
+		if strings.Contains(productLower, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
 // ExchangeCode exchanges an authorization code for tokens.
 func (b *Broker) ExchangeCode(ctx context.Context, provider auth.ProviderID, code string, redirectURI string) (auth.TokenHandle, error) {
 	if !auth.IsValidProvider(provider) {
@@ -159,7 +252,12 @@ func (b *Broker) ExchangeCode(ctx context.Context, provider auth.ProviderID, cod
 		return auth.TokenHandle{}, auth.ErrProviderNotConfigured
 	}
 
-	// Build token request
+	// Plaid uses a different exchange flow (public_token -> access_token)
+	if provider == auth.ProviderPlaid {
+		return b.exchangePlaidPublicToken(ctx, "demo-circle", code)
+	}
+
+	// Build token request for OAuth providers
 	var tokenURL string
 	var clientID, clientSecret string
 
@@ -172,6 +270,10 @@ func (b *Broker) ExchangeCode(ctx context.Context, provider auth.ProviderID, cod
 		tokenURL = fmt.Sprintf(auth.MicrosoftTokenURLTemplate, b.config.Microsoft.TenantID)
 		clientID = b.config.Microsoft.ClientID
 		clientSecret = b.config.Microsoft.ClientSecret
+	case auth.ProviderTrueLayer:
+		tokenURL = b.config.TrueLayer.TrueLayerTokenURL()
+		clientID = b.config.TrueLayer.ClientID
+		clientSecret = b.config.TrueLayer.ClientSecret
 	default:
 		return auth.TokenHandle{}, auth.ErrInvalidProvider
 	}
@@ -252,7 +354,12 @@ func (b *Broker) ExchangeCodeForCircle(ctx context.Context, circleID string, pro
 		return auth.TokenHandle{}, auth.ErrProviderNotConfigured
 	}
 
-	// Build token request
+	// Plaid uses a different exchange flow (public_token -> access_token)
+	if provider == auth.ProviderPlaid {
+		return b.exchangePlaidPublicTokenForCircle(ctx, circleID, code)
+	}
+
+	// Build token request for OAuth providers
 	var tokenURL string
 	var clientID, clientSecret string
 
@@ -265,6 +372,10 @@ func (b *Broker) ExchangeCodeForCircle(ctx context.Context, circleID string, pro
 		tokenURL = fmt.Sprintf(auth.MicrosoftTokenURLTemplate, b.config.Microsoft.TenantID)
 		clientID = b.config.Microsoft.ClientID
 		clientSecret = b.config.Microsoft.ClientSecret
+	case auth.ProviderTrueLayer:
+		tokenURL = b.config.TrueLayer.TrueLayerTokenURL()
+		clientID = b.config.TrueLayer.ClientID
+		clientSecret = b.config.TrueLayer.ClientSecret
 	default:
 		return auth.TokenHandle{}, auth.ErrInvalidProvider
 	}
@@ -326,6 +437,93 @@ func (b *Broker) ExchangeCodeForCircle(ctx context.Context, circleID string, pro
 		handle, err = b.persistentStore.StoreWithPersist(circleID, provider, tokenResp.RefreshToken, qlScopes, expiresAt)
 	} else {
 		handle, err = b.store.Store(ctx, circleID, provider, tokenResp.RefreshToken, qlScopes, expiresAt)
+	}
+	if err != nil {
+		return auth.TokenHandle{}, err
+	}
+
+	return handle, nil
+}
+
+// exchangePlaidPublicToken exchanges a Plaid public_token for access_token.
+// CRITICAL: Only read products are allowed.
+func (b *Broker) exchangePlaidPublicToken(ctx context.Context, circleID, publicToken string) (auth.TokenHandle, error) {
+	return b.exchangePlaidPublicTokenForCircle(ctx, circleID, publicToken)
+}
+
+// exchangePlaidPublicTokenForCircle exchanges a Plaid public_token for a specific circle.
+// CRITICAL: Only read products are allowed.
+func (b *Broker) exchangePlaidPublicTokenForCircle(ctx context.Context, circleID, publicToken string) (auth.TokenHandle, error) {
+	// Determine Plaid base URL based on environment
+	var baseURL string
+	switch strings.ToLower(b.config.Plaid.Environment) {
+	case "production":
+		baseURL = "https://production.plaid.com"
+	case "development":
+		baseURL = "https://development.plaid.com"
+	default:
+		baseURL = "https://sandbox.plaid.com"
+	}
+
+	// Build request body
+	reqBody := map[string]interface{}{
+		"client_id":    b.config.Plaid.ClientID,
+		"secret":       b.config.Plaid.Secret,
+		"public_token": publicToken,
+	}
+
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return auth.TokenHandle{}, err
+	}
+
+	// Make request to Plaid
+	req, err := http.NewRequestWithContext(ctx, "POST", baseURL+"/item/public_token/exchange", strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		return auth.TokenHandle{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Plaid-Version", "2020-09-14")
+
+	resp, err := b.httpClient.Do(req)
+	if err != nil {
+		return auth.TokenHandle{}, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return auth.TokenHandle{}, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return auth.TokenHandle{}, fmt.Errorf("%w: %s", auth.ErrInvalidCode, string(body))
+	}
+
+	// Parse response
+	var tokenResp struct {
+		AccessToken string `json:"access_token"`
+		ItemID      string `json:"item_id"`
+	}
+	if err := json.Unmarshal(body, &tokenResp); err != nil {
+		return auth.TokenHandle{}, err
+	}
+
+	if tokenResp.AccessToken == "" {
+		return auth.TokenHandle{}, fmt.Errorf("no access token returned from Plaid")
+	}
+
+	// Plaid access tokens don't expire (they're long-lived)
+	// Store the access token as the "refresh token" for consistency
+	qlScopes := []string{"finance:read"}
+	var expiresAt time.Time
+	var handle auth.TokenHandle
+
+	// Use persistent store if available
+	if b.persistentStore != nil {
+		handle, err = b.persistentStore.StoreWithPersist(circleID, auth.ProviderPlaid, tokenResp.AccessToken, qlScopes, expiresAt)
+	} else {
+		handle, err = b.store.Store(ctx, circleID, auth.ProviderPlaid, tokenResp.AccessToken, qlScopes, expiresAt)
 	}
 	if err != nil {
 		return auth.TokenHandle{}, err
@@ -402,6 +600,12 @@ func (b *Broker) MintAccessToken(ctx context.Context, envelope primitives.Execut
 
 // refreshAccessToken refreshes an access token using a refresh token.
 func (b *Broker) refreshAccessToken(ctx context.Context, provider auth.ProviderID, refreshToken string) (string, int, error) {
+	// Plaid access tokens don't expire - return as-is with long expiry
+	if provider == auth.ProviderPlaid {
+		// Plaid access tokens are long-lived; we use a 24-hour "expiry" for caching purposes
+		return refreshToken, 86400, nil
+	}
+
 	var tokenURL string
 	var clientID, clientSecret string
 
@@ -414,6 +618,10 @@ func (b *Broker) refreshAccessToken(ctx context.Context, provider auth.ProviderI
 		tokenURL = fmt.Sprintf(auth.MicrosoftTokenURLTemplate, b.config.Microsoft.TenantID)
 		clientID = b.config.Microsoft.ClientID
 		clientSecret = b.config.Microsoft.ClientSecret
+	case auth.ProviderTrueLayer:
+		tokenURL = b.config.TrueLayer.TrueLayerTokenURL()
+		clientID = b.config.TrueLayer.ClientID
+		clientSecret = b.config.TrueLayer.ClientSecret
 	default:
 		return "", 0, auth.ErrInvalidProvider
 	}
