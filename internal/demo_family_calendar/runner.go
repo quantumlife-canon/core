@@ -82,9 +82,11 @@ type Result struct {
 
 // Runner executes the calendar read demo.
 type Runner struct {
-	mode      primitives.RunMode
-	clockFunc func() time.Time
-	config    auth.Config
+	mode           primitives.RunMode
+	clockFunc      func() time.Time
+	config         auth.Config
+	broker         *authImpl.Broker
+	usePersistence bool
 }
 
 // NewRunner creates a new demo runner.
@@ -103,6 +105,26 @@ func NewRunnerWithMode(mode primitives.RunMode) *Runner {
 		clockFunc: time.Now,
 		config:    auth.LoadConfigFromEnv(),
 	}
+}
+
+// NewRunnerWithPersistence creates a runner that uses persistent token storage.
+// This allows the runner to use tokens stored via CLI auth flow.
+func NewRunnerWithPersistence(mode primitives.RunMode) (*Runner, error) {
+	config := auth.LoadConfigFromEnv()
+
+	// Try to create broker with persistence
+	broker, err := authImpl.NewBrokerWithPersistence(config, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create persistent broker: %w", err)
+	}
+
+	return &Runner{
+		mode:           mode,
+		clockFunc:      time.Now,
+		config:         config,
+		broker:         broker,
+		usePersistence: broker.IsPersistenceEnabled(),
+	}, nil
 }
 
 // Run executes the demo.
@@ -209,19 +231,39 @@ func (r *Runner) Run(ctx context.Context) (*Result, error) {
 
 	// Create token broker and connectors
 	authorityChecker := &brokerAuthorityChecker{engine: authorityEngine}
-	broker := authImpl.NewBroker(r.config, authorityChecker)
+
+	// Use injected broker if available (for persistence support), otherwise create new
+	var broker *authImpl.Broker
+	if r.broker != nil {
+		broker = r.broker
+	} else {
+		broker = authImpl.NewBroker(r.config, authorityChecker)
+	}
 
 	var connectors []calendar.EnvelopeConnector
 
-	// Check which providers are configured
-	if r.config.Google.IsConfigured() {
-		googleAdapter := google.NewAdapter(broker, true)
+	// Check which providers are configured (via env vars)
+	envConfiguredGoogle := r.config.Google.IsConfigured()
+	envConfiguredMicrosoft := r.config.Microsoft.IsConfigured()
+
+	// Also check if we have stored tokens (via CLI auth flow)
+	hasStoredGoogle := false
+	hasStoredMicrosoft := false
+	if r.usePersistence && r.broker != nil {
+		_, hasStoredGoogle = r.broker.GetTokenHandle(parentCircle.ID, auth.ProviderGoogle)
+		_, hasStoredMicrosoft = r.broker.GetTokenHandle(parentCircle.ID, auth.ProviderMicrosoft)
+	}
+
+	// Use Google if env vars are set OR if we have stored tokens
+	if envConfiguredGoogle || hasStoredGoogle {
+		googleAdapter := google.NewAdapter(broker, envConfiguredGoogle || hasStoredGoogle)
 		connectors = append(connectors, googleAdapter)
 		result.ProvidersUsed = append(result.ProvidersUsed, "google")
 	}
 
-	if r.config.Microsoft.IsConfigured() {
-		msAdapter := microsoft.NewAdapter(broker, true)
+	// Use Microsoft if env vars are set OR if we have stored tokens
+	if envConfiguredMicrosoft || hasStoredMicrosoft {
+		msAdapter := microsoft.NewAdapter(broker, envConfiguredMicrosoft || hasStoredMicrosoft)
 		connectors = append(connectors, msAdapter)
 		result.ProvidersUsed = append(result.ProvidersUsed, "microsoft")
 	}

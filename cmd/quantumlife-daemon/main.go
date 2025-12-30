@@ -21,6 +21,7 @@ import (
 	"quantumlife/internal/demo_family_calendar"
 	"quantumlife/internal/demo_family_negotiate"
 	"quantumlife/internal/demo_family_simulate"
+	"quantumlife/pkg/primitives"
 )
 
 const banner = `
@@ -180,8 +181,16 @@ func runDemoFamilyRealCalendarRead() {
 	fmt.Println("  Google:    GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET")
 	fmt.Println("  Microsoft: MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET, MICROSOFT_TENANT_ID")
 	fmt.Println()
+	fmt.Println("Or use CLI auth flow: quantumlife-cli auth google --circle <id> --redirect <uri>")
+	fmt.Println()
 
-	runner := demo_family_calendar.NewRunner()
+	// Try to create runner with persistence (for CLI auth flow support)
+	runner, err := demo_family_calendar.NewRunnerWithPersistence(primitives.ModeSimulate)
+	if err != nil {
+		// Fall back to regular runner
+		runner = demo_family_calendar.NewRunner()
+	}
+
 	result, err := runner.Run(context.Background())
 
 	if err != nil {

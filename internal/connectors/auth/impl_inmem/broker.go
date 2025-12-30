@@ -25,12 +25,13 @@ import (
 
 // Broker implements the auth.TokenBroker interface.
 type Broker struct {
-	config         auth.Config
-	store          *TokenStore
-	scopeMapper    *ScopeMapper
-	authorityCheck auth.AuthorityChecker
-	httpClient     *http.Client
-	clockFunc      func() time.Time
+	config          auth.Config
+	store           *TokenStore
+	persistentStore *TokenStoreWithPersistence
+	scopeMapper     *ScopeMapper
+	authorityCheck  auth.AuthorityChecker
+	httpClient      *http.Client
+	clockFunc       func() time.Time
 }
 
 // BrokerOption configures a Broker.
@@ -66,6 +67,37 @@ func NewBroker(config auth.Config, authorityChecker auth.AuthorityChecker, opts 
 	}
 
 	return b
+}
+
+// NewBrokerWithPersistence creates a broker with optional file persistence.
+// If TOKEN_ENC_KEY is set, tokens are persisted to ~/.quantumlife/broker_store.json.
+// This allows tokens to survive across CLI invocations.
+func NewBrokerWithPersistence(config auth.Config, authorityChecker auth.AuthorityChecker, opts ...BrokerOption) (*Broker, error) {
+	persistStore, err := NewTokenStoreWithPersistence(config.TokenEncryptionKey)
+	if err != nil {
+		return nil, err
+	}
+
+	b := &Broker{
+		config:          config,
+		store:           persistStore.TokenStore,
+		persistentStore: persistStore,
+		scopeMapper:     NewScopeMapper(),
+		authorityCheck:  authorityChecker,
+		httpClient:      &http.Client{Timeout: 30 * time.Second},
+		clockFunc:       time.Now,
+	}
+
+	for _, opt := range opts {
+		opt(b)
+	}
+
+	return b, nil
+}
+
+// IsPersistenceEnabled returns true if broker store persistence is enabled.
+func (b *Broker) IsPersistenceEnabled() bool {
+	return b.persistentStore != nil && b.persistentStore.IsPersistenceEnabled()
 }
 
 // BeginOAuth generates an OAuth authorization URL.
@@ -287,7 +319,14 @@ func (b *Broker) ExchangeCodeForCircle(ctx context.Context, circleID string, pro
 
 	// Store the refresh token (encrypted)
 	var expiresAt time.Time
-	handle, err := b.store.Store(ctx, circleID, provider, tokenResp.RefreshToken, qlScopes, expiresAt)
+	var handle auth.TokenHandle
+
+	// Use persistent store if available, otherwise use regular store
+	if b.persistentStore != nil {
+		handle, err = b.persistentStore.StoreWithPersist(circleID, provider, tokenResp.RefreshToken, qlScopes, expiresAt)
+	} else {
+		handle, err = b.store.Store(ctx, circleID, provider, tokenResp.RefreshToken, qlScopes, expiresAt)
+	}
 	if err != nil {
 		return auth.TokenHandle{}, err
 	}
@@ -437,6 +476,35 @@ func (b *Broker) StoreTokenDirectly(ctx context.Context, circleID string, provid
 // GetStore returns the token store (for testing).
 func (b *Broker) GetStore() *TokenStore {
 	return b.store
+}
+
+// GetTokenHandle retrieves a token handle for a circle/provider without exposing secrets.
+func (b *Broker) GetTokenHandle(circleID string, provider auth.ProviderID) (auth.TokenHandle, bool) {
+	b.store.mu.RLock()
+	defer b.store.mu.RUnlock()
+
+	key := tokenKey(circleID, provider)
+	token, ok := b.store.tokens[key]
+	if !ok {
+		return auth.TokenHandle{}, false
+	}
+
+	return auth.TokenHandle{
+		ID:        token.ID,
+		CircleID:  token.CircleID,
+		Provider:  token.Provider,
+		Scopes:    token.Scopes,
+		CreatedAt: token.CreatedAt,
+		ExpiresAt: token.ExpiresAt,
+	}, true
+}
+
+// Sync persists the broker store to disk if persistence is enabled.
+func (b *Broker) Sync() error {
+	if b.persistentStore == nil {
+		return nil
+	}
+	return b.persistentStore.Sync()
 }
 
 // Verify interface compliance at compile time.
