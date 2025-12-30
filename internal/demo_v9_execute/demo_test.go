@@ -20,7 +20,7 @@ import (
 
 // TestHardCap verifies that amount > cap blocks execution.
 func TestHardCap(t *testing.T) {
-	t.Run("amount exactly at cap succeeds", func(t *testing.T) {
+	t.Run("amount exactly at cap succeeds with simulated status", func(t *testing.T) {
 		executor, _, idGen, emitter := setupTestExecutor()
 		envelope, approval := createTestEnvelope(idGen, emitter, 100, "GBP") // £1.00
 
@@ -37,6 +37,13 @@ func TestHardCap(t *testing.T) {
 		}
 		if !result.Success {
 			t.Errorf("expected success for amount at cap, got blocked: %s", result.BlockedReason)
+		}
+		// CRITICAL: Mock connector must NOT report MoneyMoved=true
+		if result.MoneyMoved {
+			t.Error("mock connector must have MoneyMoved=false")
+		}
+		if result.Status != execution.SettlementSimulated {
+			t.Errorf("expected SettlementSimulated, got %s", result.Status)
 		}
 	})
 
@@ -121,7 +128,7 @@ func TestExplicitApprovalRequired(t *testing.T) {
 		}
 	})
 
-	t.Run("explicit approve flag allows execution", func(t *testing.T) {
+	t.Run("explicit approve flag allows execution with simulated status", func(t *testing.T) {
 		executor, _, idGen, emitter := setupTestExecutor()
 		envelope, approval := createTestEnvelope(idGen, emitter, 100, "GBP")
 
@@ -138,6 +145,10 @@ func TestExplicitApprovalRequired(t *testing.T) {
 		}
 		if !result.Success {
 			t.Errorf("expected success with --approve flag, got: %s", result.BlockedReason)
+		}
+		// CRITICAL: Mock connector must NOT report MoneyMoved=true
+		if result.MoneyMoved {
+			t.Error("mock connector must have MoneyMoved=false")
 		}
 	})
 }
@@ -271,7 +282,7 @@ func TestPayeeValidation(t *testing.T) {
 		}
 	})
 
-	t.Run("registered payee allows execution", func(t *testing.T) {
+	t.Run("registered payee allows execution with simulated status", func(t *testing.T) {
 		executor, _, idGen, emitter := setupTestExecutor()
 		envelope, approval := createTestEnvelope(idGen, emitter, 100, "GBP")
 
@@ -288,6 +299,10 @@ func TestPayeeValidation(t *testing.T) {
 		}
 		if !result.Success {
 			t.Errorf("expected success for registered payee, got: %s", result.BlockedReason)
+		}
+		// CRITICAL: Mock connector must NOT report MoneyMoved=true
+		if result.MoneyMoved {
+			t.Error("mock connector must have MoneyMoved=false")
 		}
 	})
 }
@@ -371,7 +386,7 @@ func TestAbort(t *testing.T) {
 
 // TestAuditTrail verifies that all required events are emitted.
 func TestAuditTrail(t *testing.T) {
-	t.Run("successful execution emits all required events", func(t *testing.T) {
+	t.Run("simulated execution emits simulated events (not succeeded)", func(t *testing.T) {
 		executor, _, idGen, emitter := setupTestExecutor()
 		envelope, approval := createTestEnvelope(idGen, emitter, 100, "GBP")
 
@@ -387,15 +402,16 @@ func TestAuditTrail(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		// Check required events
+		// Check required events for SIMULATED execution (mock connector)
+		// CRITICAL: When using mock connector, we expect simulated events NOT succeeded events
 		requiredEvents := []events.EventType{
 			events.EventV9ExecutionStarted,
 			events.EventV9CapChecked,
 			events.EventV9PaymentPrepared,
 			events.EventV9ForcedPauseStarted,
 			events.EventV9ForcedPauseCompleted,
-			events.EventV9PaymentSucceeded,
-			events.EventV9SettlementSucceeded,
+			events.EventV9PaymentSimulated,    // NOT EventV9PaymentSucceeded
+			events.EventV9SettlementSimulated, // NOT EventV9SettlementSucceeded
 		}
 
 		for _, required := range requiredEvents {
@@ -408,6 +424,16 @@ func TestAuditTrail(t *testing.T) {
 			}
 			if !found {
 				t.Errorf("missing required event: %s", required)
+			}
+		}
+
+		// CRITICAL: Verify NO succeeded events are emitted for mock connector
+		for _, event := range result.AuditEvents {
+			if event.Type == events.EventV9PaymentSucceeded {
+				t.Error("mock connector should NOT emit EventV9PaymentSucceeded")
+			}
+			if event.Type == events.EventV9SettlementSucceeded {
+				t.Error("mock connector should NOT emit EventV9SettlementSucceeded")
 			}
 		}
 	})
@@ -446,7 +472,7 @@ func TestAuditTrail(t *testing.T) {
 
 // TestForcedPause verifies that forced pause is enforced.
 func TestForcedPause(t *testing.T) {
-	t.Run("execution includes forced pause", func(t *testing.T) {
+	t.Run("execution includes forced pause with simulated status", func(t *testing.T) {
 		executor, _, idGen, emitter := setupTestExecutor()
 		envelope, approval := createTestEnvelope(idGen, emitter, 100, "GBP")
 
@@ -465,6 +491,10 @@ func TestForcedPause(t *testing.T) {
 		}
 		if !result.Success {
 			t.Errorf("expected success, got: %s", result.BlockedReason)
+		}
+		// CRITICAL: Mock connector must NOT report MoneyMoved=true
+		if result.MoneyMoved {
+			t.Error("mock connector must have MoneyMoved=false")
 		}
 
 		// Should take at least the forced pause duration (we use 10ms in tests)
@@ -494,7 +524,7 @@ func TestForcedPause(t *testing.T) {
 
 // TestSettlementOnlySucceedsOnProviderSuccess verifies settlement status.
 func TestSettlementOnlySucceedsOnProviderSuccess(t *testing.T) {
-	t.Run("settlement succeeds only when provider confirms", func(t *testing.T) {
+	t.Run("mock connector returns simulated status and MoneyMoved=false", func(t *testing.T) {
 		executor, _, idGen, emitter := setupTestExecutor()
 		envelope, approval := createTestEnvelope(idGen, emitter, 100, "GBP")
 
@@ -510,14 +540,105 @@ func TestSettlementOnlySucceedsOnProviderSuccess(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		if result.Status == execution.SettlementSuccessful {
-			if result.Receipt == nil {
-				t.Error("successful settlement must have receipt")
+		// CRITICAL: Mock connector MUST NOT report MoneyMoved=true
+		if result.MoneyMoved {
+			t.Error("mock connector must have MoneyMoved=false")
+		}
+
+		// CRITICAL: Mock connector MUST return SettlementSimulated, NOT SettlementSuccessful
+		if result.Status != execution.SettlementSimulated {
+			t.Errorf("expected SettlementSimulated, got %s", result.Status)
+		}
+
+		// Receipt must exist and be marked as simulated
+		if result.Receipt == nil {
+			t.Error("simulated execution must have receipt")
+		} else {
+			if !result.Receipt.Simulated {
+				t.Error("receipt.Simulated must be true for mock connector")
 			}
-			if result.Receipt.Status != write.PaymentSucceeded &&
-				result.Receipt.Status != write.PaymentExecuting &&
-				result.Receipt.Status != write.PaymentPending {
-				t.Errorf("unexpected receipt status: %s", result.Receipt.Status)
+			if result.Receipt.Status != write.PaymentSimulated {
+				t.Errorf("expected PaymentSimulated, got %s", result.Receipt.Status)
+			}
+		}
+	})
+}
+
+// TestSimulatedExecutionSemantics verifies correct semantics for simulated execution.
+func TestSimulatedExecutionSemantics(t *testing.T) {
+	t.Run("mock connector always sets MoneyMoved=false", func(t *testing.T) {
+		executor, _, idGen, emitter := setupTestExecutor()
+		envelope, approval := createTestEnvelope(idGen, emitter, 100, "GBP")
+
+		result, err := executor.Execute(context.Background(), execution.V93ExecuteRequest{
+			Envelope:        envelope,
+			Approval:        approval,
+			PayeeID:         "sandbox-utility",
+			ExplicitApprove: true,
+			Now:             time.Now(),
+		})
+
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// CRITICAL ASSERTION: MoneyMoved MUST be false for mock connector
+		if result.MoneyMoved {
+			t.Fatal("VIOLATION: mock connector reported MoneyMoved=true - this must never happen")
+		}
+	})
+
+	t.Run("simulated receipt has Simulated=true", func(t *testing.T) {
+		executor, _, idGen, emitter := setupTestExecutor()
+		envelope, approval := createTestEnvelope(idGen, emitter, 100, "GBP")
+
+		result, err := executor.Execute(context.Background(), execution.V93ExecuteRequest{
+			Envelope:        envelope,
+			Approval:        approval,
+			PayeeID:         "sandbox-utility",
+			ExplicitApprove: true,
+			Now:             time.Now(),
+		})
+
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if result.Receipt == nil {
+			t.Fatal("expected receipt")
+		}
+
+		if !result.Receipt.Simulated {
+			t.Error("receipt.Simulated must be true for mock connector")
+		}
+	})
+
+	t.Run("simulated events include simulated=true metadata", func(t *testing.T) {
+		executor, _, idGen, emitter := setupTestExecutor()
+		envelope, approval := createTestEnvelope(idGen, emitter, 100, "GBP")
+
+		result, err := executor.Execute(context.Background(), execution.V93ExecuteRequest{
+			Envelope:        envelope,
+			Approval:        approval,
+			PayeeID:         "sandbox-utility",
+			ExplicitApprove: true,
+			Now:             time.Now(),
+		})
+
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Find simulated events and verify metadata
+		for _, event := range result.AuditEvents {
+			if event.Type == events.EventV9PaymentSimulated ||
+				event.Type == events.EventV9SettlementSimulated {
+				if event.Metadata["simulated"] != "true" {
+					t.Errorf("event %s missing simulated=true metadata", event.Type)
+				}
+				if event.Metadata["money_moved"] != "false" {
+					t.Errorf("event %s missing money_moved=false metadata", event.Type)
+				}
 			}
 		}
 	})

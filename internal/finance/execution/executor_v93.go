@@ -542,47 +542,110 @@ func (e *V93Executor) Execute(ctx context.Context, req V93ExecuteRequest) (*V93E
 		return result, nil
 	}
 
-	// Step 13: Record success
+	// Step 13: Record result
 	result.Success = true
 	result.Receipt = receipt
-	result.Status = SettlementSuccessful
-	result.MoneyMoved = receipt.Status == write.PaymentSucceeded || receipt.Status == write.PaymentExecuting || receipt.Status == write.PaymentPending
 	result.CompletedAt = time.Now()
 
-	e.emitEvent(result, events.Event{
-		ID:             e.idGenerator(),
-		Type:           events.EventV9PaymentSucceeded,
-		Timestamp:      result.CompletedAt,
-		CircleID:       req.Envelope.ActorCircleID,
-		IntersectionID: req.Envelope.IntersectionID,
-		SubjectID:      receipt.ReceiptID,
-		SubjectType:    "receipt",
-		Provider:       e.connector.Provider(),
-		Metadata: map[string]string{
-			"envelope_id":  req.Envelope.EnvelopeID,
-			"provider_ref": receipt.ProviderRef,
-			"amount":       fmt.Sprintf("%d", receipt.AmountCents),
-			"currency":     receipt.Currency,
-			"payee_id":     receipt.PayeeID,
-			"money_moved":  fmt.Sprintf("%t", result.MoneyMoved),
-		},
-	})
+	// CRITICAL: Determine if money actually moved
+	// Money can ONLY move if:
+	// 1. Receipt is NOT simulated (Simulated == false)
+	// 2. Provider confirmed success (PaymentSucceeded, PaymentExecuting, or PaymentPending)
+	// If receipt.Simulated is true, NO money moved regardless of status.
+	if receipt.Simulated {
+		result.MoneyMoved = false
+		result.Status = SettlementSimulated
+	} else {
+		result.MoneyMoved = receipt.Status == write.PaymentSucceeded ||
+			receipt.Status == write.PaymentExecuting ||
+			receipt.Status == write.PaymentPending
+		result.Status = SettlementSuccessful
+	}
 
-	e.emitEvent(result, events.Event{
-		ID:             e.idGenerator(),
-		Type:           events.EventV9SettlementSucceeded,
-		Timestamp:      result.CompletedAt,
-		CircleID:       req.Envelope.ActorCircleID,
-		IntersectionID: req.Envelope.IntersectionID,
-		SubjectID:      req.Envelope.EnvelopeID,
-		SubjectType:    "settlement",
-		Provider:       e.connector.Provider(),
-		Metadata: map[string]string{
-			"receipt_id":   receipt.ReceiptID,
-			"provider_ref": receipt.ProviderRef,
-			"money_moved":  fmt.Sprintf("%t", result.MoneyMoved),
-		},
-	})
+	// GUARDRAIL ASSERTION: If provider is mock, MoneyMoved MUST be false.
+	// This prevents future regressions where mock connector might accidentally
+	// set Simulated=false or return a non-simulated status.
+	if e.connector.Provider() == "mock-write" && result.MoneyMoved {
+		// This is a programming error - panic to make it visible
+		panic("GUARDRAIL VIOLATION: mock-write provider reported MoneyMoved=true. This must never happen.")
+	}
+
+	// Emit appropriate events based on simulated vs real
+	if receipt.Simulated {
+		// Simulated execution - no real money moved
+		e.emitEvent(result, events.Event{
+			ID:             e.idGenerator(),
+			Type:           events.EventV9PaymentSimulated,
+			Timestamp:      result.CompletedAt,
+			CircleID:       req.Envelope.ActorCircleID,
+			IntersectionID: req.Envelope.IntersectionID,
+			SubjectID:      receipt.ReceiptID,
+			SubjectType:    "receipt",
+			Provider:       e.connector.Provider(),
+			Metadata: map[string]string{
+				"envelope_id":  req.Envelope.EnvelopeID,
+				"provider_ref": receipt.ProviderRef,
+				"amount":       fmt.Sprintf("%d", receipt.AmountCents),
+				"currency":     receipt.Currency,
+				"payee_id":     receipt.PayeeID,
+				"simulated":    "true",
+				"money_moved":  "false",
+			},
+		})
+
+		e.emitEvent(result, events.Event{
+			ID:             e.idGenerator(),
+			Type:           events.EventV9SettlementSimulated,
+			Timestamp:      result.CompletedAt,
+			CircleID:       req.Envelope.ActorCircleID,
+			IntersectionID: req.Envelope.IntersectionID,
+			SubjectID:      req.Envelope.EnvelopeID,
+			SubjectType:    "settlement",
+			Provider:       e.connector.Provider(),
+			Metadata: map[string]string{
+				"receipt_id":   receipt.ReceiptID,
+				"provider_ref": receipt.ProviderRef,
+				"simulated":    "true",
+				"money_moved":  "false",
+			},
+		})
+	} else {
+		// Real execution - money may have moved
+		e.emitEvent(result, events.Event{
+			ID:             e.idGenerator(),
+			Type:           events.EventV9PaymentSucceeded,
+			Timestamp:      result.CompletedAt,
+			CircleID:       req.Envelope.ActorCircleID,
+			IntersectionID: req.Envelope.IntersectionID,
+			SubjectID:      receipt.ReceiptID,
+			SubjectType:    "receipt",
+			Provider:       e.connector.Provider(),
+			Metadata: map[string]string{
+				"envelope_id":  req.Envelope.EnvelopeID,
+				"provider_ref": receipt.ProviderRef,
+				"amount":       fmt.Sprintf("%d", receipt.AmountCents),
+				"currency":     receipt.Currency,
+				"payee_id":     receipt.PayeeID,
+				"money_moved":  fmt.Sprintf("%t", result.MoneyMoved),
+			},
+		})
+
+		e.emitEvent(result, events.Event{
+			ID:             e.idGenerator(),
+			Type:           events.EventV9SettlementSucceeded,
+			Timestamp:      result.CompletedAt,
+			CircleID:       req.Envelope.ActorCircleID,
+			IntersectionID: req.Envelope.IntersectionID,
+			SubjectID:      req.Envelope.EnvelopeID,
+			SubjectType:    "settlement",
+			Provider:       e.connector.Provider(),
+			Metadata: map[string]string{
+				"receipt_id":   receipt.ReceiptID,
+				"provider_ref": receipt.ProviderRef,
+				"money_moved":  fmt.Sprintf("%t", result.MoneyMoved),
+			},
+		})
+	}
 
 	return result, nil
 }

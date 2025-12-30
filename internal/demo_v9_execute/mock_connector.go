@@ -268,29 +268,32 @@ func (c *MockWriteConnector) Execute(ctx context.Context, req write.ExecuteReque
 	}
 
 	// Create mock receipt
+	// CRITICAL: Simulated=true and Status=PaymentSimulated because no real money moved.
 	receiptID := c.idGenerator()
 	receipt := &write.PaymentReceipt{
 		ReceiptID:   receiptID,
 		EnvelopeID:  req.Envelope.EnvelopeID,
 		ProviderRef: fmt.Sprintf("mock-%s", receiptID),
-		Status:      write.PaymentSucceeded,
+		Status:      write.PaymentSimulated, // NOT succeeded - no real money moved
 		AmountCents: req.Envelope.ActionSpec.AmountCents,
 		Currency:    req.Envelope.ActionSpec.Currency,
 		PayeeID:     req.PayeeID,
 		CreatedAt:   now,
 		CompletedAt: time.Now(),
 		ProviderMetadata: map[string]string{
-			"mock":     "true",
-			"sandbox":  "true",
-			"provider": "mock-write",
+			"mock":      "true",
+			"sandbox":   "true",
+			"provider":  "mock-write",
+			"simulated": "true",
 		},
+		Simulated: true, // CRITICAL: This is simulated, no external side-effect
 	}
 
-	// Emit success event
+	// Emit simulated event (NOT succeeded - that would be false)
 	if c.auditEmitter != nil {
 		c.auditEmitter(events.Event{
 			ID:             c.idGenerator(),
-			Type:           events.EventV9PaymentCreated,
+			Type:           events.EventV9PaymentSimulated, // NOT EventV9PaymentCreated
 			Timestamp:      receipt.CompletedAt,
 			CircleID:       req.Envelope.ActorCircleID,
 			IntersectionID: req.Envelope.IntersectionID,
@@ -303,7 +306,8 @@ func (c *MockWriteConnector) Execute(ctx context.Context, req write.ExecuteReque
 				"amount":       fmt.Sprintf("%d", receipt.AmountCents),
 				"currency":     receipt.Currency,
 				"status":       string(receipt.Status),
-				"mock":         "true",
+				"simulated":    "true",
+				"money_moved":  "false",
 			},
 		})
 	}

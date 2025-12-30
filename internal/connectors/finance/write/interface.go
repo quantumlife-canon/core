@@ -196,6 +196,10 @@ type PaymentReceipt struct {
 
 	// ProviderMetadata contains provider-specific details.
 	ProviderMetadata map[string]string
+
+	// Simulated indicates this receipt is from a mock/simulated execution.
+	// CRITICAL: When Simulated=true, NO real money was moved.
+	Simulated bool
 }
 
 // PaymentStatus represents the status of a payment.
@@ -216,6 +220,10 @@ const (
 
 	// PaymentAborted indicates the payment was aborted.
 	PaymentAborted PaymentStatus = "aborted"
+
+	// PaymentSimulated indicates the payment was simulated (mock connector).
+	// CRITICAL: This status means NO real money was moved.
+	PaymentSimulated PaymentStatus = "simulated"
 )
 
 // Payee represents a pre-defined payment recipient.

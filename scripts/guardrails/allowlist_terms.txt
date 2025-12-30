@@ -51,3 +51,12 @@ internal/demo_family/family_finance.go
 internal/finance/sharedview/*.go
 internal/finance/neutrality/*.go
 pkg/events/events.go
+
+# Financial Write/Execution (v9.3)
+# These files interface with TrueLayer Payments API which uses external terminology
+# ("user", "account"). QuantumLife core uses "circle" for identity - these are
+# payment provider adapters that must match external API specifications.
+internal/connectors/finance/write/*.go
+internal/connectors/finance/write/providers/truelayer/*.go
+# Mock connector uses "user-initiated abort" which is acceptable audit language
+internal/demo_v9_execute/mock_connector.go

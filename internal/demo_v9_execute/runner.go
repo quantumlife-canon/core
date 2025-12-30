@@ -442,6 +442,9 @@ func PrintResult(result *DemoResult) {
 				result.ExecuteResult.Receipt.Currency)
 			fmt.Printf("     Payee: %s\n", result.ExecuteResult.Receipt.PayeeID)
 			fmt.Printf("     Status: %s\n", result.ExecuteResult.Receipt.Status)
+			if result.ExecuteResult.Receipt.Simulated {
+				fmt.Println("     Simulated: true (no external payment was initiated)")
+			}
 		}
 
 		if result.ExecuteResult.BlockedReason != "" {
@@ -481,12 +484,14 @@ func PrintResult(result *DemoResult) {
 		if result.IsConfigured && result.ExecuteResult != nil && result.ExecuteResult.MoneyMoved {
 			fmt.Println("  DEMO COMPLETED - REAL PAYMENT EXECUTED")
 			fmt.Println("  Money was moved via TrueLayer sandbox.")
-		} else if result.IsConfigured {
+		} else if result.IsConfigured && result.ExecuteResult != nil && !result.ExecuteResult.MoneyMoved {
 			fmt.Println("  DEMO COMPLETED - PAYMENT INITIATED")
 			fmt.Println("  TrueLayer sandbox payment was initiated.")
+			fmt.Println("  Money movement status: pending confirmation.")
 		} else {
-			fmt.Println("  DEMO COMPLETED - MOCK EXECUTION")
-			fmt.Println("  No real money moved (TrueLayer not configured).")
+			fmt.Println("  DEMO COMPLETED - SIMULATED EXECUTION")
+			fmt.Println("  Execution completed in simulated mode.")
+			fmt.Println("  No external payment was initiated.")
 		}
 	} else {
 		fmt.Println("  DEMO BLOCKED")

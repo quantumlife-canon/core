@@ -317,6 +317,12 @@ const (
 	// Provider configuration events
 	EventV9ProviderConfigured    EventType = "v9.provider.configured"
 	EventV9ProviderNotConfigured EventType = "v9.provider.not_configured"
+
+	// Simulated execution events
+	// CRITICAL: These events indicate NO real money moved.
+	// Used when TrueLayer is not configured and mock connector is active.
+	EventV9PaymentSimulated    EventType = "v9.payment.simulated"
+	EventV9SettlementSimulated EventType = "v9.settlement.simulated"
 )
 
 // Event represents a system event for audit and observability.

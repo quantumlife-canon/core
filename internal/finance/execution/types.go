@@ -39,6 +39,11 @@ const (
 	// SettlementSuccessful is FORBIDDEN in v9 Slice 1.
 	// This constant exists only to detect violations.
 	SettlementSuccessful SettlementStatus = "settled_successfully"
+
+	// SettlementSimulated indicates execution was simulated (mock connector).
+	// CRITICAL: This status means NO real money was moved.
+	// Used when TrueLayer is not configured and mock connector is active.
+	SettlementSimulated SettlementStatus = "simulated"
 )
 
 // ExecutionIntent represents the initial request for financial execution.
