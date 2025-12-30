@@ -81,6 +81,13 @@ const (
 	EventTrustUpdated  EventType = "trust.updated"
 	EventTrustDegraded EventType = "trust.degraded"
 	EventTrustImproved EventType = "trust.improved"
+
+	// v4 Simulation events
+	EventActionCreated               EventType = "action.created"
+	EventAuthorizationChecked        EventType = "authorization.checked"
+	EventSimulatedExecutionCompleted EventType = "simulated.execution.completed"
+	EventSettlementRecorded          EventType = "settlement.recorded"
+	EventMemoryWritten               EventType = "memory.written"
 )
 
 // Event represents a system event for audit and observability.
@@ -114,6 +121,9 @@ type Event struct {
 
 	// TraceID links this event to a distributed trace.
 	TraceID string
+
+	// AuthorizationProofID links to the authorization proof (for v4 events).
+	AuthorizationProofID string
 }
 
 // Validate checks that the event has all required fields.

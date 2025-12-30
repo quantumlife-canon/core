@@ -238,6 +238,36 @@ func (s *Store) computeHash(entry audit.Entry) string {
 	return hex.EncodeToString(hash[:])
 }
 
+// Entry is a convenience type for demos that converts to audit.Entry.
+type Entry struct {
+	Type                 string
+	CircleID             string
+	IntersectionID       string
+	Action               string
+	Outcome              string
+	TraceID              string
+	AuthorizationProofID string
+}
+
+// Append is a convenience method for demos that creates an audit entry.
+func (s *Store) Append(ctx context.Context, e Entry) error {
+	entry := audit.Entry{
+		CircleID:             e.CircleID,
+		IntersectionID:       e.IntersectionID,
+		EventType:            e.Type,
+		Action:               e.Action,
+		Outcome:              e.Outcome,
+		TraceID:              e.TraceID,
+		AuthorizationProofID: e.AuthorizationProofID,
+	}
+	return s.Log(ctx, entry)
+}
+
+// ListAll returns all entries (convenience method without filter).
+func (s *Store) ListAll(ctx context.Context) ([]audit.Entry, error) {
+	return s.List(ctx, audit.Filter{})
+}
+
 // Verify interface compliance at compile time.
 var (
 	_ audit.Logger           = (*Store)(nil)

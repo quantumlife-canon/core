@@ -19,6 +19,7 @@ import (
 	"quantumlife/internal/demo"
 	"quantumlife/internal/demo_family"
 	"quantumlife/internal/demo_family_negotiate"
+	"quantumlife/internal/demo_family_simulate"
 )
 
 const banner = `
@@ -39,6 +40,7 @@ func main() {
 	demoCalendarSuggest := flag.Bool("demo-calendar-suggest", false, "Run the calendar suggest demo (suggest-only mode, v1)")
 	demoFamilyInviteSuggest := flag.Bool("demo-family-invite-suggest", false, "Run the family invite demo (suggest-only mode, v2)")
 	demoFamilyNegotiateCommit := flag.Bool("demo-family-negotiate-commit", false, "Run the negotiation + commitment demo (suggest-only mode, v3)")
+	demoFamilySimulateAction := flag.Bool("demo-family-simulate-action", false, "Run the simulate action demo (simulate mode, v4)")
 	flag.Parse()
 
 	fmt.Print(banner)
@@ -58,6 +60,11 @@ func main() {
 		return
 	}
 
+	if *demoFamilySimulateAction {
+		runDemoFamilySimulateAction()
+		return
+	}
+
 	// Default: show status
 	fmt.Println("Runtime Layers:")
 	fmt.Println("  - Circle Runtime         [in-memory impl available]")
@@ -73,6 +80,7 @@ func main() {
 	fmt.Println("  --demo-calendar-suggest        Single circle calendar suggestions (v1)")
 	fmt.Println("  --demo-family-invite-suggest   Family intersection with invite tokens (v2)")
 	fmt.Println("  --demo-family-negotiate-commit Full negotiation loop + commitment (v3)")
+	fmt.Println("  --demo-family-simulate-action  Simulated execution pipeline (v4)")
 	fmt.Println()
 	fmt.Println("Run with --help for more options.")
 
@@ -132,4 +140,23 @@ func runDemoFamilyNegotiateCommit() {
 	}
 
 	demo_family_negotiate.PrintResult(result)
+}
+
+// runDemoFamilySimulateAction runs the family simulate action demo.
+func runDemoFamilySimulateAction() {
+	fmt.Println()
+	fmt.Println("Running Family Simulate Action Demo (Vertical Slice v4)...")
+	fmt.Println("This demo uses SIMULATE mode: deterministic execution, no external writes.")
+	fmt.Println("Demonstrates: Commitment -> Action -> Auth -> Simulate -> Settle -> Memory")
+	fmt.Println()
+
+	runner := demo_family_simulate.NewRunner()
+	result, err := runner.Run(context.Background())
+
+	if err != nil {
+		fmt.Printf("Demo failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	demo_family_simulate.PrintResult(result)
 }

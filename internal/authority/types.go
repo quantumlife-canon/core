@@ -49,3 +49,76 @@ type ValidationResult struct {
 	GrantID    string
 	ExpiresAt  time.Time
 }
+
+// AuthorizationProof records the proof of authorization for an action.
+// This is attached to audit events for full traceability.
+type AuthorizationProof struct {
+	// ID uniquely identifies this proof.
+	ID string
+
+	// ActionID is the action being authorized.
+	ActionID string
+
+	// IntersectionID is the intersection providing authorization.
+	IntersectionID string
+
+	// ContractVersion is the version of the contract used for authorization.
+	ContractVersion string
+
+	// ScopesUsed lists the scopes that were checked and used.
+	ScopesUsed []string
+
+	// ScopesGranted lists all scopes granted in the contract.
+	ScopesGranted []string
+
+	// CeilingChecks records the results of ceiling validations.
+	CeilingChecks []CeilingCheck
+
+	// ModeCheck records the run mode validation.
+	ModeCheck ModeCheck
+
+	// Authorized indicates whether authorization was granted.
+	Authorized bool
+
+	// DenialReason explains why authorization was denied (if applicable).
+	DenialReason string
+
+	// Timestamp is when the authorization check was performed.
+	Timestamp time.Time
+
+	// TraceID links this proof to a distributed trace.
+	TraceID string
+}
+
+// CeilingCheck records the result of a single ceiling validation.
+type CeilingCheck struct {
+	// CeilingType is the type of ceiling (e.g., "time_window", "duration").
+	CeilingType string
+
+	// CeilingValue is the configured ceiling value.
+	CeilingValue string
+
+	// CeilingUnit is the unit of the ceiling.
+	CeilingUnit string
+
+	// RequestedValue is what was requested.
+	RequestedValue string
+
+	// Passed indicates whether the check passed.
+	Passed bool
+
+	// Reason explains the check result.
+	Reason string
+}
+
+// ModeCheck records the result of run mode validation.
+type ModeCheck struct {
+	// RequestedMode is the mode that was requested.
+	RequestedMode string
+
+	// Allowed indicates whether the mode is allowed.
+	Allowed bool
+
+	// Reason explains the check result.
+	Reason string
+}

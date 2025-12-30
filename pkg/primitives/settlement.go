@@ -76,3 +76,40 @@ func (s *Settlement) Validate() error {
 	}
 	return nil
 }
+
+// SettlementStatus represents the status of a settlement.
+type SettlementStatus string
+
+const (
+	// SettlementStatusProposed means the settlement has been proposed but not executed.
+	SettlementStatusProposed SettlementStatus = "proposed"
+
+	// SettlementStatusSimulated means the settlement was simulated (no external writes).
+	SettlementStatusSimulated SettlementStatus = "simulated"
+
+	// SettlementStatusSettled means the settlement has been completed.
+	SettlementStatusSettled SettlementStatus = "settled"
+
+	// SettlementStatusDisputed means the settlement is under dispute.
+	SettlementStatusDisputed SettlementStatus = "disputed"
+)
+
+// SimulatedSettlement represents a settlement from a simulated execution.
+type SimulatedSettlement struct {
+	Settlement
+
+	// Status indicates the settlement status.
+	Status SettlementStatus
+
+	// SimulatedAt is when the simulation occurred.
+	SimulatedAt time.Time
+
+	// AuthorizationProofID links to the authorization proof.
+	AuthorizationProofID string
+
+	// ProposedPayload contains what would have been sent to external service.
+	ProposedPayload map[string]string
+
+	// Message describes the simulation result.
+	Message string
+}

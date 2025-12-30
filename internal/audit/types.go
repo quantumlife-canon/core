@@ -6,19 +6,21 @@ import (
 
 // Entry represents an immutable audit log entry.
 type Entry struct {
-	ID             string
-	TenantID       string
-	CircleID       string
-	IntersectionID string
-	EventType      string
-	SubjectID      string
-	SubjectType    string
-	Action         string
-	Outcome        string
-	Timestamp      time.Time
-	PreviousHash   string
-	Hash           string
-	Metadata       map[string]string
+	ID                   string
+	TenantID             string
+	CircleID             string
+	IntersectionID       string
+	EventType            string
+	SubjectID            string
+	SubjectType          string
+	Action               string
+	Outcome              string
+	Timestamp            time.Time
+	PreviousHash         string
+	Hash                 string
+	Metadata             map[string]string
+	TraceID              string
+	AuthorizationProofID string
 }
 
 // Explanation captures the rationale for a decision.

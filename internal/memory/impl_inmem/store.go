@@ -218,6 +218,78 @@ func (s *Store) matchesFilter(entry memory.MemoryEntry, filter memory.Filter) bo
 	return true
 }
 
+// WriteVersioned writes a versioned entry keyed by (ownerType, ownerID, key).
+// This is used for tracking simulation outcomes and other versioned data.
+func (s *Store) WriteVersioned(ctx context.Context, ownerType, ownerID, key string, value []byte) (*memory.MemoryEntry, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	compositeKey := makeKey(ownerID, key)
+
+	// Get current version
+	currentVersion := 0
+	if existing, ok := s.entries[compositeKey]; ok {
+		currentVersion = existing.Version
+		s.versions[compositeKey] = append(s.versions[compositeKey], existing)
+	}
+
+	s.idCounter++
+	entry := memory.MemoryEntry{
+		ID:        fmt.Sprintf("mem-%d", s.idCounter),
+		OwnerID:   ownerID,
+		OwnerType: ownerType,
+		Key:       key,
+		Value:     value,
+		Version:   currentVersion + 1,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	s.entries[compositeKey] = entry
+	return &entry, nil
+}
+
+// ReadVersioned reads a versioned entry by (ownerType, ownerID, key).
+func (s *Store) ReadVersioned(ctx context.Context, ownerType, ownerID, key string) (*memory.MemoryEntry, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	compositeKey := makeKey(ownerID, key)
+	if entry, ok := s.entries[compositeKey]; ok {
+		if entry.OwnerType == ownerType {
+			return &entry, nil
+		}
+	}
+	return nil, fmt.Errorf("memory entry not found: %s/%s/%s", ownerType, ownerID, key)
+}
+
+// GetVersionHistory returns the version history for a key.
+func (s *Store) GetVersionHistory(ctx context.Context, ownerType, ownerID, key string) ([]memory.MemoryEntry, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	compositeKey := makeKey(ownerID, key)
+	var history []memory.MemoryEntry
+
+	// Add historical versions
+	if versions, ok := s.versions[compositeKey]; ok {
+		for _, v := range versions {
+			if v.OwnerType == ownerType {
+				history = append(history, v)
+			}
+		}
+	}
+
+	// Add current version
+	if current, ok := s.entries[compositeKey]; ok {
+		if current.OwnerType == ownerType {
+			history = append(history, current)
+		}
+	}
+
+	return history, nil
+}
+
 // Verify interface compliance at compile time.
 var (
 	_ memory.Store             = (*Store)(nil)
