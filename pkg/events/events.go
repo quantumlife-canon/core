@@ -278,6 +278,45 @@ const (
 
 	// Audit finalization events
 	EventV9AuditTraceFinalized EventType = "v9.audit.trace.finalized"
+
+	// v9 Slice 3: Real Payment events
+	// CRITICAL: These events record REAL money movement.
+	// v9 Slice 3 is the FIRST slice where money may actually move.
+	//
+	// HARD CONSTRAINTS:
+	// - TrueLayer ONLY
+	// - Cap: £1.00 (100 pence) default
+	// - Pre-defined payees only
+	// - Explicit per-action approval
+	// - Full audit trail
+
+	// Payment preparation events
+	EventV9PaymentPrepared EventType = "v9.payment.prepared"
+
+	// Payment execution events
+	EventV9PaymentCreated   EventType = "v9.payment.created"
+	EventV9PaymentPending   EventType = "v9.payment.pending"
+	EventV9PaymentSucceeded EventType = "v9.payment.succeeded"
+	EventV9PaymentFailed    EventType = "v9.payment.failed"
+
+	// Settlement events (v9.3 - real settlement)
+	EventV9SettlementSucceeded EventType = "v9.settlement.succeeded"
+
+	// Forced pause event
+	EventV9ForcedPauseStarted   EventType = "v9.forced_pause.started"
+	EventV9ForcedPauseCompleted EventType = "v9.forced_pause.completed"
+
+	// Cap enforcement events
+	EventV9CapChecked  EventType = "v9.cap.checked"
+	EventV9CapExceeded EventType = "v9.cap.exceeded"
+
+	// Payee validation events
+	EventV9PayeeValidated EventType = "v9.payee.validated"
+	EventV9PayeeRejected  EventType = "v9.payee.rejected"
+
+	// Provider configuration events
+	EventV9ProviderConfigured    EventType = "v9.provider.configured"
+	EventV9ProviderNotConfigured EventType = "v9.provider.not_configured"
 )
 
 // Event represents a system event for audit and observability.

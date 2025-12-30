@@ -9,6 +9,7 @@
 //	quantumlife-daemon --demo-family-finance         # Run family finance demo (v8.6)
 //	quantumlife-daemon --demo-v9-dryrun-execution   # Run v9 dry-run execution demo
 //	quantumlife-daemon --demo-v9-guarded-execution # Run v9 guarded execution demo
+//	quantumlife-daemon --demo-v9-execute-tiny-payment # Run v9.3 real payment demo
 //
 // Reference: docs/TECHNOLOGY_SELECTION_V1.md §13 Implementation Checklist
 package main
@@ -25,6 +26,7 @@ import (
 	"quantumlife/internal/demo_family_negotiate"
 	"quantumlife/internal/demo_family_simulate"
 	"quantumlife/internal/demo_v9_dryrun"
+	"quantumlife/internal/demo_v9_execute"
 	"quantumlife/internal/demo_v9_guarded"
 	"quantumlife/pkg/primitives"
 )
@@ -52,6 +54,7 @@ func main() {
 	demoFamilyFinance := flag.Bool("demo-family-finance", false, "Run the family finance demo (v8.6)")
 	demoV9DryrunExecution := flag.Bool("demo-v9-dryrun-execution", false, "Run the v9 dry-run execution demo (no real money moves)")
 	demoV9GuardedExecution := flag.Bool("demo-v9-guarded-execution", false, "Run the v9 guarded execution demo (adapter blocks)")
+	demoV9ExecuteTinyPayment := flag.Bool("demo-v9-execute-tiny-payment", false, "Run the v9.3 real payment demo (REAL MONEY MAY MOVE)")
 	flag.Parse()
 
 	fmt.Print(banner)
@@ -96,6 +99,11 @@ func main() {
 		return
 	}
 
+	if *demoV9ExecuteTinyPayment {
+		runDemoV9ExecuteTinyPayment()
+		return
+	}
+
 	// Default: show status
 	fmt.Println("Runtime Layers:")
 	fmt.Println("  - Circle Runtime         [in-memory impl available]")
@@ -116,6 +124,7 @@ func main() {
 	fmt.Println("  --demo-family-finance            Family financial intersections (v8.6)")
 	fmt.Println("  --demo-v9-dryrun-execution       v9 dry-run financial execution (NO REAL MONEY)")
 	fmt.Println("  --demo-v9-guarded-execution      v9 guarded execution with adapter (NO REAL MONEY)")
+	fmt.Println("  --demo-v9-execute-tiny-payment   v9.3 real payment execution (REAL MONEY MAY MOVE)")
 	fmt.Println()
 	fmt.Println("Run with --help for more options.")
 
@@ -320,4 +329,52 @@ func runDemoV9GuardedExecution() {
 	}
 
 	demo_v9_guarded.PrintResult(result)
+}
+
+// runDemoV9ExecuteTinyPayment runs the v9.3 real payment execution demo.
+// CRITICAL: This demo may move REAL MONEY (in sandbox mode).
+// It must be minimal, constrained, auditable, interruptible, and boring.
+func runDemoV9ExecuteTinyPayment() {
+	fmt.Println()
+	fmt.Println("Running v9.3 Real Payment Execution Demo...")
+	fmt.Println()
+	fmt.Println("╔═══════════════════════════════════════════════════════════════╗")
+	fmt.Println("║  v9.3: SINGLE-PARTY REAL FINANCIAL EXECUTION                  ║")
+	fmt.Println("║                                                               ║")
+	fmt.Println("║  This is the FIRST slice where money may actually move.       ║")
+	fmt.Println("║  It must be minimal, constrained, auditable, interruptible,   ║")
+	fmt.Println("║  and boring.                                                  ║")
+	fmt.Println("║                                                               ║")
+	fmt.Println("║  HARD SAFETY CONSTRAINTS:                                     ║")
+	fmt.Println("║  1) Provider: TrueLayer ONLY                                  ║")
+	fmt.Println("║  2) Cap: £1.00 (100 pence)                                    ║")
+	fmt.Println("║  3) Pre-defined payees only (no free-text)                    ║")
+	fmt.Println("║  4) Explicit per-action approval                              ║")
+	fmt.Println("║  5) Forced pause before execution                             ║")
+	fmt.Println("║  6) No retries - failures require new approval                ║")
+	fmt.Println("║  7) Full audit trail                                          ║")
+	fmt.Println("╚═══════════════════════════════════════════════════════════════╝")
+	fmt.Println()
+	fmt.Println("Demonstrates:")
+	fmt.Println("  1. Intent creation with explicit amount, recipient, currency")
+	fmt.Println("  2. Sealed ExecutionEnvelope with action hash")
+	fmt.Println("  3. Approval request with neutral language")
+	fmt.Println("  4. Explicit --approve flag requirement")
+	fmt.Println("  5. Cap enforcement (£1.00 max)")
+	fmt.Println("  6. Pre-defined payee validation")
+	fmt.Println("  7. Forced pause before provider call")
+	fmt.Println("  8. TrueLayer payment creation (sandbox)")
+	fmt.Println("  9. Settlement recorded as succeeded (if provider confirms)")
+	fmt.Println(" 10. Complete audit trail with receipt")
+	fmt.Println()
+
+	runner := demo_v9_execute.NewRunner()
+	result, err := runner.Run()
+
+	if err != nil {
+		fmt.Printf("Demo failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	demo_v9_execute.PrintResult(result)
 }
