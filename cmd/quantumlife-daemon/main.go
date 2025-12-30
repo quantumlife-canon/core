@@ -8,6 +8,7 @@
 //	quantumlife-daemon --demo-family-negotiate-commit # Run negotiation demo (v3)
 //	quantumlife-daemon --demo-family-finance         # Run family finance demo (v8.6)
 //	quantumlife-daemon --demo-v9-dryrun-execution   # Run v9 dry-run execution demo
+//	quantumlife-daemon --demo-v9-guarded-execution # Run v9 guarded execution demo
 //
 // Reference: docs/TECHNOLOGY_SELECTION_V1.md §13 Implementation Checklist
 package main
@@ -24,6 +25,7 @@ import (
 	"quantumlife/internal/demo_family_negotiate"
 	"quantumlife/internal/demo_family_simulate"
 	"quantumlife/internal/demo_v9_dryrun"
+	"quantumlife/internal/demo_v9_guarded"
 	"quantumlife/pkg/primitives"
 )
 
@@ -49,6 +51,7 @@ func main() {
 	demoFamilyRealCalendarRead := flag.Bool("demo-family-real-calendar-read", false, "Run the real calendar read demo (simulate mode, v5)")
 	demoFamilyFinance := flag.Bool("demo-family-finance", false, "Run the family finance demo (v8.6)")
 	demoV9DryrunExecution := flag.Bool("demo-v9-dryrun-execution", false, "Run the v9 dry-run execution demo (no real money moves)")
+	demoV9GuardedExecution := flag.Bool("demo-v9-guarded-execution", false, "Run the v9 guarded execution demo (adapter blocks)")
 	flag.Parse()
 
 	fmt.Print(banner)
@@ -88,6 +91,11 @@ func main() {
 		return
 	}
 
+	if *demoV9GuardedExecution {
+		runDemoV9GuardedExecution()
+		return
+	}
+
 	// Default: show status
 	fmt.Println("Runtime Layers:")
 	fmt.Println("  - Circle Runtime         [in-memory impl available]")
@@ -107,6 +115,7 @@ func main() {
 	fmt.Println("  --demo-family-real-calendar-read Real calendar read with OAuth (v5)")
 	fmt.Println("  --demo-family-finance            Family financial intersections (v8.6)")
 	fmt.Println("  --demo-v9-dryrun-execution       v9 dry-run financial execution (NO REAL MONEY)")
+	fmt.Println("  --demo-v9-guarded-execution      v9 guarded execution with adapter (NO REAL MONEY)")
 	fmt.Println()
 	fmt.Println("Run with --help for more options.")
 
@@ -272,4 +281,43 @@ func runDemoV9DryrunExecution() {
 	}
 
 	demo_v9_dryrun.PrintResult(result)
+}
+
+// runDemoV9GuardedExecution runs the v9 guarded execution demo.
+// CRITICAL: This uses GUARDED adapters. NO REAL MONEY MOVES.
+func runDemoV9GuardedExecution() {
+	fmt.Println()
+	fmt.Println("Running v9 Guarded Execution Demo...")
+	fmt.Println()
+	fmt.Println("╔═══════════════════════════════════════════════════════════════╗")
+	fmt.Println("║  CRITICAL: GUARDED ADAPTER MODE                               ║")
+	fmt.Println("║                                                               ║")
+	fmt.Println("║  NO REAL MONEY MOVES. Adapter ALWAYS blocks execution.        ║")
+	fmt.Println("║  Settlement outcome ALWAYS: blocked, revoked, expired, or     ║")
+	fmt.Println("║  aborted - NEVER settled_successfully.                        ║")
+	fmt.Println("║                                                               ║")
+	fmt.Println("║  This slice proves execution pipeline structure is correct    ║")
+	fmt.Println("║  while guaranteeing safety.                                   ║")
+	fmt.Println("╚═══════════════════════════════════════════════════════════════╝")
+	fmt.Println()
+	fmt.Println("Demonstrates:")
+	fmt.Println("  1. Intent creation with explicit amount, recipient, currency")
+	fmt.Println("  2. Sealed ExecutionEnvelope with action hash")
+	fmt.Println("  3. Approval request with neutral language")
+	fmt.Println("  4. Revocation window expires without revocation")
+	fmt.Println("  5. Adapter.Prepare() validates envelope")
+	fmt.Println("  6. Adapter.Execute() invoked - BLOCKED by guardrail")
+	fmt.Println("  7. Settlement recorded as blocked (not succeeded)")
+	fmt.Println("  8. Complete audit trail with adapter events")
+	fmt.Println()
+
+	runner := demo_v9_guarded.NewRunner()
+	result, err := runner.Run()
+
+	if err != nil {
+		fmt.Printf("Demo failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	demo_v9_guarded.PrintResult(result)
 }

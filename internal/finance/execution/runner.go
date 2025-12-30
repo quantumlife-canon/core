@@ -260,7 +260,7 @@ func (r *ExecutionRunner) ExecuteWithRevocationDuringWindow(
 		env.EnvelopeID,
 		revokerCircleID,
 		revokerID,
-		"user-initiated revocation during window",
+		"circle-initiated revocation during window",
 		now,
 	)
 
@@ -268,4 +268,150 @@ func (r *ExecutionRunner) ExecuteWithRevocationDuringWindow(
 	result, _ := r.Execute(env, now)
 
 	return result, signal
+}
+
+// ExecuteWithAdapter attempts execution using a provider adapter.
+//
+// CRITICAL: In v9 Slice 2, the adapter ALWAYS blocks execution.
+// NO REAL MONEY MOVES. This method exists to prove the execution
+// pipeline structure while guaranteeing safety.
+//
+// Flow:
+// 1. Perform all pre-execution checks (expiry, revocation, approval, validity)
+// 2. Wait for revocation window to close (or verify closed)
+// 3. Invoke adapter.Prepare()
+// 4. Invoke adapter.Execute() - ALWAYS blocked by guarded adapter
+// 5. Record settlement (blocked, not succeeded)
+func (r *ExecutionRunner) ExecuteWithAdapter(
+	env *ExecutionEnvelope,
+	adapter ExecutionAdapter,
+	now time.Time,
+) (*ExecutionResult, *ExecutionAttempt, error) {
+	result := &ExecutionResult{
+		EnvelopeID:   env.EnvelopeID,
+		AttemptedAt:  now,
+		AuditTraceID: env.TraceID,
+	}
+
+	// Step 1: Check envelope not expired
+	if env.IsExpired(now) {
+		result.Status = SettlementExpired
+		result.BlockedReason = "envelope expired"
+		result.CompletedAt = now
+		return result, nil, nil
+	}
+
+	// Step 2: Check envelope not already revoked
+	if env.IsRevoked() {
+		result.Status = SettlementRevoked
+		result.RevokedBy = env.RevokedBy
+		result.BlockedReason = "envelope was revoked"
+		result.CompletedAt = now
+		return result, nil, nil
+	}
+
+	// Step 3: Check for revocation signal
+	revCheck := r.revocationChecker.Check(env.EnvelopeID, now)
+	if revCheck.Revoked {
+		ApplyRevocationToEnvelope(env, revCheck.Signal)
+		result.Status = SettlementRevoked
+		result.RevokedBy = revCheck.Signal.RevokerCircleID
+		result.BlockedReason = "revocation signal received"
+		result.CompletedAt = now
+		return result, nil, nil
+	}
+
+	// Step 4: Verify approvals
+	if err := r.verifyApprovals(env, now); err != nil {
+		result.Status = SettlementBlocked
+		result.BlockedReason = fmt.Sprintf("approval verification failed: %v", err)
+		result.CompletedAt = now
+		return result, nil, nil
+	}
+
+	// Step 5: Perform affirmative validity check
+	validityCheck := r.performValidityCheck(env, now)
+	result.ValidityCheck = validityCheck
+
+	if !validityCheck.Valid {
+		result.Status = SettlementBlocked
+		result.BlockedReason = validityCheck.FailureReason
+		result.CompletedAt = now
+		return result, nil, nil
+	}
+
+	// Step 6: Final revocation check (mid-execution check point)
+	revCheck = r.revocationChecker.Check(env.EnvelopeID, now)
+	if revCheck.Revoked {
+		ApplyRevocationToEnvelope(env, revCheck.Signal)
+		result.Status = SettlementRevoked
+		result.RevokedBy = revCheck.Signal.RevokerCircleID
+		result.BlockedReason = "revocation during execution"
+		result.CompletedAt = now
+		return result, nil, nil
+	}
+
+	// Step 7: Get approval for adapter execution
+	var approval *ApprovalArtifact
+	if len(env.Approvals) > 0 {
+		approval = &env.Approvals[0]
+	} else {
+		result.Status = SettlementBlocked
+		result.BlockedReason = "no approval artifact available"
+		result.CompletedAt = now
+		return result, nil, nil
+	}
+
+	// Step 8: Prepare via adapter
+	prepareResult, err := adapter.Prepare(env)
+	if err != nil {
+		result.Status = SettlementBlocked
+		result.BlockedReason = fmt.Sprintf("adapter prepare failed: %v", err)
+		result.CompletedAt = now
+		return result, nil, nil
+	}
+
+	if !prepareResult.Valid {
+		result.Status = SettlementBlocked
+		result.BlockedReason = fmt.Sprintf("adapter prepare invalid: %s", prepareResult.InvalidReason)
+		result.CompletedAt = now
+		return result, nil, nil
+	}
+
+	// Step 9: Execute via adapter
+	// CRITICAL: In v9 Slice 2, this ALWAYS returns GuardedExecutionError
+	attempt, execErr := adapter.Execute(env, approval)
+
+	// Step 10: Record result
+	if attempt != nil {
+		result.CompletedAt = attempt.AttemptedAt
+	} else {
+		result.CompletedAt = now
+	}
+
+	// Check if this is the expected GuardedExecutionError
+	if IsGuardedExecutionError(execErr) {
+		// This is the expected outcome in v9 Slice 2
+		result.Status = SettlementBlocked
+		result.BlockedReason = "guarded adapter blocked execution"
+		return result, attempt, nil
+	}
+
+	// Any other error is unexpected
+	if execErr != nil {
+		result.Status = SettlementAborted
+		result.BlockedReason = fmt.Sprintf("adapter execution error: %v", execErr)
+		return result, attempt, execErr
+	}
+
+	// CRITICAL: If we somehow reach here with a "succeeded" attempt, that's wrong
+	if attempt != nil && attempt.Status == AttemptSucceeded {
+		// This should NEVER happen in v9 Slice 2
+		return nil, attempt, fmt.Errorf("CRITICAL: adapter reported success - this is forbidden in v9 Slice 2")
+	}
+
+	// Default to blocked if we get here
+	result.Status = SettlementBlocked
+	result.BlockedReason = "execution did not complete"
+	return result, attempt, nil
 }

@@ -269,6 +269,13 @@ const (
 	EventV9SettlementExpired  EventType = "v9.settlement.expired"
 	EventV9SettlementAborted  EventType = "v9.settlement.aborted"
 
+	// v9 Slice 2: Adapter events
+	// CRITICAL: These events prove execution was attempted but BLOCKED.
+	// No money moves in v9 Slice 2.
+	EventV9AdapterPrepared EventType = "v9.adapter.prepared"
+	EventV9AdapterInvoked  EventType = "v9.adapter.invoked"
+	EventV9AdapterBlocked  EventType = "v9.adapter.blocked"
+
 	// Audit finalization events
 	EventV9AuditTraceFinalized EventType = "v9.audit.trace.finalized"
 )
