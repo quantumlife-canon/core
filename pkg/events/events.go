@@ -88,6 +88,12 @@ const (
 	EventSimulatedExecutionCompleted EventType = "simulated.execution.completed"
 	EventSettlementRecorded          EventType = "settlement.recorded"
 	EventMemoryWritten               EventType = "memory.written"
+
+	// v5 Connector events
+	EventConnectorTokenMinted   EventType = "connector.token.minted"
+	EventConnectorCallPerformed EventType = "connector.call.performed"
+	EventConnectorReadCompleted EventType = "connector.read.completed"
+	EventConnectorCallFailed    EventType = "connector.call.failed"
 )
 
 // Event represents a system event for audit and observability.
@@ -124,6 +130,14 @@ type Event struct {
 
 	// AuthorizationProofID links to the authorization proof (for v4 events).
 	AuthorizationProofID string
+
+	// Provider identifies the external provider (for v5 connector events).
+	// Examples: "google", "microsoft", "mock"
+	Provider string
+
+	// Operation identifies the operation performed (for v5 connector events).
+	// Examples: "list_events", "find_free_slots"
+	Operation string
 }
 
 // Validate checks that the event has all required fields.

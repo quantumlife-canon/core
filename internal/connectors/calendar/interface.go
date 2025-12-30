@@ -3,13 +3,15 @@
 //
 // Reference: docs/TECHNICAL_SPLIT_V1.md §3.5 Action Execution Layer
 //
-// CRITICAL: This package is read-only in v4. ProposeEvent returns a proposal
-// without making any external writes.
+// CRITICAL: This package is read-only in v5. ProposeEvent returns a proposal
+// without making any external writes. Write operations are NOT implemented.
 package calendar
 
 import (
 	"context"
 	"time"
+
+	"quantumlife/pkg/primitives"
 )
 
 // Connector defines the calendar connector interface.
@@ -117,4 +119,45 @@ type ProposedEvent struct {
 
 	// ConflictingEvents lists any events that would conflict.
 	ConflictingEvents []Event
+}
+
+// EnvelopeConnector extends Connector with envelope-based operations.
+// All operations require an ExecutionEnvelope for traceability.
+// This is the v5 interface for real provider integrations.
+type EnvelopeConnector interface {
+	Connector
+
+	// ListEventsWithEnvelope returns events in the specified time range.
+	// The envelope provides traceability context (TraceID, Mode, etc.).
+	// This is a read-only operation.
+	ListEventsWithEnvelope(ctx context.Context, env primitives.ExecutionEnvelope, r EventRange) ([]Event, error)
+
+	// FindFreeSlots finds free slots across calendars.
+	// The envelope provides traceability context.
+	// Returns slots of at least minDuration length.
+	FindFreeSlots(ctx context.Context, env primitives.ExecutionEnvelope, r EventRange, minDuration time.Duration) ([]FreeSlot, error)
+
+	// ProposeEventWithEnvelope creates a proposed event without writing.
+	// The envelope provides traceability context.
+	// CRITICAL: This does NOT write to any external service in v5.
+	ProposeEventWithEnvelope(ctx context.Context, env primitives.ExecutionEnvelope, req ProposeEventRequest) (*ProposedEvent, error)
+
+	// ProviderInfo returns information about the provider.
+	ProviderInfo() ProviderInfo
+}
+
+// MultiProviderConnector aggregates multiple calendar providers.
+// This allows reading from multiple calendars (e.g., Google + Microsoft).
+type MultiProviderConnector interface {
+	// AddProvider adds a provider to the aggregator.
+	AddProvider(provider EnvelopeConnector)
+
+	// ListEventsFromAll lists events from all configured providers.
+	ListEventsFromAll(ctx context.Context, env primitives.ExecutionEnvelope, r EventRange) ([]ReadResult, error)
+
+	// FindFreeSlotsAcrossAll finds free slots across all providers.
+	FindFreeSlotsAcrossAll(ctx context.Context, env primitives.ExecutionEnvelope, r EventRange, minDuration time.Duration) (FreeSlotResult, error)
+
+	// GetConfiguredProviders returns info about all configured providers.
+	GetConfiguredProviders() []ProviderInfo
 }

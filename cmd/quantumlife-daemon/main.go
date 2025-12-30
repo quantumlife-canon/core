@@ -18,6 +18,7 @@ import (
 
 	"quantumlife/internal/demo"
 	"quantumlife/internal/demo_family"
+	"quantumlife/internal/demo_family_calendar"
 	"quantumlife/internal/demo_family_negotiate"
 	"quantumlife/internal/demo_family_simulate"
 )
@@ -41,6 +42,7 @@ func main() {
 	demoFamilyInviteSuggest := flag.Bool("demo-family-invite-suggest", false, "Run the family invite demo (suggest-only mode, v2)")
 	demoFamilyNegotiateCommit := flag.Bool("demo-family-negotiate-commit", false, "Run the negotiation + commitment demo (suggest-only mode, v3)")
 	demoFamilySimulateAction := flag.Bool("demo-family-simulate-action", false, "Run the simulate action demo (simulate mode, v4)")
+	demoFamilyRealCalendarRead := flag.Bool("demo-family-real-calendar-read", false, "Run the real calendar read demo (simulate mode, v5)")
 	flag.Parse()
 
 	fmt.Print(banner)
@@ -65,6 +67,11 @@ func main() {
 		return
 	}
 
+	if *demoFamilyRealCalendarRead {
+		runDemoFamilyRealCalendarRead()
+		return
+	}
+
 	// Default: show status
 	fmt.Println("Runtime Layers:")
 	fmt.Println("  - Circle Runtime         [in-memory impl available]")
@@ -77,10 +84,11 @@ func main() {
 	fmt.Println("  - Orchestrator           [suggest-only impl available]")
 	fmt.Println()
 	fmt.Println("Available demos:")
-	fmt.Println("  --demo-calendar-suggest        Single circle calendar suggestions (v1)")
-	fmt.Println("  --demo-family-invite-suggest   Family intersection with invite tokens (v2)")
-	fmt.Println("  --demo-family-negotiate-commit Full negotiation loop + commitment (v3)")
-	fmt.Println("  --demo-family-simulate-action  Simulated execution pipeline (v4)")
+	fmt.Println("  --demo-calendar-suggest          Single circle calendar suggestions (v1)")
+	fmt.Println("  --demo-family-invite-suggest     Family intersection with invite tokens (v2)")
+	fmt.Println("  --demo-family-negotiate-commit   Full negotiation loop + commitment (v3)")
+	fmt.Println("  --demo-family-simulate-action    Simulated execution pipeline (v4)")
+	fmt.Println("  --demo-family-real-calendar-read Real calendar read with OAuth (v5)")
 	fmt.Println()
 	fmt.Println("Run with --help for more options.")
 
@@ -159,4 +167,27 @@ func runDemoFamilySimulateAction() {
 	}
 
 	demo_family_simulate.PrintResult(result)
+}
+
+// runDemoFamilyRealCalendarRead runs the real calendar read demo.
+func runDemoFamilyRealCalendarRead() {
+	fmt.Println()
+	fmt.Println("Running Family Real Calendar Read Demo (Vertical Slice v5)...")
+	fmt.Println("This demo uses SIMULATE mode: reads from real calendars, NO external writes.")
+	fmt.Println("Demonstrates: OAuth -> Token Mint -> Calendar Read -> Free Slots -> Audit")
+	fmt.Println()
+	fmt.Println("Required env vars for real providers:")
+	fmt.Println("  Google:    GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET")
+	fmt.Println("  Microsoft: MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET, MICROSOFT_TENANT_ID")
+	fmt.Println()
+
+	runner := demo_family_calendar.NewRunner()
+	result, err := runner.Run(context.Background())
+
+	if err != nil {
+		fmt.Printf("Demo failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	demo_family_calendar.PrintResult(result)
 }

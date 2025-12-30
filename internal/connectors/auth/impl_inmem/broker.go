@@ -1,0 +1,443 @@
+// Package impl_inmem provides in-memory implementation of the token broker.
+// This file implements the TokenBroker interface.
+//
+// CRITICAL: This is for demo/testing only. Production requires:
+// - Persistent token storage (Postgres + Key Vault)
+// - Proper OAuth HTTP callback server
+// - Token refresh handling
+//
+// Reference: docs/TECHNICAL_SPLIT_V1.md §3.5 Action Execution Layer
+package impl_inmem
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
+	"quantumlife/internal/connectors/auth"
+	"quantumlife/pkg/primitives"
+)
+
+// Broker implements the auth.TokenBroker interface.
+type Broker struct {
+	config         auth.Config
+	store          *TokenStore
+	scopeMapper    *ScopeMapper
+	authorityCheck auth.AuthorityChecker
+	httpClient     *http.Client
+	clockFunc      func() time.Time
+}
+
+// BrokerOption configures a Broker.
+type BrokerOption func(*Broker)
+
+// WithHTTPClient sets a custom HTTP client (for testing).
+func WithHTTPClient(client *http.Client) BrokerOption {
+	return func(b *Broker) {
+		b.httpClient = client
+	}
+}
+
+// WithClock sets a custom clock function (for testing).
+func WithClock(clockFunc func() time.Time) BrokerOption {
+	return func(b *Broker) {
+		b.clockFunc = clockFunc
+	}
+}
+
+// NewBroker creates a new token broker.
+func NewBroker(config auth.Config, authorityChecker auth.AuthorityChecker, opts ...BrokerOption) *Broker {
+	b := &Broker{
+		config:         config,
+		store:          NewTokenStore(config.TokenEncryptionKey),
+		scopeMapper:    NewScopeMapper(),
+		authorityCheck: authorityChecker,
+		httpClient:     &http.Client{Timeout: 30 * time.Second},
+		clockFunc:      time.Now,
+	}
+
+	for _, opt := range opts {
+		opt(b)
+	}
+
+	return b
+}
+
+// BeginOAuth generates an OAuth authorization URL.
+func (b *Broker) BeginOAuth(provider auth.ProviderID, redirectURI string, state string, scopes []string) (string, error) {
+	if !auth.IsValidProvider(provider) {
+		return "", auth.ErrInvalidProvider
+	}
+
+	// Validate that only read scopes are requested
+	if err := b.scopeMapper.ValidateReadOnlyScopes(scopes); err != nil {
+		return "", err
+	}
+
+	// Check provider configuration
+	if !b.config.IsProviderConfigured(provider) {
+		return "", auth.ErrProviderNotConfigured
+	}
+
+	// Map QuantumLife scopes to provider scopes
+	providerScopes, err := b.scopeMapper.MapToProvider(provider, scopes)
+	if err != nil {
+		return "", err
+	}
+
+	// Build authorization URL
+	var authURL string
+	var clientID string
+
+	switch provider {
+	case auth.ProviderGoogle:
+		authURL = auth.GoogleAuthURL
+		clientID = b.config.Google.ClientID
+	case auth.ProviderMicrosoft:
+		authURL = fmt.Sprintf(auth.MicrosoftAuthURLTemplate, b.config.Microsoft.TenantID)
+		clientID = b.config.Microsoft.ClientID
+	default:
+		return "", auth.ErrInvalidProvider
+	}
+
+	params := url.Values{}
+	params.Set("client_id", clientID)
+	params.Set("redirect_uri", redirectURI)
+	params.Set("response_type", "code")
+	params.Set("scope", strings.Join(providerScopes, " "))
+	params.Set("state", state)
+	params.Set("access_type", "offline") // Google: request refresh token
+	params.Set("prompt", "consent")      // Force consent to get refresh token
+
+	return authURL + "?" + params.Encode(), nil
+}
+
+// ExchangeCode exchanges an authorization code for tokens.
+func (b *Broker) ExchangeCode(ctx context.Context, provider auth.ProviderID, code string, redirectURI string) (auth.TokenHandle, error) {
+	if !auth.IsValidProvider(provider) {
+		return auth.TokenHandle{}, auth.ErrInvalidProvider
+	}
+
+	if !b.config.IsProviderConfigured(provider) {
+		return auth.TokenHandle{}, auth.ErrProviderNotConfigured
+	}
+
+	// Build token request
+	var tokenURL string
+	var clientID, clientSecret string
+
+	switch provider {
+	case auth.ProviderGoogle:
+		tokenURL = auth.GoogleTokenURL
+		clientID = b.config.Google.ClientID
+		clientSecret = b.config.Google.ClientSecret
+	case auth.ProviderMicrosoft:
+		tokenURL = fmt.Sprintf(auth.MicrosoftTokenURLTemplate, b.config.Microsoft.TenantID)
+		clientID = b.config.Microsoft.ClientID
+		clientSecret = b.config.Microsoft.ClientSecret
+	default:
+		return auth.TokenHandle{}, auth.ErrInvalidProvider
+	}
+
+	// Exchange code for tokens
+	data := url.Values{}
+	data.Set("code", code)
+	data.Set("client_id", clientID)
+	data.Set("client_secret", clientSecret)
+	data.Set("redirect_uri", redirectURI)
+	data.Set("grant_type", "authorization_code")
+
+	req, err := http.NewRequestWithContext(ctx, "POST", tokenURL, strings.NewReader(data.Encode()))
+	if err != nil {
+		return auth.TokenHandle{}, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := b.httpClient.Do(req)
+	if err != nil {
+		return auth.TokenHandle{}, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return auth.TokenHandle{}, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return auth.TokenHandle{}, fmt.Errorf("%w: %s", auth.ErrInvalidCode, string(body))
+	}
+
+	// Parse token response
+	var tokenResp struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresIn    int    `json:"expires_in"`
+		Scope        string `json:"scope"`
+	}
+	if err := json.Unmarshal(body, &tokenResp); err != nil {
+		return auth.TokenHandle{}, err
+	}
+
+	if tokenResp.RefreshToken == "" {
+		return auth.TokenHandle{}, fmt.Errorf("no refresh token returned; ensure offline access is requested")
+	}
+
+	// Map provider scopes back to QuantumLife scopes
+	providerScopes := strings.Split(tokenResp.Scope, " ")
+	qlScopes := b.scopeMapper.MapFromProvider(provider, providerScopes)
+
+	// Calculate expiry (refresh tokens usually don't have explicit expiry)
+	var expiresAt time.Time
+	// For demo, we don't set expiry on refresh token
+
+	// Store the refresh token (encrypted)
+	// NOTE: In a real system, we'd get the circleID from context or session
+	// For demo, we use a placeholder
+	circleID := "demo-circle"
+
+	handle, err := b.store.Store(ctx, circleID, provider, tokenResp.RefreshToken, qlScopes, expiresAt)
+	if err != nil {
+		return auth.TokenHandle{}, err
+	}
+
+	return handle, nil
+}
+
+// ExchangeCodeForCircle exchanges an authorization code for a specific circle.
+// This is the version that should be used when the circle ID is known.
+func (b *Broker) ExchangeCodeForCircle(ctx context.Context, circleID string, provider auth.ProviderID, code string, redirectURI string) (auth.TokenHandle, error) {
+	if !auth.IsValidProvider(provider) {
+		return auth.TokenHandle{}, auth.ErrInvalidProvider
+	}
+
+	if !b.config.IsProviderConfigured(provider) {
+		return auth.TokenHandle{}, auth.ErrProviderNotConfigured
+	}
+
+	// Build token request
+	var tokenURL string
+	var clientID, clientSecret string
+
+	switch provider {
+	case auth.ProviderGoogle:
+		tokenURL = auth.GoogleTokenURL
+		clientID = b.config.Google.ClientID
+		clientSecret = b.config.Google.ClientSecret
+	case auth.ProviderMicrosoft:
+		tokenURL = fmt.Sprintf(auth.MicrosoftTokenURLTemplate, b.config.Microsoft.TenantID)
+		clientID = b.config.Microsoft.ClientID
+		clientSecret = b.config.Microsoft.ClientSecret
+	default:
+		return auth.TokenHandle{}, auth.ErrInvalidProvider
+	}
+
+	// Exchange code for tokens
+	data := url.Values{}
+	data.Set("code", code)
+	data.Set("client_id", clientID)
+	data.Set("client_secret", clientSecret)
+	data.Set("redirect_uri", redirectURI)
+	data.Set("grant_type", "authorization_code")
+
+	req, err := http.NewRequestWithContext(ctx, "POST", tokenURL, strings.NewReader(data.Encode()))
+	if err != nil {
+		return auth.TokenHandle{}, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := b.httpClient.Do(req)
+	if err != nil {
+		return auth.TokenHandle{}, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return auth.TokenHandle{}, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return auth.TokenHandle{}, fmt.Errorf("%w: %s", auth.ErrInvalidCode, string(body))
+	}
+
+	// Parse token response
+	var tokenResp struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresIn    int    `json:"expires_in"`
+		Scope        string `json:"scope"`
+	}
+	if err := json.Unmarshal(body, &tokenResp); err != nil {
+		return auth.TokenHandle{}, err
+	}
+
+	if tokenResp.RefreshToken == "" {
+		return auth.TokenHandle{}, fmt.Errorf("no refresh token returned; ensure offline access is requested")
+	}
+
+	// Map provider scopes back to QuantumLife scopes
+	providerScopes := strings.Split(tokenResp.Scope, " ")
+	qlScopes := b.scopeMapper.MapFromProvider(provider, providerScopes)
+
+	// Store the refresh token (encrypted)
+	var expiresAt time.Time
+	handle, err := b.store.Store(ctx, circleID, provider, tokenResp.RefreshToken, qlScopes, expiresAt)
+	if err != nil {
+		return auth.TokenHandle{}, err
+	}
+
+	return handle, nil
+}
+
+// MintAccessToken mints an access token for an operation.
+func (b *Broker) MintAccessToken(ctx context.Context, envelope primitives.ExecutionEnvelope, provider auth.ProviderID, requiredScopes []string) (auth.AccessToken, error) {
+	// Validate envelope
+	if err := envelope.Validate(); err != nil {
+		return auth.AccessToken{}, err
+	}
+
+	// Validate that only read scopes are requested
+	if err := b.scopeMapper.ValidateReadOnlyScopes(requiredScopes); err != nil {
+		return auth.AccessToken{}, err
+	}
+
+	// Verify authorization proof exists and grants the required scopes
+	if b.authorityCheck != nil {
+		proof, err := b.authorityCheck.GetProof(ctx, envelope.AuthorizationProofID)
+		if err != nil {
+			return auth.AccessToken{}, fmt.Errorf("%w: %v", auth.ErrAuthorizationRequired, err)
+		}
+
+		if !proof.Authorized {
+			return auth.AccessToken{}, auth.ErrAuthorizationRequired
+		}
+
+		// Check that required scopes are granted
+		grantedSet := make(map[string]bool)
+		for _, s := range proof.ScopesGranted {
+			grantedSet[s] = true
+		}
+		for _, s := range requiredScopes {
+			if !grantedSet[s] {
+				return auth.AccessToken{}, fmt.Errorf("%w: %s", auth.ErrScopeNotGranted, s)
+			}
+		}
+	}
+
+	// Get stored refresh token
+	refreshToken, storedToken, err := b.store.Get(ctx, envelope.ActorCircleID, provider)
+	if err != nil {
+		return auth.AccessToken{}, err
+	}
+
+	// Map scopes to provider format
+	providerScopes, err := b.scopeMapper.MapToProvider(provider, requiredScopes)
+	if err != nil {
+		return auth.AccessToken{}, err
+	}
+
+	// Refresh the access token
+	accessToken, expiresIn, err := b.refreshAccessToken(ctx, provider, refreshToken)
+	if err != nil {
+		return auth.AccessToken{}, err
+	}
+
+	// Check if we also got a new refresh token (some providers rotate them)
+	// For demo, we don't handle refresh token rotation
+
+	_ = storedToken // Used for context, could log token ID
+
+	return auth.AccessToken{
+		Token:          accessToken,
+		Expiry:         b.clockFunc().Add(time.Duration(expiresIn) * time.Second),
+		Provider:       provider,
+		ProviderScopes: providerScopes,
+	}, nil
+}
+
+// refreshAccessToken refreshes an access token using a refresh token.
+func (b *Broker) refreshAccessToken(ctx context.Context, provider auth.ProviderID, refreshToken string) (string, int, error) {
+	var tokenURL string
+	var clientID, clientSecret string
+
+	switch provider {
+	case auth.ProviderGoogle:
+		tokenURL = auth.GoogleTokenURL
+		clientID = b.config.Google.ClientID
+		clientSecret = b.config.Google.ClientSecret
+	case auth.ProviderMicrosoft:
+		tokenURL = fmt.Sprintf(auth.MicrosoftTokenURLTemplate, b.config.Microsoft.TenantID)
+		clientID = b.config.Microsoft.ClientID
+		clientSecret = b.config.Microsoft.ClientSecret
+	default:
+		return "", 0, auth.ErrInvalidProvider
+	}
+
+	data := url.Values{}
+	data.Set("client_id", clientID)
+	data.Set("client_secret", clientSecret)
+	data.Set("refresh_token", refreshToken)
+	data.Set("grant_type", "refresh_token")
+
+	req, err := http.NewRequestWithContext(ctx, "POST", tokenURL, strings.NewReader(data.Encode()))
+	if err != nil {
+		return "", 0, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := b.httpClient.Do(req)
+	if err != nil {
+		return "", 0, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", 0, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", 0, fmt.Errorf("token refresh failed: %s", string(body))
+	}
+
+	var tokenResp struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresIn    int    `json:"expires_in"`
+	}
+	if err := json.Unmarshal(body, &tokenResp); err != nil {
+		return "", 0, err
+	}
+
+	return tokenResp.AccessToken, tokenResp.ExpiresIn, nil
+}
+
+// RevokeToken revokes the stored token for a circle/provider.
+func (b *Broker) RevokeToken(ctx context.Context, circleID string, provider auth.ProviderID) error {
+	return b.store.Delete(ctx, circleID, provider)
+}
+
+// HasToken checks if a circle has a stored token for a provider.
+func (b *Broker) HasToken(ctx context.Context, circleID string, provider auth.ProviderID) (bool, error) {
+	return b.store.HasToken(ctx, circleID, provider), nil
+}
+
+// StoreTokenDirectly stores a token directly (for demo/testing).
+// This bypasses OAuth flow and should only be used in tests.
+func (b *Broker) StoreTokenDirectly(ctx context.Context, circleID string, provider auth.ProviderID, refreshToken string, scopes []string) (auth.TokenHandle, error) {
+	return b.store.Store(ctx, circleID, provider, refreshToken, scopes, time.Time{})
+}
+
+// GetStore returns the token store (for testing).
+func (b *Broker) GetStore() *TokenStore {
+	return b.store
+}
+
+// Verify interface compliance at compile time.
+var _ auth.TokenBroker = (*Broker)(nil)

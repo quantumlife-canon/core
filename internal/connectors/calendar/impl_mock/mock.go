@@ -8,10 +8,12 @@ package impl_mock
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
 	"quantumlife/internal/connectors/calendar"
+	"quantumlife/pkg/primitives"
 )
 
 // MockConnector implements the calendar.Connector interface with mock data.
@@ -191,5 +193,104 @@ func (m *MockConnector) GetProposalCount() int {
 	return m.proposalCount
 }
 
+// ListEventsWithEnvelope returns events with envelope validation.
+func (m *MockConnector) ListEventsWithEnvelope(ctx context.Context, env primitives.ExecutionEnvelope, r calendar.EventRange) ([]calendar.Event, error) {
+	// Validate envelope for read operations
+	if err := env.ValidateForRead(); err != nil {
+		return nil, err
+	}
+
+	return m.ListEvents(ctx, calendar.ListEventsRequest{
+		StartTime: r.Start,
+		EndTime:   r.End,
+	})
+}
+
+// FindFreeSlots finds free slots between events.
+func (m *MockConnector) FindFreeSlots(ctx context.Context, env primitives.ExecutionEnvelope, r calendar.EventRange, minDuration time.Duration) ([]calendar.FreeSlot, error) {
+	// Validate envelope for read operations
+	if err := env.ValidateForRead(); err != nil {
+		return nil, err
+	}
+
+	events, err := m.ListEvents(ctx, calendar.ListEventsRequest{
+		StartTime: r.Start,
+		EndTime:   r.End,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Sort events by start time
+	sorted := make([]calendar.Event, len(events))
+	copy(sorted, events)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].StartTime.Before(sorted[j].StartTime)
+	})
+
+	var slots []calendar.FreeSlot
+	current := r.Start
+
+	for _, event := range sorted {
+		// If there's a gap before this event
+		if event.StartTime.After(current) {
+			gap := event.StartTime.Sub(current)
+			if gap >= minDuration {
+				slots = append(slots, calendar.FreeSlot{
+					Start:            current,
+					End:              event.StartTime,
+					Duration:         gap,
+					Confidence:       1.0, // Deterministic
+					ParticipantCount: 1,
+				})
+			}
+		}
+
+		// Move current to after this event
+		if event.EndTime.After(current) {
+			current = event.EndTime
+		}
+	}
+
+	// Check for gap at the end
+	if current.Before(r.End) {
+		gap := r.End.Sub(current)
+		if gap >= minDuration {
+			slots = append(slots, calendar.FreeSlot{
+				Start:            current,
+				End:              r.End,
+				Duration:         gap,
+				Confidence:       1.0,
+				ParticipantCount: 1,
+			})
+		}
+	}
+
+	return slots, nil
+}
+
+// ProposeEventWithEnvelope creates a proposed event with envelope validation.
+func (m *MockConnector) ProposeEventWithEnvelope(ctx context.Context, env primitives.ExecutionEnvelope, req calendar.ProposeEventRequest) (*calendar.ProposedEvent, error) {
+	// Validate envelope
+	if err := env.Validate(); err != nil {
+		return nil, err
+	}
+
+	return m.ProposeEvent(ctx, req)
+}
+
+// ProviderInfo returns information about the mock provider.
+func (m *MockConnector) ProviderInfo() calendar.ProviderInfo {
+	return calendar.ProviderInfo{
+		ID:           "mock",
+		Name:         "Mock Calendar",
+		Capabilities: m.Capabilities(),
+		IsConfigured: true,
+	}
+}
+
 // Verify interface compliance at compile time.
-var _ calendar.Connector = (*MockConnector)(nil)
+var (
+	_ calendar.Connector         = (*MockConnector)(nil)
+	_ calendar.EnvelopeConnector = (*MockConnector)(nil)
+)

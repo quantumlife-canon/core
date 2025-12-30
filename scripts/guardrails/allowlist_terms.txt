@@ -11,3 +11,12 @@
 # WARNING: Adding entries here weakens Canon enforcement.
 # Each exception should be justified and temporary.
 #
+
+# External OAuth API integrations (v5)
+# These files interface with Google/Microsoft APIs which use external terminology.
+# The terms are in URL literals or external API documentation comments.
+# QuantumLife core still uses "circle" - these are data plane adapters only.
+internal/connectors/auth/config.go
+internal/connectors/auth/interface.go
+internal/connectors/calendar/types.go
+internal/connectors/testkit/fake_transport.go
