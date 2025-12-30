@@ -1,0 +1,377 @@
+// Package demo_finance_read demonstrates v8 Financial Read capabilities.
+//
+// CRITICAL: This demo is READ-ONLY. No execution occurs.
+// The demo shows:
+// - Syncing financial data (mock provider)
+// - Generating observations (deterministic)
+// - Generating proposals (non-binding, optional)
+// - Dismissing proposals (suppression works)
+// - Silence policy (no proposals when nothing material changed)
+//
+// Reference: docs/ACCEPTANCE_TESTS_V8_FINANCIAL_READ.md
+package demo_finance_read
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"quantumlife/internal/connectors/finance/read"
+	"quantumlife/internal/connectors/finance/read/providers/mock"
+	"quantumlife/internal/finance"
+	"quantumlife/internal/finance/impl_inmem"
+	"quantumlife/pkg/primitives"
+)
+
+// DemoConfig configures the demo.
+type DemoConfig struct {
+	// CircleAID is circle A's identifier.
+	CircleAID string
+
+	// CircleBID is circle B's identifier.
+	CircleBID string
+
+	// IntersectionID is the intersection identifier.
+	IntersectionID string
+
+	// ProviderID is the mock provider ID.
+	ProviderID string
+
+	// Seed controls deterministic data generation.
+	Seed string
+
+	// DismissProposalID is a proposal ID to dismiss (optional).
+	DismissProposalID string
+
+	// Verbose enables detailed output.
+	Verbose bool
+}
+
+// DefaultDemoConfig returns default configuration.
+func DefaultDemoConfig() DemoConfig {
+	return DemoConfig{
+		CircleAID:      "circle-alice",
+		CircleBID:      "circle-bob",
+		IntersectionID: "ix-alice-bob",
+		ProviderID:     "mock-finance",
+		Seed:           "demo-seed-v8",
+		Verbose:        true,
+	}
+}
+
+// Result contains demo output.
+type Result struct {
+	// Banner is the "No action taken" banner.
+	Banner string
+
+	// CircleASnapshot is circle A's financial snapshot.
+	CircleASnapshot SnapshotSummary
+
+	// CircleBSnapshot is circle B's financial snapshot.
+	CircleBSnapshot SnapshotSummary
+
+	// Observations generated.
+	Observations []ObservationSummary
+
+	// Proposals generated (may be empty due to silence).
+	Proposals []ProposalSummary
+
+	// SilenceApplied indicates if silence policy was applied.
+	SilenceApplied bool
+
+	// SilenceReason explains why silence was applied.
+	SilenceReason string
+
+	// DismissalResult if a proposal was dismissed.
+	DismissalResult string
+}
+
+// SnapshotSummary summarizes a financial snapshot.
+type SnapshotSummary struct {
+	CircleID         string
+	AccountCount     int
+	TotalBalance     string
+	TransactionCount int
+}
+
+// ObservationSummary summarizes an observation.
+type ObservationSummary struct {
+	ID          string
+	Type        string
+	Title       string
+	Description string
+	Severity    string
+}
+
+// ProposalSummary summarizes a proposal.
+type ProposalSummary struct {
+	ID          string
+	Type        string
+	Title       string
+	Description string
+	Status      string
+}
+
+// Run executes the demo.
+func Run(ctx context.Context, config DemoConfig) (*Result, error) {
+	result := &Result{
+		Banner: generateBanner(),
+	}
+
+	// Create mock connector
+	connector := mock.NewConnector(mock.Config{
+		ProviderID: config.ProviderID,
+		Seed:       config.Seed,
+	})
+
+	// Create audit collector
+	var auditEvents []string
+	auditFunc := func(eventType string, metadata map[string]string) {
+		auditEvents = append(auditEvents, fmt.Sprintf("[AUDIT] %s", eventType))
+	}
+
+	// Create finance engine
+	engine := impl_inmem.NewEngine(impl_inmem.EngineConfig{
+		Connector: connector,
+		AuditFunc: auditFunc,
+	})
+
+	// Create envelopes for each circle
+	envA := createReadEnvelope(config.CircleAID, config.IntersectionID)
+	envB := createReadEnvelope(config.CircleBID, config.IntersectionID)
+
+	// Step 1: Sync circle A
+	if config.Verbose {
+		fmt.Println("\n=== Syncing Circle A Financial Data ===")
+	}
+
+	syncResultA, err := engine.Sync(ctx, *envA, finance.SyncRequest{
+		CircleID:        config.CircleAID,
+		WindowDays:      30,
+		IncludeBalances: true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("sync circle A failed: %w", err)
+	}
+
+	result.CircleASnapshot = SnapshotSummary{
+		CircleID:         config.CircleAID,
+		AccountCount:     syncResultA.AccountCount,
+		TotalBalance:     formatCents(0), // Would need to fetch snapshot for this
+		TransactionCount: syncResultA.TransactionCount,
+	}
+
+	if config.Verbose {
+		fmt.Printf("  Accounts: %d\n", syncResultA.AccountCount)
+		fmt.Printf("  Transactions: %d\n", syncResultA.TransactionCount)
+		fmt.Printf("  Freshness: %s\n", syncResultA.Freshness)
+	}
+
+	// Step 2: Sync circle B (with different seed for different data)
+	if config.Verbose {
+		fmt.Println("\n=== Syncing Circle B Financial Data ===")
+	}
+
+	// Create different mock for circle B
+	connectorB := mock.NewConnector(mock.Config{
+		ProviderID: config.ProviderID,
+		Seed:       config.Seed + "-b",
+	})
+	engineB := impl_inmem.NewEngine(impl_inmem.EngineConfig{
+		Connector: connectorB,
+		AuditFunc: auditFunc,
+	})
+
+	syncResultB, err := engineB.Sync(ctx, *envB, finance.SyncRequest{
+		CircleID:        config.CircleBID,
+		WindowDays:      30,
+		IncludeBalances: true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("sync circle B failed: %w", err)
+	}
+
+	result.CircleBSnapshot = SnapshotSummary{
+		CircleID:         config.CircleBID,
+		AccountCount:     syncResultB.AccountCount,
+		TransactionCount: syncResultB.TransactionCount,
+	}
+
+	if config.Verbose {
+		fmt.Printf("  Accounts: %d\n", syncResultB.AccountCount)
+		fmt.Printf("  Transactions: %d\n", syncResultB.TransactionCount)
+	}
+
+	// Step 3: Generate observations for circle A
+	if config.Verbose {
+		fmt.Println("\n=== Generating Observations ===")
+	}
+
+	obsResult, err := engine.Observe(ctx, *envA, finance.ObserveRequest{
+		OwnerType:  "circle",
+		OwnerID:    config.CircleAID,
+		WindowDays: 30,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("observe failed: %w", err)
+	}
+
+	for _, obs := range obsResult.Observations {
+		result.Observations = append(result.Observations, ObservationSummary{
+			ID:          obs.ObservationID,
+			Type:        string(obs.Type),
+			Title:       obs.Title,
+			Description: truncate(obs.Description, 100),
+			Severity:    string(obs.Severity),
+		})
+
+		if config.Verbose {
+			fmt.Printf("  [%s] %s: %s\n", obs.Severity, obs.Type, obs.Title)
+		}
+	}
+
+	if len(obsResult.Observations) == 0 && config.Verbose {
+		fmt.Println("  No observations generated (silence is success)")
+	}
+
+	// Step 4: Generate proposals
+	if config.Verbose {
+		fmt.Println("\n=== Generating Proposals ===")
+	}
+
+	propResult, err := engine.Propose(ctx, *envA, finance.ProposeRequest{
+		OwnerType: "circle",
+		OwnerID:   config.CircleAID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("propose failed: %w", err)
+	}
+
+	result.SilenceApplied = propResult.SilenceApplied
+	result.SilenceReason = propResult.SilenceReason
+
+	for _, prop := range propResult.Proposals {
+		result.Proposals = append(result.Proposals, ProposalSummary{
+			ID:          prop.ProposalID,
+			Type:        string(prop.Type),
+			Title:       prop.Title,
+			Description: truncate(prop.Description, 100),
+			Status:      string(prop.Status),
+		})
+
+		if config.Verbose {
+			fmt.Printf("  [%s] %s\n", prop.Type, prop.Title)
+			fmt.Printf("    %s\n", prop.Disclaimers.Informational)
+			fmt.Printf("    %s\n", prop.Disclaimers.NoAction)
+		}
+	}
+
+	if propResult.SilenceApplied && config.Verbose {
+		fmt.Printf("  Silence applied: %s\n", propResult.SilenceReason)
+	}
+
+	// Step 5: Dismiss a proposal if specified
+	if config.DismissProposalID != "" {
+		if config.Verbose {
+			fmt.Printf("\n=== Dismissing Proposal %s ===\n", config.DismissProposalID)
+		}
+
+		err := engine.Dismiss(ctx, *envA, finance.DismissRequest{
+			ProposalID:  config.DismissProposalID,
+			DismissedBy: config.CircleAID,
+		})
+		if err != nil {
+			result.DismissalResult = fmt.Sprintf("Failed: %v", err)
+		} else {
+			result.DismissalResult = "Proposal dismissed successfully"
+		}
+
+		if config.Verbose {
+			fmt.Printf("  %s\n", result.DismissalResult)
+		}
+
+		// Re-run propose to show suppression
+		if config.Verbose {
+			fmt.Println("\n=== Re-running Proposals (should show suppression) ===")
+		}
+
+		propResult2, _ := engine.Propose(ctx, *envA, finance.ProposeRequest{
+			OwnerType: "circle",
+			OwnerID:   config.CircleAID,
+		})
+
+		if config.Verbose {
+			fmt.Printf("  Proposals after dismissal: %d\n", len(propResult2.Proposals))
+			fmt.Printf("  Suppressed: %d\n", propResult2.SuppressedCount)
+		}
+	}
+
+	// Print audit summary
+	if config.Verbose {
+		fmt.Println("\n=== Audit Events ===")
+		for _, event := range auditEvents {
+			fmt.Printf("  %s\n", event)
+		}
+	}
+
+	return result, nil
+}
+
+// createReadEnvelope creates an envelope for read operations.
+// CRITICAL: Mode is SuggestOnly, not Execute.
+func createReadEnvelope(circleID, intersectionID string) *primitives.ExecutionEnvelope {
+	return &primitives.ExecutionEnvelope{
+		TraceID:              fmt.Sprintf("trace-%s-%d", circleID, time.Now().UnixNano()),
+		Mode:                 primitives.ModeSuggestOnly,
+		ActorCircleID:        circleID,
+		IntersectionID:       intersectionID,
+		ContractVersion:      "1.0.0",
+		ScopesUsed:           []string{read.ScopeFinanceRead},
+		AuthorizationProofID: fmt.Sprintf("auth-%s", circleID),
+		IssuedAt:             time.Now(),
+		ApprovedByHuman:      false, // Not needed for read
+	}
+}
+
+// generateBanner creates the "No action taken" banner.
+func generateBanner() string {
+	return `
+================================================================================
+                        QUANTUMLIFE FINANCIAL READ DEMO
+================================================================================
+
+                          *** NO ACTION TAKEN ***
+
+This demo reads financial data and generates observations and proposals.
+All proposals are NON-BINDING and OPTIONAL.
+No money has been moved. No transactions have been executed.
+No automated actions have occurred.
+
+================================================================================
+`
+}
+
+// formatCents formats cents as dollars.
+func formatCents(cents int64) string {
+	negative := cents < 0
+	if negative {
+		cents = -cents
+	}
+	dollars := cents / 100
+	remaining := cents % 100
+	if negative {
+		return fmt.Sprintf("-$%d.%02d", dollars, remaining)
+	}
+	return fmt.Sprintf("$%d.%02d", dollars, remaining)
+}
+
+// truncate truncates a string to maxLen.
+func truncate(s string, maxLen int) string {
+	// Remove newlines
+	s = strings.ReplaceAll(s, "\n", " ")
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
+}

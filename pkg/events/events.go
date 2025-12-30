@@ -117,6 +117,23 @@ const (
 	EventApprovalVerificationFailed  EventType = "approval.verification.failed"
 	EventExecutionBlockedNoApprovals EventType = "execution.blocked.missing_approvals"
 	EventApprovalPolicyChecked       EventType = "approval.policy.checked"
+
+	// v8 Financial Read events
+	// CRITICAL: These are READ-ONLY events. No execution events exist.
+	EventFinanceReadStarted         EventType = "finance.read.started"
+	EventFinanceReadCompleted       EventType = "finance.read.completed"
+	EventFinanceNormalized          EventType = "finance.normalized"
+	EventFinanceVisibilityFiltered  EventType = "finance.visibility.filtered"
+	EventFinanceObservationCreated  EventType = "finance.observation.created"
+	EventFinanceProposalGenerated   EventType = "finance.proposal.generated"
+	EventFinanceProposalSuppressed  EventType = "finance.proposal.suppressed"
+	EventFinanceDismissalRecorded   EventType = "finance.dismissal.recorded"
+	EventFinanceSyncCompleted       EventType = "finance.sync.completed"
+	EventFinanceDataStale           EventType = "finance.data.stale"
+	EventFinanceDataPartial         EventType = "finance.data.partial"
+	EventFinanceProviderUnavailable EventType = "finance.provider.unavailable"
+	EventFinanceScopeRejected       EventType = "finance.scope.rejected"
+	EventFinanceModeRejected        EventType = "finance.mode.rejected"
 )
 
 // Event represents a system event for audit and observability.

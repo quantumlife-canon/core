@@ -20,3 +20,22 @@ internal/connectors/auth/config.go
 internal/connectors/auth/interface.go
 internal/connectors/calendar/types.go
 internal/connectors/testkit/fake_transport.go
+
+# Financial Read (v8)
+# These files handle financial data where "account" means "bank account" or
+# "financial account", NOT "user account". The financial domain requires this
+# terminology to match banking/payment industry standards and provider APIs.
+# QuantumLife core still uses "circle" for identity - these are data plane adapters.
+internal/connectors/finance/read/*.go
+internal/connectors/finance/read/providers/mock/*.go
+internal/finance/*.go
+internal/finance/impl_inmem/*.go
+internal/finance/categorize/*.go
+internal/finance/propose/*.go
+internal/finance/visibility/*.go
+internal/demo_finance_read/*.go
+pkg/primitives/finance/*.go
+# CLI uses "Accounts" to display financial account count in demo output
+cmd/quantumlife-cli/main.go
+# Intersection types include FinancialVisibilityPolicy with bank account filtering
+internal/intersection/types.go

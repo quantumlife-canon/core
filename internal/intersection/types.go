@@ -104,16 +104,96 @@ const (
 
 // Contract represents the versioned agreement between parties.
 type Contract struct {
-	IntersectionID  string
-	Version         string
-	Parties         []Party
-	Scopes          []Scope
-	Ceilings        []Ceiling
-	Governance      Governance
-	ApprovalPolicy  ApprovalPolicy // v7: Multi-party approval requirements
-	CreatedAt       time.Time
-	PreviousVersion string
+	IntersectionID      string
+	Version             string
+	Parties             []Party
+	Scopes              []Scope
+	Ceilings            []Ceiling
+	Governance          Governance
+	ApprovalPolicy      ApprovalPolicy            // v7: Multi-party approval requirements
+	FinancialVisibility FinancialVisibilityPolicy // v8: Financial data visibility rules
+	CreatedAt           time.Time
+	PreviousVersion     string
 }
+
+// FinancialVisibilityPolicy defines how financial data is shared in intersections.
+// This controls what financial information circles can see about each other.
+//
+// CRITICAL: This is for READ visibility only. No execution authority.
+//
+// Reference: v8 Financial Read
+type FinancialVisibilityPolicy struct {
+	// Enabled indicates if financial visibility is enabled for this intersection.
+	Enabled bool
+
+	// AllowedAccounts lists specific account IDs that can be shared.
+	// If empty and Enabled=true, all accounts are visible.
+	AllowedAccounts []string
+
+	// AllowedCategories lists categories that can be shared.
+	// If empty and Enabled=true, all categories are visible.
+	AllowedCategories []string
+
+	// WindowDays is the maximum lookback window in days.
+	// Default: 90 days
+	WindowDays int
+
+	// AggregationLevel controls how data is aggregated.
+	// "exact" - show individual transactions
+	// "category" - show only category summaries
+	// "total" - show only totals
+	// Default: "category"
+	AggregationLevel string
+
+	// AnonymizeAmounts hides exact amounts when true.
+	// Shows ranges instead (e.g., "$100-200")
+	AnonymizeAmounts bool
+
+	// ObservationThresholds configures when observations trigger.
+	ObservationThresholds ObservationThresholds
+}
+
+// ObservationThresholds defines when financial observations are generated.
+type ObservationThresholds struct {
+	// BalanceChangePercent is the minimum % change to trigger balance observation.
+	// Default: 20
+	BalanceChangePercent int
+
+	// CategoryShiftPercent is the minimum % change to trigger category shift.
+	// Default: 30
+	CategoryShiftPercent int
+
+	// LargeTransactionCents is the amount threshold for large transactions.
+	// Default: 50000 ($500)
+	LargeTransactionCents int64
+
+	// RecurringMinOccurrences is how many times a pattern must repeat.
+	// Default: 2
+	RecurringMinOccurrences int
+}
+
+// DefaultFinancialVisibilityPolicy returns sensible defaults.
+func DefaultFinancialVisibilityPolicy() FinancialVisibilityPolicy {
+	return FinancialVisibilityPolicy{
+		Enabled:          false,
+		WindowDays:       90,
+		AggregationLevel: "category",
+		AnonymizeAmounts: false,
+		ObservationThresholds: ObservationThresholds{
+			BalanceChangePercent:    20,
+			CategoryShiftPercent:    30,
+			LargeTransactionCents:   50000,
+			RecurringMinOccurrences: 2,
+		},
+	}
+}
+
+// AggregationLevel constants.
+const (
+	AggregationLevelExact    = "exact"
+	AggregationLevelCategory = "category"
+	AggregationLevelTotal    = "total"
+)
 
 // ApprovalPolicy defines multi-party approval requirements for execute-mode writes.
 // This is intersection-scoped - no global policies allowed.

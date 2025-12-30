@@ -36,6 +36,7 @@ import (
 	"quantumlife/internal/connectors/calendar/providers/google"
 	"quantumlife/internal/connectors/calendar/providers/microsoft"
 	demoCalendar "quantumlife/internal/demo_family_calendar"
+	demoFinance "quantumlife/internal/demo_finance_read"
 	"quantumlife/internal/intersection"
 	intersectionImpl "quantumlife/internal/intersection/impl_inmem"
 	revocationImpl "quantumlife/internal/revocation/impl_inmem"
@@ -344,6 +345,8 @@ func handleDemo(args []string) {
 	switch subCmd {
 	case "family":
 		handleDemoFamily(args[1:])
+	case "finance-read":
+		handleDemoFinanceRead(args[1:])
 	case "help", "-h", "--help":
 		printDemoUsage()
 	default:
@@ -356,12 +359,19 @@ func handleDemo(args []string) {
 func printDemoUsage() {
 	fmt.Println("Usage:")
 	fmt.Println("  quantumlife-cli demo family [options]")
+	fmt.Println("  quantumlife-cli demo finance-read [options]")
 	fmt.Println()
-	fmt.Println("Options:")
+	fmt.Println("family options:")
 	fmt.Println("  --provider   Provider to use: google, microsoft, or mock (default: mock)")
 	fmt.Println("  --circleA    First circle ID (parent)")
 	fmt.Println("  --circleB    Second circle ID (child)")
 	fmt.Println("  --mode       Run mode: simulate (default)")
+	fmt.Println()
+	fmt.Println("finance-read options (v8):")
+	fmt.Println("  --provider   Provider to use: mock (default)")
+	fmt.Println("  --circleA    First circle ID")
+	fmt.Println("  --circleB    Second circle ID")
+	fmt.Println("  --dismiss    Proposal ID to dismiss (optional)")
 }
 
 // handleDemoFamily runs the family calendar demo.
@@ -511,6 +521,95 @@ func printDemoResult(result *demoCalendar.Result) {
 	for _, entry := range result.AuditEntries {
 		fmt.Printf("  - %s: %s (%s)\n", entry.EventType, entry.Action, entry.Outcome)
 	}
+}
+
+// handleDemoFinanceRead runs the financial read demo (v8).
+func handleDemoFinanceRead(args []string) {
+	fs := flag.NewFlagSet("demo finance-read", flag.ExitOnError)
+	provider := fs.String("provider", "mock", "Provider (mock)")
+	circleA := fs.String("circleA", "circle-alice", "First circle ID")
+	circleB := fs.String("circleB", "circle-bob", "Second circle ID")
+	dismiss := fs.String("dismiss", "", "Proposal ID to dismiss (optional)")
+	seed := fs.String("seed", "demo-seed-v8", "Seed for deterministic data generation")
+	verbose := fs.Bool("verbose", true, "Enable verbose output")
+
+	if err := fs.Parse(args); err != nil {
+		os.Exit(1)
+	}
+
+	// Only mock provider is supported for v8.1
+	if *provider != "mock" {
+		fmt.Fprintln(os.Stderr, "Warning: Only 'mock' provider is supported for v8.1. Using mock.")
+		*provider = "mock"
+	}
+
+	config := demoFinance.DemoConfig{
+		CircleAID:         *circleA,
+		CircleBID:         *circleB,
+		IntersectionID:    fmt.Sprintf("ix-%s-%s", *circleA, *circleB),
+		ProviderID:        *provider,
+		Seed:              *seed,
+		DismissProposalID: *dismiss,
+		Verbose:           *verbose,
+	}
+
+	ctx := context.Background()
+	result, err := demoFinance.Run(ctx, config)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Demo failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Print summary
+	printFinanceReadResult(result)
+}
+
+// printFinanceReadResult prints the finance read demo result.
+func printFinanceReadResult(result *demoFinance.Result) {
+	fmt.Println()
+	fmt.Println("Demo Summary")
+	fmt.Println("============")
+	fmt.Println()
+
+	// Circle A snapshot
+	fmt.Println("Circle A Financial Snapshot:")
+	fmt.Printf("  Circle ID:     %s\n", result.CircleASnapshot.CircleID)
+	fmt.Printf("  Accounts:      %d\n", result.CircleASnapshot.AccountCount)
+	fmt.Printf("  Transactions:  %d\n", result.CircleASnapshot.TransactionCount)
+	fmt.Println()
+
+	// Circle B snapshot
+	fmt.Println("Circle B Financial Snapshot:")
+	fmt.Printf("  Circle ID:     %s\n", result.CircleBSnapshot.CircleID)
+	fmt.Printf("  Accounts:      %d\n", result.CircleBSnapshot.AccountCount)
+	fmt.Printf("  Transactions:  %d\n", result.CircleBSnapshot.TransactionCount)
+	fmt.Println()
+
+	// Observations
+	fmt.Printf("Observations Generated: %d\n", len(result.Observations))
+	for _, obs := range result.Observations {
+		fmt.Printf("  [%s] %s\n", obs.Severity, obs.Title)
+	}
+	fmt.Println()
+
+	// Proposals
+	fmt.Printf("Proposals Generated: %d\n", len(result.Proposals))
+	for _, prop := range result.Proposals {
+		fmt.Printf("  [%s] %s - %s\n", prop.Type, prop.Title, prop.Status)
+	}
+
+	// Silence
+	if result.SilenceApplied {
+		fmt.Println()
+		fmt.Printf("Silence Applied: %s\n", result.SilenceReason)
+	}
+
+	// Dismissal
+	if result.DismissalResult != "" {
+		fmt.Println()
+		fmt.Printf("Dismissal: %s\n", result.DismissalResult)
+	}
+	fmt.Println()
 }
 
 // ============================================================================
