@@ -71,6 +71,73 @@ type TransactionRecord struct {
 
 	// TraceID links to the operation that created this record.
 	TraceID string
+
+	// v8.5: Adjustment fields for refunds, reversals, chargebacks
+	// Kind classifies the transaction type for spend semantics.
+	Kind TransactionKind
+
+	// RelatedCanonicalID links to the original transaction this adjusts.
+	// Empty if this is a standalone purchase or relation is ambiguous.
+	RelatedCanonicalID string
+
+	// IsAdjustment indicates this transaction modifies spend semantics.
+	// True for refunds, reversals, chargebacks.
+	IsAdjustment bool
+
+	// EffectiveAmountCents is the amount that impacts spend calculations.
+	// For purchases: same as AmountCents (negative = expense)
+	// For refunds/reversals: reduces effective spend (positive = reduces expense)
+	EffectiveAmountCents int64
+
+	// AdjustmentMetadata contains additional adjustment classification info.
+	AdjustmentMetadata AdjustmentMetadata
+
+	// PendingAmountCents stores the original pending amount if this record
+	// was merged from a pending transaction with a different amount (partial capture).
+	PendingAmountCents *int64
+}
+
+// TransactionKind classifies transactions for spend semantics.
+type TransactionKind string
+
+const (
+	// KindPurchase is a standard purchase/expense.
+	KindPurchase TransactionKind = "purchase"
+
+	// KindRefund is a merchant-initiated return of funds.
+	KindRefund TransactionKind = "refund"
+
+	// KindReversal is a provider/bank reversal of a transaction.
+	KindReversal TransactionKind = "reversal"
+
+	// KindChargeback is a disputed charge returned to the payer.
+	KindChargeback TransactionKind = "chargeback"
+
+	// KindFee is a bank or service fee.
+	KindFee TransactionKind = "fee"
+
+	// KindTransfer is a transfer between related parties.
+	KindTransfer TransactionKind = "transfer"
+
+	// KindUnknown is the default when classification is uncertain.
+	KindUnknown TransactionKind = "unknown"
+)
+
+// AdjustmentMetadata contains metadata about adjustment classification.
+type AdjustmentMetadata struct {
+	// ClassificationMethod describes how Kind was determined.
+	// Values: "provider_category", "description_pattern", "sign_inference", "default"
+	ClassificationMethod string
+
+	// MatchConfidence indicates relation confidence.
+	// Values: "high" (single match), "low" (ambiguous), "none" (unmatched)
+	MatchConfidence string
+
+	// UncertainRelation is true when multiple potential matches exist.
+	UncertainRelation bool
+
+	// MatchCandidateCount is how many potential related transactions were found.
+	MatchCandidateCount int
 }
 
 // CategorizationResult describes how a transaction was categorized.
@@ -107,6 +174,20 @@ func (t *TransactionRecord) AbsAmountCents() int64 {
 		return -t.AmountCents
 	}
 	return t.AmountCents
+}
+
+// GetEffectiveAmount returns the amount for spend calculations.
+// Uses EffectiveAmountCents if set, otherwise falls back to AmountCents.
+func (t *TransactionRecord) GetEffectiveAmount() int64 {
+	if t.EffectiveAmountCents != 0 {
+		return t.EffectiveAmountCents
+	}
+	return t.AmountCents
+}
+
+// IsRefundOrReversal returns true if this transaction reduces effective spend.
+func (t *TransactionRecord) IsRefundOrReversal() bool {
+	return t.Kind == KindRefund || t.Kind == KindReversal || t.Kind == KindChargeback
 }
 
 // TransactionBatch represents a batch of transactions from a sync.

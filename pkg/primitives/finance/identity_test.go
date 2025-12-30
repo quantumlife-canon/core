@@ -190,12 +190,84 @@ func TestNormalizeMerchant_Consistency(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"AMAZON.COM", "amazoncom"},         // Dots removed
+		{"AMAZON.COM", "amazon"},            // Dots removed, alias applied
 		{"Amazon Inc.", "amazon"},           // Inc suffix removed
 		{"STARBUCKS CORP", "starbucks"},     // Corp suffix removed
-		{"  Trader Joe's  ", "trader joes"}, // Apostrophe removed
-		{"Whole Foods LLC", "whole foods"},  // LLC suffix removed
+		{"  Trader Joe's  ", "trader joes"}, // Apostrophe removed, alias applied
+		{"Whole Foods LLC", "whole foods"},  // LLC suffix removed, alias applied
 		{"", ""},
+	}
+
+	for _, tt := range tests {
+		result := NormalizeMerchant(tt.input)
+		if result != tt.expected {
+			t.Errorf("NormalizeMerchant(%q) = %q, want %q", tt.input, result, tt.expected)
+		}
+	}
+}
+
+// TestNormalizeMerchant_NoiseTokens verifies noise token removal.
+func TestNormalizeMerchant_NoiseTokens(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"POS DEBIT STARBUCKS", "starbucks"}, // POS DEBIT prefix removed
+		{"CARD PURCHASE AMAZON", "amazon"},   // Card prefix removed
+		{"CONTACTLESS TARGET", "target"},     // Contactless removed
+		{"SQ *COFFEE SHOP", "coffee shop"},   // Square prefix stripped
+		{"TST* RESTAURANT", "restaurant"},    // Toast prefix stripped
+		{"UBER *TRIP", "uber"},               // Asterisk -> space, "uber trip" -> alias
+		{"AMAZON*DIGITAL", "amazon"},         // Asterisk -> space, "amazon digital" -> alias
+	}
+
+	for _, tt := range tests {
+		result := NormalizeMerchant(tt.input)
+		if result != tt.expected {
+			t.Errorf("NormalizeMerchant(%q) = %q, want %q", tt.input, result, tt.expected)
+		}
+	}
+}
+
+// TestNormalizeMerchant_StoreNumbers verifies trailing store number removal.
+func TestNormalizeMerchant_StoreNumbers(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"STARBUCKS 12345", "starbucks"},        // Pure numeric store number
+		{"TARGET T1234", "target"},              // Alphanumeric store code
+		{"WALMART SUPERCENTER 5432", "walmart"}, // Long store name + number, alias
+		{"CVS/PHARMACY 00123", "cvs"},           // Pharmacy with store number, alias
+		{"SHELL 7890", "shell"},                 // Gas station with number
+		{"7-ELEVEN", "7eleven"},                 // Number is part of brand name (kept)
+	}
+
+	for _, tt := range tests {
+		result := NormalizeMerchant(tt.input)
+		if result != tt.expected {
+			t.Errorf("NormalizeMerchant(%q) = %q, want %q", tt.input, result, tt.expected)
+		}
+	}
+}
+
+// TestNormalizeMerchant_Aliases verifies alias map lookups.
+func TestNormalizeMerchant_Aliases(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"AMZN", "amazon"},
+		{"AMZN MKTP", "amazon"},
+		{"SBUX", "starbucks"},
+		{"WM SUPERCENTER", "walmart"},
+		{"WAL-MART", "walmart"},
+		{"UBER TRIP", "uber"},
+		{"UBER EATS", "uber eats"}, // Kept separate from Uber
+		{"DD DOORDASH", "doordash"},
+		{"MSFT", "microsoft"},
+		{"EXXONMOBIL", "exxon"},
+		{"MOBIL", "exxon"},
 	}
 
 	for _, tt := range tests {

@@ -283,3 +283,114 @@ func TestDeduplication_PendingToPostedMerge(t *testing.T) {
 		t.Errorf("expected PostedCount=2, got %d", result.Report.PostedCount)
 	}
 }
+
+// TestDeduplication_PartialCapture demonstrates handling of partial captures
+// where pending authorization amount differs from final posted amount.
+//
+// Scenario: Restaurant payment with tip
+// - Pending auth: $50.00 (meal only)
+// - Final posted: $60.00 (meal + tip)
+func TestDeduplication_PartialCapture(t *testing.T) {
+	engine := NewEngine()
+	ctx := ReconcileContext{
+		OwnerType: "circle",
+		OwnerID:   "circle_demo",
+		TraceID:   "partial_capture_demo",
+	}
+
+	// Common match key (same economic event despite different amounts)
+	matchKey := finance.TransactionMatchKey(finance.TransactionMatchInput{
+		CanonicalAccountID: "cac_credit_card",
+		AmountMinorUnits:   -5000, // Original auth amount (used for matching)
+		Currency:           "USD",
+		MerchantNormalized: finance.NormalizeMerchant("Restaurant XYZ"),
+	})
+
+	transactions := []normalize.NormalizedTransactionResult{
+		// Pending authorization ($50.00)
+		{
+			Transaction: finance.TransactionRecord{
+				SourceProvider: "plaid",
+				Description:    "RESTAURANT XYZ (Pending)",
+				AmountCents:    -5000, // $50.00
+				Currency:       "USD",
+				Date:           time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
+				MerchantName:   "Restaurant XYZ",
+				Category:       "food",
+				Pending:        true,
+			},
+			CanonicalID: "ctx_pending_restaurant_123",
+			MatchKey:    matchKey,
+			IsPending:   true,
+		},
+		// Posted with tip ($60.00 = meal + tip)
+		{
+			Transaction: finance.TransactionRecord{
+				SourceProvider: "plaid",
+				Description:    "RESTAURANT XYZ",
+				AmountCents:    -6000, // $60.00 (final with tip)
+				Currency:       "USD",
+				Date:           time.Date(2024, 1, 17, 0, 0, 0, 0, time.UTC),
+				MerchantName:   "Restaurant XYZ",
+				Category:       "food",
+				Pending:        false,
+			},
+			CanonicalID: "ctx_posted_restaurant_456",
+			MatchKey:    matchKey, // Same match key = same event
+			IsPending:   false,
+		},
+	}
+
+	result, err := engine.ReconcileTransactions(ctx, transactions)
+	if err != nil {
+		t.Fatalf("ReconcileTransactions failed: %v", err)
+	}
+
+	// Print demo output
+	fmt.Println("\n=== v8.5 Partial Capture Demo ===")
+	fmt.Printf("Scenario: Restaurant meal with tip\n")
+	fmt.Printf("  Pending auth:  $50.00 (meal only)\n")
+	fmt.Printf("  Final posted:  $60.00 (meal + tip)\n")
+	fmt.Println()
+	fmt.Println("Reconciliation Report (counts only):")
+	fmt.Printf("  Input transactions:   %d\n", result.Report.InputCount)
+	fmt.Printf("  Output transactions:  %d\n", result.Report.OutputCount)
+	fmt.Printf("  Pending merged:       %d\n", result.Report.PendingMerged)
+	fmt.Printf("  Partial captures:     %d\n", result.Report.PartialCaptureCount)
+	fmt.Println()
+	fmt.Println("Result: Pending absorbed into posted, amount difference recorded")
+	fmt.Println("================================")
+
+	// Assertions
+	if result.Report.InputCount != 2 {
+		t.Errorf("expected InputCount=2, got %d", result.Report.InputCount)
+	}
+
+	if result.Report.OutputCount != 1 {
+		t.Errorf("expected OutputCount=1 (merged), got %d", result.Report.OutputCount)
+	}
+
+	if result.Report.PendingMerged != 1 {
+		t.Errorf("expected PendingMerged=1, got %d", result.Report.PendingMerged)
+	}
+
+	if result.Report.PartialCaptureCount != 1 {
+		t.Errorf("expected PartialCaptureCount=1, got %d", result.Report.PartialCaptureCount)
+	}
+
+	// Verify the merged transaction has pending amount stored
+	if len(result.Transactions) != 1 {
+		t.Fatalf("expected 1 transaction, got %d", len(result.Transactions))
+	}
+
+	merged := result.Transactions[0]
+	if merged.Transaction.PendingAmountCents == nil {
+		t.Error("expected PendingAmountCents to be set for partial capture")
+	} else if *merged.Transaction.PendingAmountCents != -5000 {
+		t.Errorf("expected PendingAmountCents=-5000, got %d", *merged.Transaction.PendingAmountCents)
+	}
+
+	if merged.ReconciliationAction != "partial_capture" {
+		t.Errorf("expected action=partial_capture, got %s", merged.ReconciliationAction)
+	}
+}

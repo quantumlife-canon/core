@@ -4,6 +4,7 @@
 // The demo shows:
 // - Syncing financial data (mock, TrueLayer, or Plaid provider)
 // - v8.4 Reconciliation (deduplication, pending→posted merge)
+// - v8.5 Edge case handling (refunds, reversals, partial capture, multi-currency)
 // - Generating observations (deterministic)
 // - Generating proposals (non-binding, optional)
 // - Dismissing proposals (suppression works)
@@ -12,6 +13,7 @@
 // v8.2: Added TrueLayer support for real financial data.
 // v8.3: Added Plaid support for real financial data.
 // v8.4: Added canonical normalization and reconciliation summary.
+// v8.5: Added edge case handling (refunds, reversals, partial captures, multi-currency).
 //
 // Reference: docs/ACCEPTANCE_TESTS_V8_FINANCIAL_READ.md
 package demo_finance_read
@@ -115,7 +117,7 @@ type SnapshotSummary struct {
 	ReconciliationSummary ReconciliationSummary
 }
 
-// ReconciliationSummary contains v8.4 reconciliation metrics.
+// ReconciliationSummary contains v8.4/v8.5 reconciliation metrics.
 // CRITICAL: Contains COUNTS ONLY. No raw amounts.
 type ReconciliationSummary struct {
 	// InputCount is transactions before reconciliation.
@@ -130,6 +132,9 @@ type ReconciliationSummary struct {
 	// PendingMerged is count of pending→posted merges.
 	PendingMerged int
 
+	// v8.5: PartialCaptureCount is partial captures (auth != final amount).
+	PartialCaptureCount int
+
 	// PendingCount is transactions still pending.
 	PendingCount int
 
@@ -141,6 +146,15 @@ type ReconciliationSummary struct {
 
 	// CreditCount is income transactions (count).
 	CreditCount int
+
+	// v8.5: CurrencyCount is number of distinct currencies.
+	CurrencyCount int
+
+	// v8.5: RefundCount is count of refunds detected.
+	RefundCount int
+
+	// v8.5: ReversalCount is count of reversals detected.
+	ReversalCount int
 }
 
 // ObservationSummary summarizes an observation.
@@ -403,7 +417,7 @@ func createReadEnvelope(circleID, intersectionID string) *primitives.ExecutionEn
 func generateBanner() string {
 	return `
 ================================================================================
-                       QUANTUMLIFE FINANCIAL READ DEMO v8.4
+                       QUANTUMLIFE FINANCIAL READ DEMO v8.5
 ================================================================================
 
                           *** NO ACTION TAKEN ***
@@ -415,8 +429,15 @@ No automated actions have occurred.
 
 v8.4 Features:
 - Canonical ID computation for cross-window deduplication
-- Pending → Posted transaction merging
+- Pending -> Posted transaction merging
 - Reconciliation metrics (counts only, no amounts)
+
+v8.5 Edge Case Handling:
+- Refund/reversal/chargeback classification (no spend inflation)
+- Partial capture detection (auth != final amount)
+- Multi-currency safety (no silent aggregation)
+- Enhanced merchant normalization (aliases, store numbers stripped)
+- Deterministic pagination (cursor-based, window-aware)
 
 ================================================================================
 `

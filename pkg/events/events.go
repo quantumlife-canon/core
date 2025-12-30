@@ -144,6 +144,33 @@ const (
 	EventFinanceMatchKeyComputed     EventType = "finance.match_key.computed"
 	EventFinanceReconcileFailed      EventType = "finance.reconcile.failed"
 	EventFinanceMultiProviderMerged  EventType = "finance.multi_provider.merged"
+
+	// v8.5 Edge Case Handling events
+	// CRITICAL: Contains COUNTS ONLY. No raw amounts logged.
+
+	// Adjustment classification events
+	EventFinanceAdjustmentClassified EventType = "finance.adjustment.classified"
+	EventFinanceRefundDetected       EventType = "finance.refund.detected"
+	EventFinanceReversalDetected     EventType = "finance.reversal.detected"
+	EventFinanceChargebackDetected   EventType = "finance.chargeback.detected"
+	EventFinanceRelatedMatched       EventType = "finance.related.matched"
+	EventFinanceRelatedAmbiguous     EventType = "finance.related.ambiguous"
+
+	// Partial capture events
+	EventFinancePartialCaptureDetected EventType = "finance.partial_capture.detected"
+
+	// Multi-currency events
+	EventFinanceMultiCurrencyWarning EventType = "finance.multi_currency.warning"
+	EventFinanceCurrencyAggregated   EventType = "finance.currency.aggregated"
+
+	// Merchant normalization events
+	EventFinanceMerchantNormalized EventType = "finance.merchant.normalized"
+	EventFinanceMerchantAliasUsed  EventType = "finance.merchant.alias_used"
+
+	// Pagination events
+	EventFinancePaginationStarted     EventType = "finance.pagination.started"
+	EventFinancePaginationCompleted   EventType = "finance.pagination.completed"
+	EventFinancePaginationCursorStale EventType = "finance.pagination.cursor_stale"
 )
 
 // Event represents a system event for audit and observability.

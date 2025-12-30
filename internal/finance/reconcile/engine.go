@@ -17,7 +17,7 @@ type DefaultEngine struct {
 // NewEngine creates a new reconciliation engine.
 func NewEngine() *DefaultEngine {
 	return &DefaultEngine{
-		Version: "v8.4-reconcile-v1",
+		Version: "v8.5-reconcile-v2",
 	}
 }
 
@@ -128,16 +128,33 @@ func (e *DefaultEngine) ReconcileTransactions(ctx ReconcileContext, transactions
 			continue
 		}
 
+		// Copy transaction record to allow modifications
+		mergedTxn := txn.Transaction
+
 		// Check for pending transactions with same match key
 		var mergedFrom []string
+		var pendingAmountCents *int64
 		if pending, ok := pendingByMatchKey[txn.MatchKey]; ok {
 			for _, p := range pending {
 				if !mergedPending[p.CanonicalID] {
 					mergedFrom = append(mergedFrom, p.CanonicalID)
 					mergedPending[p.CanonicalID] = true
 					report.PendingMerged++
+
+					// v8.5: Detect partial capture (amount changed from pending to posted)
+					if p.Transaction.AmountCents != txn.Transaction.AmountCents {
+						report.PartialCaptureCount++
+						// Store original pending amount for reference
+						amt := p.Transaction.AmountCents
+						pendingAmountCents = &amt
+					}
 				}
 			}
+		}
+
+		// Set pending amount if partial capture detected
+		if pendingAmountCents != nil {
+			mergedTxn.PendingAmountCents = pendingAmountCents
 		}
 
 		// Check for duplicates with same canonical ID
@@ -148,11 +165,15 @@ func (e *DefaultEngine) ReconcileTransactions(ctx ReconcileContext, transactions
 			report.DuplicatesRemoved += len(duplicates) - 1
 		}
 		if len(mergedFrom) > 0 {
-			action = "pending_to_posted"
+			if pendingAmountCents != nil {
+				action = "partial_capture"
+			} else {
+				action = "pending_to_posted"
+			}
 		}
 
 		reconciled = append(reconciled, ReconciledTransaction{
-			Transaction:          txn.Transaction,
+			Transaction:          mergedTxn,
 			CanonicalID:          txn.CanonicalID,
 			MatchKey:             txn.MatchKey,
 			ProviderSources:      []string{txn.Transaction.SourceProvider},

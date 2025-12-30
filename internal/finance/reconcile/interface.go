@@ -142,6 +142,10 @@ type TransactionReconcileReport struct {
 	// PendingMerged is the count of pending transactions merged to posted.
 	PendingMerged int
 
+	// v8.5: PartialCaptureCount is the count of partial captures detected
+	// (when pending amount differs from posted amount).
+	PartialCaptureCount int
+
 	// ConflictsResolved is the count of conflicts resolved.
 	ConflictsResolved int
 

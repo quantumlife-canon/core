@@ -28,6 +28,7 @@ internal/connectors/testkit/fake_transport.go
 # QuantumLife core still uses "circle" for identity - these are data plane adapters.
 internal/connectors/finance/read/*.go
 internal/connectors/finance/read/providers/mock/*.go
+internal/connectors/finance/read/providers/truelayer/*.go
 internal/finance/*.go
 internal/finance/impl_inmem/*.go
 internal/finance/categorize/*.go
@@ -39,3 +40,7 @@ pkg/primitives/finance/*.go
 cmd/quantumlife-cli/main.go
 # Intersection types include FinancialVisibilityPolicy with bank account filtering
 internal/intersection/types.go
+# Auth scope mapper includes TrueLayer "accounts" scope mapping (v8.2)
+internal/connectors/auth/impl_inmem/scope_map.go
+# Conformance tests verify financial read behavior with "accounts" terminology
+internal/connectors/conformance/finance_readonly_test.go

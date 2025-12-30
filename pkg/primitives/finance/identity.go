@@ -225,18 +225,73 @@ func normalizeForHash(s string) string {
 }
 
 // NormalizeMerchant normalizes a merchant name for consistent matching.
+//
+// v8.5: Enhanced normalization with:
+// - Noise token removal (POS, CARD, CONTACTLESS, etc.)
+// - Trailing store number stripping
+// - Alias map lookup for common merchant variants
 func NormalizeMerchant(name string) string {
 	if name == "" {
 		return ""
 	}
 
-	// Lowercase and trim
+	// Step 1: Lowercase and trim
 	name = strings.ToLower(strings.TrimSpace(name))
 
-	// Remove common suffixes that vary
+	// Step 2: Remove noise tokens (common POS/card prefixes)
+	// Order matters - longer prefixes first
+	noiseTokens := []string{
+		"pos debit purchase ",
+		"pos debit ",
+		"pos purchase ",
+		"pos ",
+		"debit card purchase ",
+		"debit card ",
+		"credit card purchase ",
+		"credit card ",
+		"card purchase ",
+		"card ",
+		"contactless ",
+		"tap ",
+		"chip ",
+		"purchase ",
+		"payment ",
+		"debit ",
+		"chk ",
+		"ach ",
+	}
+	for _, noise := range noiseTokens {
+		if strings.HasPrefix(name, noise) {
+			name = strings.TrimPrefix(name, noise)
+			break // Only remove one prefix
+		}
+	}
+
+	// Step 3: Handle asterisk-delimited formats like "SQ *MERCHANT" or "TST* MERCHANT"
+	// Only strip if prefix is a known short code (2-4 chars)
+	if idx := strings.Index(name, "*"); idx != -1 && idx >= 2 && idx <= 5 {
+		prefix := strings.TrimSpace(name[:idx])
+		// Only strip known POS prefixes
+		if isKnownPOSPrefix(prefix) {
+			name = strings.TrimSpace(name[idx+1:])
+		}
+	}
+
+	// Step 4: Replace punctuation with spaces (keep alphanumeric)
+	var cleaned strings.Builder
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			cleaned.WriteRune(r)
+		} else if r == ' ' || r == '/' || r == '-' || r == '*' {
+			cleaned.WriteRune(' ')
+		}
+	}
+	name = cleaned.String()
+
+	// Step 5: Remove common business suffixes
 	suffixes := []string{
-		" inc", " inc.", " llc", " ltd", " ltd.", " corp", " corp.",
-		" co", " co.", " company",
+		" inc", " llc", " ltd", " limited", " corp", " corporation",
+		" co", " company", " plc", " uk", " us", " usa",
 	}
 	for _, suffix := range suffixes {
 		if strings.HasSuffix(name, suffix) {
@@ -244,14 +299,213 @@ func NormalizeMerchant(name string) string {
 		}
 	}
 
-	// Remove punctuation
-	var result strings.Builder
-	for _, r := range name {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == ' ' {
-			result.WriteRune(r)
+	// Step 6: Strip trailing store/location numbers (e.g., "starbucks 12345")
+	name = stripTrailingNumbers(name)
+
+	// Step 7: Collapse spaces and trim
+	name = strings.Join(strings.Fields(name), " ")
+
+	// Step 8: Check alias map for canonical form
+	if alias, ok := merchantAliases[name]; ok {
+		return alias
+	}
+
+	return name
+}
+
+// isKnownPOSPrefix returns true if the prefix is a known POS system code.
+func isKnownPOSPrefix(prefix string) bool {
+	knownPrefixes := map[string]bool{
+		"sq":  true, // Square
+		"tst": true, // Toast
+		"chk": true, // Check
+		"pp":  true, // PayPal
+	}
+	return knownPrefixes[prefix]
+}
+
+// stripTrailingNumbers removes trailing numeric store/location identifiers.
+// Examples: "starbucks 12345" -> "starbucks", "target t1234" -> "target"
+func stripTrailingNumbers(s string) string {
+	words := strings.Fields(s)
+	if len(words) == 0 {
+		return s
+	}
+
+	// Check if last word is purely numeric or short alphanumeric store code
+	last := words[len(words)-1]
+	if isStoreNumber(last) && len(words) > 1 {
+		return strings.Join(words[:len(words)-1], " ")
+	}
+
+	return s
+}
+
+// isStoreNumber returns true if the string looks like a store number.
+// Matches: pure digits, or short alphanumeric codes starting with # or letter.
+func isStoreNumber(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+
+	// Pure numeric (any length)
+	allDigits := true
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			allDigits = false
+			break
+		}
+	}
+	if allDigits && len(s) >= 2 {
+		return true
+	}
+
+	// Short alphanumeric codes (3-7 chars, at least 2 digits)
+	if len(s) >= 3 && len(s) <= 7 {
+		digitCount := 0
+		for _, r := range s {
+			if r >= '0' && r <= '9' {
+				digitCount++
+			}
+		}
+		if digitCount >= 2 {
+			return true
 		}
 	}
 
-	// Collapse spaces and trim
-	return strings.Join(strings.Fields(result.String()), " ")
+	return false
+}
+
+// merchantAliases maps normalized merchant variants to canonical names.
+// This map is deterministic and does not require external deps at runtime.
+// Source: configs/merchant_aliases.json (embedded at build time conceptually)
+var merchantAliases = map[string]string{
+	// Amazon variants
+	"amzn":               "amazon",
+	"amazoncom":          "amazon", // dots removed without space
+	"amazon com":         "amazon",
+	"amazon digital":     "amazon",
+	"amazon prime":       "amazon",
+	"amazon marketplace": "amazon",
+	"amzn mktp":          "amazon",
+	"amzn digital":       "amazon",
+
+	// Uber variants
+	"uber trip": "uber",
+	"uber one":  "uber",
+	"uber bv":   "uber",
+
+	// Uber Eats (kept separate)
+	"uber eats": "uber eats",
+
+	// Lyft variants
+	"lyft ride": "lyft",
+	"lyft inc":  "lyft",
+
+	// Food delivery
+	"dd doordash":     "doordash",
+	"doordash dasher": "doordash",
+	"grubhub":         "grubhub",
+	"grubhub holding": "grubhub",
+
+	// Coffee
+	"sbux":            "starbucks",
+	"starbux":         "starbucks",
+	"starbucks store": "starbucks",
+
+	// Grocery/retail
+	"wm supercenter":      "walmart",
+	"wal mart":            "walmart",
+	"walmart supercenter": "walmart",
+	"walmart grocery":     "walmart",
+	"target stores":       "target",
+	"target com":          "target",
+	"costco whse":         "costco",
+	"costco wholesale":    "costco",
+	"cvs":                 "cvs",
+	"cvs pharmacy":        "cvs",
+	"cvs store":           "cvs",
+	"walgreen":            "walgreens",
+	"walgreens store":     "walgreens",
+
+	// Fast food
+	"mcdonalds":   "mcdonalds",
+	"mcdonald s":  "mcdonalds",
+	"chick fil a": "chick fil a",
+	"chickfila":   "chick fil a",
+
+	// Streaming/digital
+	"netflix com": "netflix",
+	"netflix inc": "netflix",
+	"spotify usa": "spotify",
+	"spotify ab":  "spotify",
+	"apple com":   "apple",
+	"apple store": "apple",
+	"apple itune": "apple",
+	"google play": "google",
+	"google one":  "google",
+	"google clou": "google",
+	"msft":        "microsoft",
+
+	// Payments
+	"paypal":           "paypal",
+	"paypal inst xfer": "paypal",
+	"venmo":            "venmo",
+	"venmo payment":    "venmo",
+	"zelle":            "zelle",
+	"zelle payment":    "zelle",
+
+	// Gas stations / convenience
+	"shell oil":     "shell",
+	"shell service": "shell",
+	"chevron":       "chevron",
+	"bp gas":        "bp",
+	"bp amoco":      "bp",
+	"exxonmobil":    "exxon",
+	"exxon":         "exxon",
+	"mobil":         "exxon",
+	"7 eleven":      "7eleven",
+	"7eleven":       "7eleven",
+
+	// Shipping
+	"usps":                "usps",
+	"usps po":             "usps",
+	"united states posta": "usps",
+	"fedex":               "fedex",
+	"fedex office":        "fedex",
+	"ups store":           "ups",
+	"ups freight":         "ups",
+
+	// Grocery chains
+	"kroger":            "kroger",
+	"kroger fuel":       "kroger",
+	"safeway":           "safeway",
+	"safeway store":     "safeway",
+	"whole foods":       "whole foods",
+	"whole foods marke": "whole foods",
+	"trader joes":       "trader joes",
+	"trader joe s":      "trader joes",
+
+	// Retail
+	"tjx":            "tj maxx",
+	"tjmaxx":         "tj maxx",
+	"homegoods":      "home goods",
+	"home goods":     "home goods",
+	"marshalls":      "marshalls",
+	"ross stores":    "ross",
+	"ross dress":     "ross",
+	"nordstrom":      "nordstrom",
+	"nordstrom rack": "nordstrom",
+	"macys":          "macys",
+	"macy s":         "macys",
+	"kohls":          "kohls",
+	"kohl s":         "kohls",
+	"jcpenney":       "jcpenney",
+	"jc penney":      "jcpenney",
+	"bestbuy":        "best buy",
+	"best buy":       "best buy",
+	"homedepot":      "home depot",
+	"home depot":     "home depot",
+	"lowes":          "lowes",
+	"lowe s":         "lowes",
 }
