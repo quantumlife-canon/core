@@ -6,6 +6,7 @@
 //	quantumlife-daemon --demo-calendar-suggest      # Run calendar suggest demo (v1)
 //	quantumlife-daemon --demo-family-invite-suggest # Run family invite demo (v2)
 //	quantumlife-daemon --demo-family-negotiate-commit # Run negotiation demo (v3)
+//	quantumlife-daemon --demo-family-finance         # Run family finance demo (v8.6)
 //
 // Reference: docs/TECHNOLOGY_SELECTION_V1.md §13 Implementation Checklist
 package main
@@ -44,6 +45,7 @@ func main() {
 	demoFamilyNegotiateCommit := flag.Bool("demo-family-negotiate-commit", false, "Run the negotiation + commitment demo (suggest-only mode, v3)")
 	demoFamilySimulateAction := flag.Bool("demo-family-simulate-action", false, "Run the simulate action demo (simulate mode, v4)")
 	demoFamilyRealCalendarRead := flag.Bool("demo-family-real-calendar-read", false, "Run the real calendar read demo (simulate mode, v5)")
+	demoFamilyFinance := flag.Bool("demo-family-finance", false, "Run the family finance demo (v8.6)")
 	flag.Parse()
 
 	fmt.Print(banner)
@@ -73,6 +75,11 @@ func main() {
 		return
 	}
 
+	if *demoFamilyFinance {
+		runDemoFamilyFinance()
+		return
+	}
+
 	// Default: show status
 	fmt.Println("Runtime Layers:")
 	fmt.Println("  - Circle Runtime         [in-memory impl available]")
@@ -90,6 +97,7 @@ func main() {
 	fmt.Println("  --demo-family-negotiate-commit   Full negotiation loop + commitment (v3)")
 	fmt.Println("  --demo-family-simulate-action    Simulated execution pipeline (v4)")
 	fmt.Println("  --demo-family-real-calendar-read Real calendar read with OAuth (v5)")
+	fmt.Println("  --demo-family-finance            Family financial intersections (v8.6)")
 	fmt.Println()
 	fmt.Println("Run with --help for more options.")
 
@@ -199,4 +207,21 @@ func runDemoFamilyRealCalendarRead() {
 	}
 
 	demo_family_calendar.PrintResult(result)
+}
+
+// runDemoFamilyFinance runs the family financial intersections demo.
+func runDemoFamilyFinance() {
+	fmt.Println()
+	fmt.Println("Running Family Financial Intersections Demo (v8.6)...")
+	fmt.Println("This demo uses READ + PROPOSE mode: no execution, no payments.")
+	fmt.Println("Demonstrates: Shared Views -> Symmetry Proof -> Neutral Proposals")
+	fmt.Println()
+
+	printer := demo_family.NewPrinter()
+	demo := demo_family.NewFamilyFinanceDemo(printer)
+
+	if err := demo.Run(); err != nil {
+		fmt.Printf("Demo failed: %v\n", err)
+		os.Exit(1)
+	}
 }
