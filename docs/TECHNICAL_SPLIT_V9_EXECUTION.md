@@ -1,368 +1,551 @@
 # Technical Split v9: Financial Execution
 
 **Status**: AUTHORITATIVE
+**Version**: 1.0
 **Subordinate to**: QUANTUMLIFE_CANON_V1.md, TECHNICAL_SPLIT_V1.md, CANON_ADDENDUM_V9_EXECUTION.md
 **Effective**: Upon ratification
-**Audience**: System architects and implementers
 
 ---
 
-## Purpose
+## 0. Document Hierarchy and Conflict Rule
 
-This document defines the technical boundaries that MUST govern financial execution. It specifies what structures exist, how they relate, and what behaviors are forbidden—without prescribing implementation technologies.
+This document defines technical boundaries for financial execution. It is strictly subordinate to:
 
-Implementation that violates these boundaries is defective, regardless of whether it achieves the desired outcome.
+1. **QUANTUMLIFE_CANON_V1.md** — The foundational constitution
+2. **CANON_ADDENDUM_V9_EXECUTION.md** — The execution-specific constitutional extension
+
+Where any provision in this document conflicts with Canon v1 or Canon Addendum v9, the Canon prevails without exception.
+
+This document defines **boundaries only**. It does not prescribe implementation. It establishes what MUST and MUST NOT exist in any compliant v9 implementation. Implementation that violates these boundaries is defective regardless of functional correctness.
 
 ---
 
-## 1. Control Plane vs Execution Plane (Reinforced)
+## 1. Definitions (Canon-Aligned)
 
-### 1.1 Separation Is Absolute
+All definitions map to existing Canon primitives. No new primitives are introduced.
 
-The control plane and execution plane MUST be architecturally distinct. No component may span both planes. No data structure may serve both judgment and execution.
+### 1.1 Execution (Financial)
 
-### 1.2 Control Plane Responsibilities
+The act of initiating an external effect that moves money, creates binding financial commitments, or triggers irreversible downstream financial consequences. Execution is the transition from Proposal to Action to Settlement in the Canon pipeline.
 
-The control plane handles:
+### 1.2 Approval Artifact
 
-- Reading and aggregating financial data
-- Computing views and proposals
-- Validating authority and caps
-- Constructing execution envelopes
-- Recording approvals
-- Verifying pre-conditions
+A signed, timestamped, immutable record that binds a specific Circle's consent to a specific ActionHash. Approval Artifacts are Authority grants scoped to a single action instance.
 
-The control plane MUST NOT:
+### 1.3 ActionHash
 
-- Initiate external financial operations
-- Hold credentials for financial execution
-- Make decisions during execution
-- Modify execution parameters after envelope construction
+A cryptographic hash that uniquely identifies an execution intent. The ActionHash binds together: the action specification, the referenced view, the caps, the expiry, and the intersection context. Any modification invalidates the hash.
 
-### 1.3 Execution Plane Responsibilities
+### 1.4 ExecutionEnvelope
 
-The execution plane handles:
+An immutable container holding all information required to execute a financial action. The ExecutionEnvelope is the sealed form of a Commitment ready for Action execution. Once sealed, it cannot be modified—only executed, revoked, or expired.
 
-- Receiving sealed execution envelopes
-- Validating envelope integrity
+### 1.5 Revocation Window
+
+A mandatory time period between approval and execution during which any approver may withdraw consent. Revocation Windows map to the Authority layer's temporal bounds.
+
+### 1.6 Validity Check
+
+An affirmative verification performed at the moment of execution confirming that all preconditions still hold. Absence of revocation is insufficient; positive confirmation is required.
+
+### 1.7 Settlement
+
+The confirmed completion of a financial action. Settlement occurs when the external financial system confirms the action is irrevocable. Settlement is recorded in the Memory layer and audited in the Audit layer.
+
+---
+
+## 2. Reinforced Control Plane vs Execution Plane
+
+### 2.1 Separation Principle
+
+The Control Plane and Execution Plane MUST be architecturally distinct. No component may span both. This separation is inherited from Technical Split v1 and reinforced for financial execution.
+
+### 2.2 Control Plane Responsibilities
+
+The Control Plane handles:
+
+- Reading and aggregating financial data (v8)
+- Computing views and symmetry proofs
+- Validating Authority and Policy constraints
+- Constructing Proposals
+- Managing Negotiation and Commitment flows
+- Constructing ExecutionEnvelopes
+- Recording Approvals
+
+The Control Plane MUST NOT:
+
+- Hold credentials for external financial systems
+- Initiate external financial effects
+- Make runtime decisions during execution
+- Modify execution parameters after envelope sealing
+
+### 2.3 Execution Plane Responsibilities
+
+The Execution Plane handles:
+
+- Receiving sealed ExecutionEnvelopes
+- Validating envelope integrity and expiry
+- Performing affirmative Validity Checks
 - Executing the specified action exactly as specified
-- Returning success, failure, or uncertainty
 - Recording execution outcomes
+- Reporting to Settlement layer
 
-The execution plane MUST NOT:
+The Execution Plane MUST NOT:
 
 - Interpret intent
 - Modify amounts, recipients, or timing
-- Make judgment calls about whether to proceed
+- Make judgment calls
 - Retry without explicit instruction
-- Access financial data beyond what is in the envelope
+- Access data beyond the envelope contents
 
-### 1.4 The Execution Plane Is Dumb
+### 2.4 Execution Plane Invariants
 
-"Dumb" is a design virtue in the execution plane. The execution plane does not think. It does not optimize. It does not infer. It receives an envelope, validates it, executes it, and reports the result. Intelligence belongs in the control plane. The execution plane is a faithful executor, not a smart one.
+The Execution Plane MUST be:
 
-### 1.5 The Execution Plane Is Interruptible
-
-At any point before execution completes, the execution plane MUST be interruptible. Revocation signals MUST halt execution. Timeout signals MUST halt execution. System shutdown MUST halt execution. The execution plane never "pushes through."
-
----
-
-## 2. Execution Envelope (Conceptual)
-
-### 2.1 Definition
-
-An execution envelope is an immutable, signed data structure that contains everything needed to execute a financial action and nothing more. Once constructed, an envelope cannot be modified—only executed or discarded.
-
-### 2.2 Required Contents
-
-Every execution envelope MUST contain:
-
-**Intent**
-- The specific action to perform
-- Unambiguous specification (no interpretation required)
-- Action type and parameters
-
-**Scope**
-- What resources are affected
-- Which accounts, instruments, or commitments
-- Exactly one action (no batching without explicit multi-action envelopes)
-
-**Caps**
-- Maximum amount (absolute ceiling)
-- Maximum frequency (if recurring)
-- Maximum duration (if time-bound)
-
-**Approval Artifacts**
-- Signatures from all required approvers
-- Timestamps of approval
-- Hash binding approvals to this specific envelope
-
-**Expiry**
-- When this envelope becomes invalid
-- Execution after expiry is forbidden
-
-**Verification Hash**
-- A cryptographic hash of all contents
-- Any modification invalidates the envelope
-
-### 2.3 Envelope Immutability
-
-Once an envelope is constructed and signed, it MUST NOT be modified. There is no "update envelope." There is only "discard envelope and construct new one."
-
-If conditions change and the envelope no longer reflects intent, the envelope is discarded. There is no in-flight editing.
-
-### 2.4 Single Action Per Envelope
-
-Each envelope represents exactly one atomic action. Batch operations require multiple envelopes, each independently approved. "Do these five things" is five envelopes, not one envelope with five items.
+- **Dumb**: No intelligence, inference, or optimization
+- **Interruptible**: Revocation signals halt execution at any safe point
+- **Deterministic**: Same envelope always produces same execution attempt
+- **Auditable**: Every state transition is logged
 
 ---
 
-## 3. Approval Graph
+## 3. Financial Execution Boundary (Hard Gate)
 
-### 3.1 Single-Party Approval
+No external financial effect may occur unless ALL of the following preconditions are satisfied. This is the Hard Gate.
 
-For actions affecting only one circle's resources:
+### 3.1 Mandatory Preconditions
 
-- One approval is required
-- Approval comes from an authorized member of that circle
-- Approval artifact includes approver identity and timestamp
+1. **v8-Derived View Reference**: The execution MUST reference a valid SharedFinancialView with verified ContentHash from v8 infrastructure.
 
-### 3.2 Multi-Party Approval
+2. **Symmetry Proof**: For multi-party contexts, a SymmetryProof MUST confirm all parties received identical information.
 
-For actions affecting multiple circles' resources:
+3. **Explicit Bounded Authority**: Authority MUST satisfy all five bounds per Canon Addendum v9 §3.4:
+   - Scope (what actions)
+   - Amount (how much)
+   - Time (until when)
+   - Frequency (how often)
+   - Explicit grant (not inferred)
 
-- Approval is required from all affected circles
-- Each circle's approval is independent
-- The envelope is valid only when all required approvals are present
+4. **Per-Action Approval**: Each action instance requires its own approval. Standing approvals, blanket approvals, and category-wide approvals are forbidden per Canon Addendum v9 §5.4.
 
-### 3.3 Threshold-Based Approval
+5. **Neutral Approval Language**: All approval prompts MUST be descriptive only, containing no urgency, fear, loss framing, authority language, or optimization framing per Canon Addendum v9 §3.6.
 
-For actions governed by intersection contracts:
+6. **Affirmative Validity Check**: At the moment of execution, an affirmative check MUST confirm all conditions still hold. Absence of revocation alone is insufficient per Canon Addendum v9 §8.3.
 
-- The contract specifies the approval threshold
-- Threshold may be unanimous, majority, or explicit count
-- Threshold rules are fixed at contract creation
-- Changing thresholds requires contract amendment (separate approval flow)
+7. **Revocation Window Present**: A revocation window MUST exist unless the human explicitly waived it for this specific action per Canon Addendum v9 §3.5.
 
-### 3.4 Approval Dependencies
+### 3.2 Silence Means No
 
-Approvals MAY have dependencies:
+If any precondition is not affirmatively satisfied, execution MUST NOT proceed. Ambiguity defaults to non-execution. Timeout defaults to non-execution. Missing approval defaults to non-execution.
 
-- "A must approve before B can approve"
-- "Approval is valid only if conditions X, Y, Z hold"
+---
 
-Dependencies are encoded in the approval graph, not inferred at execution time.
+## 4. ExecutionEnvelope v9 (Conceptual)
 
-### 3.5 Expiry Semantics
+### 4.1 Required Fields
 
-Approvals expire independently of envelopes:
+Every ExecutionEnvelope MUST contain:
 
-- If any required approval expires before execution, the envelope is invalid
-- Expired approvals cannot be retroactively extended
-- Renewal requires new approval, not extension of old approval
+| Field | Description |
+|-------|-------------|
+| EnvelopeID | Unique identifier for this envelope |
+| ActorCircleID | The Circle initiating execution |
+| IntersectionID | The Intersection context (if multi-party) |
+| ViewHash | ContentHash of the referenced v8 SharedFinancialView |
+| ActionHash | Cryptographic hash binding all action parameters |
+| ActionSpec | Exact specification of what to execute |
+| AmountCap | Maximum amount (hard ceiling) |
+| FrequencyCap | Maximum frequency (if applicable) |
+| DurationCap | Maximum duration of authority |
+| Expiry | When this envelope becomes invalid |
+| Approvals | List of Approval Artifacts with signatures |
+| ApprovalThreshold | Required approval count and proof of satisfaction |
+| RevocationWindowStart | When revocation window opened |
+| RevocationWindowEnd | When revocation window closes |
+| RevocationWaived | Boolean; true only if explicitly waived for this action |
+| TraceID | Correlation ID for audit reconstruction |
+| SealedAt | Timestamp when envelope was sealed |
+| SealHash | Hash of all above fields proving immutability |
 
-### 3.6 Non-Repudiation
+### 4.2 Forbidden Fields
 
-Every approval MUST be:
+ExecutionEnvelopes MUST NOT contain:
+
+- Probabilistic scores or confidence values
+- "Recommended" flags or suggestions
+- "Urgency" indicators
+- Optimization hints or preferences
+- Batch identifiers linking to other executions
+- Retry counters or retry policies
+- Fallback specifications
+
+### 4.3 Immutability Invariant
+
+Once an ExecutionEnvelope is sealed (SealHash computed), no field may be modified. Any required change necessitates discarding the envelope and constructing a new one with fresh approvals.
+
+---
+
+## 5. Approval Graph Semantics
+
+### 5.1 Single-Party Approval
+
+For actions affecting only one Circle's resources:
+
+- One Approval Artifact is required
+- The artifact MUST be signed by an authorized member of that Circle
+- The artifact MUST bind to the specific ActionHash
+- The artifact MUST include a timestamp
+
+### 5.2 Multi-Party Approval
+
+For actions affecting multiple Circles' resources:
+
+- Approval is required from all affected Circles
+- Each Circle's Approval Artifact is independent
+- The ExecutionEnvelope is valid only when all required approvals are present
+- Approval order may be specified by the Intersection contract
+
+### 5.3 Threshold Rules
+
+Intersection contracts may specify approval thresholds:
+
+- **Unanimous**: All parties must approve
+- **Majority**: More than half must approve
+- **Explicit Count**: N of M must approve
+
+Threshold rules MUST be:
+
+- Fixed at Intersection creation
+- Visible to all parties
+- Immutable without contract amendment (separate approval flow)
+
+### 5.4 Symmetry Requirement
+
+All approvers MUST receive identical information:
+
+- Same view data (verified by ContentHash)
+- Same action specification
+- Same caps and limits
+- Same approval prompt language
+
+Asymmetric presentation to different approvers is forbidden.
+
+### 5.5 Non-Repudiation Requirement
+
+Every Approval Artifact MUST be:
 
 - Cryptographically signed by the approver
-- Bound to the specific envelope content hash
+- Bound to the specific ActionHash
 - Timestamped with tamper-evident time
 - Stored durably before execution proceeds
 
-An approver cannot later deny having approved if the artifact exists.
+An approver cannot later deny approval if a valid artifact exists.
+
+### 5.6 Forbidden Approval Patterns
+
+The following are forbidden:
+
+- **Blanket Approvals**: "Approve all payments under $X"
+- **Standing Approvals**: "Approve payments to Merchant Y until revoked"
+- **Approval Reuse**: Using one approval for multiple actions
+- **Approval Inference**: Inferring approval from behavior or patterns
+- **Predictive Approval**: Pre-approving anticipated future actions
 
 ---
 
-## 4. Revocation Semantics
+## 6. Revocation Semantics (Mandatory)
 
-### 4.1 Pre-Execution Revocation
+### 6.1 Pre-Execution Revocation
 
-Before execution begins:
+If revocation occurs before execution begins:
 
-- Any approver MAY revoke their approval
-- Revocation invalidates the envelope
-- Revocation is immediate upon receipt
-- No delay, no confirmation, no waiting period
+- Execution MUST be blocked
+- The ExecutionEnvelope MUST be marked invalid
+- No partial effects may occur
+- Revocation is immediate upon signal receipt
 
-### 4.2 Mid-Execution Revocation
+### 6.2 Mid-Execution Revocation
 
-During execution:
+If revocation occurs during execution:
 
-- Revocation signals MUST be checked at all interruptible points
-- Upon revocation signal, execution halts at the next safe point
-- "Safe point" means: no action in progress, state is consistent
-- Partial results are recorded and surfaced
+- Execution MUST halt at the next safe point
+- "Safe point" means: no action in flight, state is consistent
+- "Finish what you started" is forbidden
+- Partial state MUST be recorded and surfaced
 
-### 4.3 Post-Execution Irreversibility Boundaries
+### 6.3 Post-Execution Irreversibility
 
 After execution completes:
 
 - Revocation cannot undo completed execution
-- The system MUST clearly communicate when irreversibility boundary is crossed
-- Users MUST understand: "after this point, revocation cannot undo"
+- The system MUST honestly represent irreversibility
+- No false "undo" claims
+- Compensation (if available) is distinct from reversal
 
-### 4.4 Revocation Recording
+### 6.4 Revocation Signal Properties
 
-Revocations are recorded with the same durability as approvals:
+Revocation signals MUST be:
 
-- Who revoked
-- When they revoked
-- What they revoked
-- The state at revocation time
-
----
-
-## 5. Settlement Semantics
-
-### 5.1 What "Done" Means
-
-An execution is "done" when:
-
-- The external financial system has accepted the action
-- Confirmation has been received and validated
-- The outcome is recorded in the audit trail
-
-"Done" does not mean "initiated." "Done" means "confirmed complete."
-
-### 5.2 When Money Is Considered Moved
-
-Money is considered moved when:
-
-- The destination system confirms receipt, OR
-- The originating system confirms irrevocable commitment, OR
-- The settlement window has closed without reversal
-
-Until one of these conditions holds, money is "in transit" and status is uncertain.
-
-### 5.3 Partial Outcomes
-
-If an execution partially completes:
-
-- The partial state MUST be recorded exactly
-- What succeeded and what did not MUST be distinguishable
-- Partial outcomes do not trigger automatic completion
-- Human decision is required to proceed, retry, or abandon
-
-### 5.4 Uncertain Outcomes
-
-If the system cannot determine whether execution succeeded:
-
-- The state is recorded as "uncertain"
-- No dependent actions proceed
-- Human intervention is required to resolve
-- The system does not guess
+- **Immediate**: Processed without queuing delay
+- **Authoritative**: Any approver may revoke their approval
+- **Durable**: Recorded with same durability as approvals
+- **Propagated**: Reach execution plane within bounded time
 
 ---
 
-## 6. Audit and Explainability
+## 7. Settlement Semantics (Financial)
 
-### 6.1 Mandatory Event Trail
+### 7.1 Definition of Settled
 
-Every execution MUST produce an audit trail containing:
+An execution is "settled" when:
 
-- Envelope construction (what, when, by whom)
-- Approval events (each approval, when, by whom)
-- Execution initiation (when, envelope hash)
-- Execution outcome (success, failure, partial, uncertain)
-- Settlement confirmation (when, from what source)
-- Revocation events (if any)
+- The external financial system confirms irrevocable completion, OR
+- The settlement window has closed without reversal, OR
+- The destination confirms receipt
 
-### 6.2 Human-Readable Reconstruction
+Until one of these conditions holds, status is "pending."
 
-The audit trail MUST support reconstruction into human-readable narrative:
+### 7.2 Atomicity Requirements
 
-- "On [date], [approver] approved [action] for [amount] to [recipient]"
-- "Execution began at [time] and completed at [time]"
-- "Settlement confirmed by [source] at [time]"
+- No partial settlement without explicit representation
+- If an action partially completes, the partial state MUST be recorded exactly
+- Partial outcomes do not auto-complete
+- Human decision required to proceed, retry, or abandon partial states
 
-Technical identifiers MUST map to human-comprehensible names.
+### 7.3 No Retries Without Fresh Approval
 
-### 6.3 No Redacted Authority Paths
+If execution fails:
 
-The authority path—from approval to execution—MUST be fully visible. There are no hidden approvers, no system-level overrides, no redacted steps. If you can trace the execution, you can trace the authority.
+- The system MUST NOT automatically retry
+- Retry requires new Approval Artifacts
+- The original ExecutionEnvelope is invalidated
+- A new envelope with fresh approvals MUST be constructed
 
-### 6.4 Audit Immutability
+### 7.4 Failure Defaults to Non-Execution
 
-Audit records MUST be immutable once written. There is no editing of history. Corrections are new entries that reference old entries, never modifications of old entries.
+If any failure occurs (network, timeout, ambiguous response):
 
----
-
-## 7. Forbidden Architectures
-
-The following architectural patterns are FORBIDDEN in v9 execution:
-
-### 7.1 Background Executors
-
-No system component MAY execute financial actions without an active user session or explicit scheduling. "Background job that processes payments" is forbidden.
-
-### 7.2 Auto-Retries
-
-No system component MAY automatically retry failed executions. Retry requires new human approval. "Retry until success" is forbidden.
-
-### 7.3 Optimizing Schedulers
-
-No system component MAY reschedule executions to optimize timing, batching, or cost. Executions happen when approved to happen. "Wait for a better rate" is forbidden.
-
-### 7.4 Machine Learning in Execution Decisions
-
-No machine learning model MAY influence whether execution proceeds, when it proceeds, or how it proceeds. ML may inform the control plane; it MUST NOT touch the execution plane.
-
-### 7.5 Asymmetric Data Planes
-
-In multi-party contexts, all parties MUST operate on identical data. No system architecture MAY present different data to different parties in an attempt to obtain approval.
-
-### 7.6 Implicit Authority Escalation
-
-No system architecture MAY allow authority to escalate implicitly. If an action requires Level 2 approval, having Level 1 approval does not partially satisfy it. Authority is explicit and complete or it is absent.
-
-### 7.7 Execution Without Read
-
-No execution MAY proceed without first reading current state. Architectures that execute based on cached or stale data are forbidden. "Read-then-execute" is mandatory; "execute-based-on-memory" is forbidden.
-
-### 7.8 Shared Execution Credentials
-
-Execution credentials MUST NOT be shared across contexts. Each execution context has isolated credentials. Compromise of one context does not compromise others.
+- Default state is "not executed"
+- Money stays where it was
+- No "best effort" execution
+- Human intervention required to resolve
 
 ---
 
-## 8. Relationship to Prior Technical Splits
+## 8. Audit and Explainability (Financial Execution)
 
-### 8.1 Subordinate to v1
+### 8.1 Mandatory Event Trail
 
-This document is subordinate to TECHNICAL_SPLIT_V1.md. Where v1 specifies a constraint, that constraint applies to v9. v9 adds constraints; it does not relax them.
+Every execution MUST produce audit events for:
 
-### 8.2 Builds on v8
+| Event | Description |
+|-------|-------------|
+| view.referenced | v8 view was referenced for this execution |
+| approval.requested | Approval was requested from a party |
+| approval.submitted | Approval artifact was submitted |
+| approval.verified | Approval artifact was cryptographically verified |
+| approval.expired | Approval artifact expired before use |
+| envelope.sealed | ExecutionEnvelope was sealed and immutable |
+| revocation.window.opened | Revocation window began |
+| revocation.window.closed | Revocation window ended without revocation |
+| revocation.received | Revocation signal was received |
+| validity.checked | Affirmative validity check performed |
+| execution.started | Execution began |
+| execution.completed | Execution completed successfully |
+| execution.blocked | Execution was blocked (precondition failed) |
+| execution.aborted | Execution was aborted (revocation or error) |
+| settlement.pending | Settlement is pending confirmation |
+| settlement.settled | Settlement confirmed |
+| settlement.failed | Settlement failed |
+| settlement.disputed | Settlement is disputed |
 
-v8 established read-only financial data planes. v9 execution consumes v8 views. The integrity guarantees of v8 (symmetry, neutrality, determinism) are prerequisites for v9 execution safety.
+### 8.2 Explainability Requirements
 
-### 8.3 Extends v6-v7
+Every execution MUST be explainable in human-readable terms:
 
-v6-v7 established execution patterns for calendar actions. v9 applies stricter versions of those patterns to financial execution, recognizing that money requires more caution than time.
+- **What happened**: Exact action taken
+- **Why**: Reference to the Proposal and Commitment that led here
+- **Whose authority**: Which Circles approved, with timestamps
+- **Which caps**: What limits were in effect
+- **Which approvals**: Each Approval Artifact, inspectable
+- **Which validity check**: When and what was checked
+
+### 8.3 Immutability of Audit Records
+
+Audit records MUST be:
+
+- Immutable once written
+- Append-only (corrections are new entries referencing old)
+- Reconstructable to human narrative
+- Retained according to financial regulatory requirements
 
 ---
 
-## 9. Compliance Verification
+## 9. Forbidden Architectures (Explicit List)
 
-Implementation compliance with this technical split MUST be verifiable through:
+The following architectural patterns are FORBIDDEN in any v9 implementation:
 
-### 9.1 Static Analysis
+### 9.1 Background Executors
 
-- Control plane and execution plane code MUST be in separate modules
-- Execution plane MUST NOT import control plane judgment components
-- Envelope structures MUST be immutable by construction
+No component may execute financial actions in background processes, daemons, or scheduled jobs invisible to the user.
 
-### 9.2 Runtime Verification
+### 9.2 Schedulers and Cron Payments
 
-- Execution MUST fail if envelope validation fails
-- Revocation MUST halt execution within bounded time
-- Expired approvals MUST be rejected
+No component may schedule future payments based on time alone. Scheduled actions require fresh validity checks and revocation window respect at execution time.
 
-### 9.3 Audit Verification
+### 9.3 Auto-Retry
 
-- Every execution MUST have complete audit trail
-- Audit trails MUST be reconstructible to human narrative
-- Authority paths MUST be fully traceable
+No component may automatically retry failed executions. Every retry requires fresh human approval.
+
+### 9.4 Conditional Execution
+
+No component may implement "if X then pay" logic that executes without human approval at the moment of execution.
+
+### 9.5 Approval Batching or Optimization
+
+No component may batch multiple actions under a single approval or optimize approval flows for reduced friction.
+
+### 9.6 Asymmetric Data Presentation
+
+No component may present different information to different approvers in the same multi-party approval flow.
+
+### 9.7 ML-Driven Execution Decisions
+
+No machine learning model may influence whether, when, or how execution proceeds.
+
+### 9.8 Small Amount Exceptions
+
+No component may bypass any precondition for "small amounts." All amounts receive identical treatment.
+
+### 9.9 Default Execute Paths
+
+No component may create flows where execution is the default outcome. Non-execution MUST always be the default.
+
+---
+
+## 10. Minimal Interfaces (Conceptual)
+
+The following conceptual interfaces represent the minimum required boundaries between layers. Names indicate responsibilities only.
+
+### 10.1 FinanceExecutionAuthorizer
+
+**Responsibilities**:
+- MUST verify all five Authority bounds are satisfied
+- MUST verify per-action approval exists (no standing approvals)
+- MUST verify approval language neutrality
+- MUST reject if any bound is missing or exceeded
+
+**MUST NOT**:
+- Infer or assume authority
+- Accept blanket or standing approvals
+- Weaken bounds for convenience
+
+### 10.2 ApprovalVerifier
+
+**Responsibilities**:
+- MUST cryptographically verify Approval Artifact signatures
+- MUST verify ActionHash binding
+- MUST verify timestamp validity
+- MUST verify approval has not expired
+- MUST verify approver is authorized for the Circle
+
+**MUST NOT**:
+- Accept unsigned or tampered artifacts
+- Accept approvals bound to different ActionHashes
+- Accept expired approvals
+
+### 10.3 RevocationChecker
+
+**Responsibilities**:
+- MUST check for revocation signals before execution
+- MUST check for revocation signals during execution
+- MUST halt execution upon revocation detection
+- MUST record revocation events
+
+**MUST NOT**:
+- Ignore revocation signals
+- Delay revocation processing
+- Allow "finish what you started"
+
+### 10.4 ExecutionRunner
+
+**Responsibilities**:
+- MUST perform affirmative validity check before acting
+- MUST execute exactly as specified in envelope
+- MUST halt at safe points upon interrupt
+- MUST record all state transitions
+
+**MUST NOT**:
+- Modify execution parameters
+- Retry without instruction
+- Proceed on ambiguous state
+- Execute beyond envelope specification
+
+### 10.5 SettlementRecorder
+
+**Responsibilities**:
+- MUST record pending, settled, failed, disputed states
+- MUST record partial outcomes exactly
+- MUST integrate with Memory layer
+
+**MUST NOT**:
+- Mark settled without confirmation
+- Hide partial outcomes
+- Auto-complete partial states
+
+### 10.6 AuditLogger
+
+**Responsibilities**:
+- MUST log all mandatory events
+- MUST ensure immutability of logs
+- MUST support human-readable reconstruction
+- MUST retain logs per regulatory requirements
+
+**MUST NOT**:
+- Omit any mandatory event
+- Allow log modification
+- Redact authority paths
+
+---
+
+## 11. Compliance Checklist (For Reviewers)
+
+Before any v9 implementation is approved, reviewers MUST verify:
+
+### Authority and Approval
+
+- [ ] All five Authority bounds are enforced (scope, amount, time, frequency, explicit)
+- [ ] Per-action approval is required (no standing/blanket approvals)
+- [ ] Approval language is neutral (no urgency/fear/authority/optimization)
+- [ ] Approval artifacts are signed, timestamped, and bound to ActionHash
+- [ ] Multi-party approvals present identical information to all approvers
+
+### Execution Control
+
+- [ ] Affirmative validity check occurs at moment of execution
+- [ ] Revocation windows exist and are enforced
+- [ ] Revocation halts execution immediately
+- [ ] No "finish what you started" behavior exists
+- [ ] Silence/timeout defaults to non-execution
+
+### Forbidden Patterns
+
+- [ ] No background executors exist
+- [ ] No auto-retry mechanisms exist
+- [ ] No conditional execution without approval
+- [ ] No approval batching or optimization
+- [ ] No ML in execution decisions
+- [ ] No small amount exceptions
+- [ ] No default execute paths
+
+### Audit and Settlement
+
+- [ ] All mandatory events are logged
+- [ ] Logs are immutable
+- [ ] Human-readable reconstruction is possible
+- [ ] Settlement states are explicit
+- [ ] Partial outcomes are represented exactly
+- [ ] Failures default to non-execution
 
 ---
 
