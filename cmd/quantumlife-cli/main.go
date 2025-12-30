@@ -6,6 +6,8 @@
 //	auth exchange        Exchange authorization code for tokens
 //	demo family          Run family calendar demo
 //	execute create-event Create a calendar event (v6 Execute mode)
+//	approval request     Request multi-party approval for an action (v7)
+//	approval approve     Submit approval for an action (v7)
 //
 // Reference: docs/TECHNOLOGY_SELECTION_V1.md
 package main
@@ -21,6 +23,8 @@ import (
 	"time"
 
 	actionImpl "quantumlife/internal/action/impl_inmem"
+	"quantumlife/internal/approval"
+	approvalImpl "quantumlife/internal/approval/impl_inmem"
 	auditImpl "quantumlife/internal/audit/impl_inmem"
 	authorityImpl "quantumlife/internal/authority/impl_inmem"
 	"quantumlife/internal/circle"
@@ -55,6 +59,8 @@ func main() {
 		handleDemo(os.Args[2:])
 	case "execute":
 		handleExecute(os.Args[2:])
+	case "approval":
+		handleApproval(os.Args[2:])
 	case "version":
 		fmt.Printf("quantumlife-cli v%s\n", version)
 	case "help", "-h", "--help":
@@ -77,6 +83,8 @@ func printUsage() {
 	fmt.Println("  auth exchange      Exchange authorization code for tokens")
 	fmt.Println("  demo family        Run family calendar demo (read-only)")
 	fmt.Println("  execute create-event Create a calendar event (v6 Execute mode)")
+	fmt.Println("  approval request   Request multi-party approval for an action (v7)")
+	fmt.Println("  approval approve   Submit approval for an action (v7)")
 	fmt.Println("  version            Print version")
 	fmt.Println("  help               Show this help")
 	fmt.Println()
@@ -94,6 +102,13 @@ func printUsage() {
 	fmt.Println("  # Create a real calendar event (REQUIRES --approve)")
 	fmt.Println("  quantumlife-cli execute create-event --provider google --circle my-circle \\")
 	fmt.Println("    --title 'Team Meeting' --start '2025-01-20T10:00:00Z' --duration 60 --approve")
+	fmt.Println()
+	fmt.Println("  # Request multi-party approval (v7)")
+	fmt.Println("  quantumlife-cli approval request --intersection <id> --action <action-id> \\")
+	fmt.Println("    --circle <requesting-circle>")
+	fmt.Println()
+	fmt.Println("  # Submit approval (v7)")
+	fmt.Println("  quantumlife-cli approval approve --token <token> --circle <approving-circle>")
 	fmt.Println()
 	fmt.Println("Environment Variables:")
 	fmt.Println("  GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET     Google OAuth credentials")
@@ -818,4 +833,245 @@ func truncateString(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen-3] + "..."
+}
+
+// ============================================================================
+// Approval Command - v7 Multi-party Approval
+// ============================================================================
+
+// handleApproval handles the approval command and subcommands.
+func handleApproval(args []string) {
+	if len(args) == 0 {
+		printApprovalUsage()
+		os.Exit(1)
+	}
+
+	subCmd := args[0]
+
+	switch subCmd {
+	case "request":
+		handleApprovalRequest(args[1:])
+	case "approve":
+		handleApprovalApprove(args[1:])
+	case "help", "-h", "--help":
+		printApprovalUsage()
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown approval command: %s\n\n", subCmd)
+		printApprovalUsage()
+		os.Exit(1)
+	}
+}
+
+func printApprovalUsage() {
+	fmt.Println("Multi-party Approval Commands (v7)")
+	fmt.Println("==================================")
+	fmt.Println()
+	fmt.Println("Multi-party approval allows multiple circles to approve an action")
+	fmt.Println("before it can be executed. This is required when an intersection's")
+	fmt.Println("ApprovalPolicy has mode='multi'.")
+	fmt.Println()
+	fmt.Println("Usage:")
+	fmt.Println("  quantumlife-cli approval request [options]")
+	fmt.Println("  quantumlife-cli approval approve [options]")
+	fmt.Println()
+	fmt.Println("Request Approval:")
+	fmt.Println("  --intersection   Intersection ID")
+	fmt.Println("  --action         Action ID")
+	fmt.Println("  --action-type    Action type (e.g., calendar.create_event)")
+	fmt.Println("  --circle         Requesting circle ID")
+	fmt.Println("  --title          Action title (for display)")
+	fmt.Println("  --expiry         Token expiry in seconds (default: 3600)")
+	fmt.Println()
+	fmt.Println("Submit Approval:")
+	fmt.Println("  --token          Approval request token")
+	fmt.Println("  --circle         Approving circle ID")
+	fmt.Println()
+	fmt.Println("Examples:")
+	fmt.Println("  # Request approval for an action")
+	fmt.Println("  quantumlife-cli approval request \\")
+	fmt.Println("    --intersection ix-123 \\")
+	fmt.Println("    --action act-456 \\")
+	fmt.Println("    --action-type calendar.create_event \\")
+	fmt.Println("    --circle parent-circle \\")
+	fmt.Println("    --title 'Team Meeting'")
+	fmt.Println()
+	fmt.Println("  # Share the token with approving circles, then they run:")
+	fmt.Println("  quantumlife-cli approval approve \\")
+	fmt.Println("    --token <token-from-request> \\")
+	fmt.Println("    --circle child-circle")
+}
+
+// handleApprovalRequest handles creating an approval request.
+func handleApprovalRequest(args []string) {
+	fs := flag.NewFlagSet("approval request", flag.ExitOnError)
+	intersectionID := fs.String("intersection", "", "Intersection ID")
+	actionID := fs.String("action", "", "Action ID")
+	actionType := fs.String("action-type", "calendar.create_event", "Action type")
+	circleID := fs.String("circle", "", "Requesting circle ID")
+	title := fs.String("title", "", "Action title")
+	expirySeconds := fs.Int("expiry", 3600, "Token expiry in seconds")
+
+	if err := fs.Parse(args); err != nil {
+		os.Exit(1)
+	}
+
+	// Validate required parameters
+	if *intersectionID == "" {
+		fmt.Fprintln(os.Stderr, "Error: --intersection is required")
+		os.Exit(1)
+	}
+	if *actionID == "" {
+		fmt.Fprintln(os.Stderr, "Error: --action is required")
+		os.Exit(1)
+	}
+	if *circleID == "" {
+		fmt.Fprintln(os.Stderr, "Error: --circle is required")
+		os.Exit(1)
+	}
+
+	// Use action ID as title if not provided
+	if *title == "" {
+		*title = *actionID
+	}
+
+	fmt.Println()
+	fmt.Println("╔═══════════════════════════════════════════════════════════════╗")
+	fmt.Println("║  APPROVAL REQUEST - Multi-party Approval (v7)                 ║")
+	fmt.Println("╠═══════════════════════════════════════════════════════════════╣")
+	fmt.Printf("║  Intersection: %-47s ║\n", truncateString(*intersectionID, 47))
+	fmt.Printf("║  Action:       %-47s ║\n", truncateString(*actionID, 47))
+	fmt.Printf("║  Type:         %-47s ║\n", truncateString(*actionType, 47))
+	fmt.Printf("║  Circle:       %-47s ║\n", truncateString(*circleID, 47))
+	fmt.Printf("║  Title:        %-47s ║\n", truncateString(*title, 47))
+	fmt.Printf("║  Expiry:       %-47s ║\n", fmt.Sprintf("%d seconds", *expirySeconds))
+	fmt.Println("╚═══════════════════════════════════════════════════════════════╝")
+	fmt.Println()
+
+	// Create approval store (in real system, would connect to shared store)
+	auditStore := auditImpl.NewStore()
+	approvalStore := approvalImpl.NewStore(approvalImpl.StoreConfig{
+		AuditStore: auditStore,
+	})
+
+	// Create action
+	action := &primitives.Action{
+		ID:             *actionID,
+		IntersectionID: *intersectionID,
+		Type:           *actionType,
+		Parameters:     map[string]string{"title": *title},
+	}
+
+	// Request approval
+	ctx := context.Background()
+	token, err := approvalStore.RequestApproval(ctx, approval.ApprovalRequest{
+		IntersectionID:     *intersectionID,
+		ContractVersion:    "v1",
+		Action:             action,
+		ScopesRequired:     []string{"calendar:write"},
+		RequestingCircleID: *circleID,
+		ExpirySeconds:      *expirySeconds,
+		TraceID:            fmt.Sprintf("trace-approval-%d", time.Now().UnixNano()),
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating approval request: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Encode token for sharing
+	encodedToken := primitives.EncodeApprovalToken(token)
+
+	fmt.Println("Approval Request Created")
+	fmt.Println("========================")
+	fmt.Println()
+	fmt.Println("Token ID:", token.TokenID)
+	fmt.Println("Action Hash:", token.ActionHash[:16]+"...")
+	fmt.Println("Expires At:", token.ExpiresAt.Format(time.RFC3339))
+	fmt.Println()
+	fmt.Println("Share this token with approving circles:")
+	fmt.Println()
+	fmt.Println("  " + encodedToken)
+	fmt.Println()
+	fmt.Println("Approving circles should run:")
+	fmt.Println()
+	fmt.Println("  quantumlife-cli approval approve \\")
+	fmt.Printf("    --token '%s' \\\n", encodedToken)
+	fmt.Println("    --circle <approving-circle-id>")
+}
+
+// handleApprovalApprove handles submitting an approval.
+func handleApprovalApprove(args []string) {
+	fs := flag.NewFlagSet("approval approve", flag.ExitOnError)
+	token := fs.String("token", "", "Approval request token")
+	circleID := fs.String("circle", "", "Approving circle ID")
+
+	if err := fs.Parse(args); err != nil {
+		os.Exit(1)
+	}
+
+	// Validate required parameters
+	if *token == "" {
+		fmt.Fprintln(os.Stderr, "Error: --token is required")
+		os.Exit(1)
+	}
+	if *circleID == "" {
+		fmt.Fprintln(os.Stderr, "Error: --circle is required")
+		os.Exit(1)
+	}
+
+	// Decode the token to display info
+	decodedToken, err := primitives.DecodeApprovalToken(*token)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: invalid token format: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println()
+	fmt.Println("╔═══════════════════════════════════════════════════════════════╗")
+	fmt.Println("║  APPROVAL SUBMISSION - Multi-party Approval (v7)              ║")
+	fmt.Println("╠═══════════════════════════════════════════════════════════════╣")
+	fmt.Printf("║  Token ID:     %-47s ║\n", truncateString(decodedToken.TokenID, 47))
+	fmt.Printf("║  Intersection: %-47s ║\n", truncateString(decodedToken.IntersectionID, 47))
+	fmt.Printf("║  Action:       %-47s ║\n", truncateString(decodedToken.ActionID, 47))
+	fmt.Printf("║  Summary:      %-47s ║\n", truncateString(decodedToken.ActionSummary, 47))
+	fmt.Printf("║  Approver:     %-47s ║\n", truncateString(*circleID, 47))
+	fmt.Printf("║  Expires:      %-47s ║\n", decodedToken.ExpiresAt.Format(time.RFC3339))
+	fmt.Println("╚═══════════════════════════════════════════════════════════════╝")
+	fmt.Println()
+
+	// Check if token has expired (local check)
+	if decodedToken.IsExpired(time.Now()) {
+		fmt.Fprintln(os.Stderr, "Error: approval request token has expired")
+		os.Exit(1)
+	}
+
+	// Create approval store (in real system, would connect to shared store)
+	auditStore := auditImpl.NewStore()
+	approvalStore := approvalImpl.NewStore(approvalImpl.StoreConfig{
+		AuditStore: auditStore,
+	})
+
+	// Submit approval
+	ctx := context.Background()
+	artifact, err := approvalStore.SubmitApproval(ctx, approval.SubmitApprovalRequest{
+		Token:            *token,
+		ApproverCircleID: *circleID,
+		TraceID:          fmt.Sprintf("trace-approve-%d", time.Now().UnixNano()),
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error submitting approval: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("Approval Submitted Successfully")
+	fmt.Println("================================")
+	fmt.Println()
+	fmt.Println("Approval ID:", artifact.ApprovalID)
+	fmt.Println("Circle ID:", artifact.ApproverCircleID)
+	fmt.Println("Action ID:", artifact.ActionID)
+	fmt.Println("Scopes:", strings.Join(artifact.ScopesApproved, ", "))
+	fmt.Println("Approved At:", artifact.ApprovedAt.Format(time.RFC3339))
+	fmt.Println("Expires At:", artifact.ExpiresAt.Format(time.RFC3339))
+	fmt.Println()
+	fmt.Println("This approval has been recorded.")
+	fmt.Println("Once all required approvals are collected, the action can be executed.")
 }

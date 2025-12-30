@@ -108,6 +108,83 @@ func TestRunner_AuthorizationProof(t *testing.T) {
 	}
 }
 
+// TestRunner_Verbose runs the demo with verbose output for manual inspection.
+// Run with: go test -v -run TestRunner_Verbose
+func TestRunner_Verbose(t *testing.T) {
+	runner := NewRunnerWithClock(func() time.Time { return testTime })
+	ctx := context.Background()
+
+	t.Log("╔═══════════════════════════════════════════════════════════════╗")
+	t.Log("║           QuantumLife v6 Execute Mode Demo                    ║")
+	t.Log("╚═══════════════════════════════════════════════════════════════╝")
+
+	// Demo 1: Successful execution
+	t.Log("")
+	t.Log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	t.Log("Demo 1: Successful Event Creation")
+	t.Log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	result, err := runner.Run(ctx)
+	if err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+
+	t.Logf("Mode:           %s", result.Mode)
+	t.Logf("Trace ID:       %s", result.TraceID)
+	t.Logf("Intersection:   %s", result.IntersectionID)
+
+	if result.ExecuteResult.Success {
+		t.Log("Status:         ✓ SUCCESS")
+	} else {
+		t.Log("Status:         ✗ FAILED")
+	}
+	t.Logf("Settlement:     %s", result.ExecuteResult.SettlementStatus)
+
+	if result.ExecuteResult.AuthorizationProof != nil {
+		proof := result.ExecuteResult.AuthorizationProof
+		t.Log("")
+		t.Log("Authorization Proof:")
+		t.Logf("  ID:           %s", proof.ID)
+		t.Logf("  Authorized:   %v", proof.Authorized)
+		t.Logf("  Approved:     %v (artifact: %s)", proof.ApprovedByHuman, proof.ApprovalArtifact)
+	}
+
+	if result.ExecuteResult.Receipt != nil {
+		receipt := result.ExecuteResult.Receipt
+		t.Log("")
+		t.Log("Event Receipt:")
+		t.Logf("  Provider:     %s", receipt.Provider)
+		t.Logf("  External ID:  %s", receipt.ExternalEventID)
+		t.Logf("  Status:       %s", receipt.Status)
+		t.Logf("  Link:         %s", receipt.Link)
+	}
+
+	t.Logf("Audit Entries:  %d", len(result.AuditEntries))
+
+	// Demo 2: Revocation
+	t.Log("")
+	t.Log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	t.Log("Demo 2: Revocation Blocks Execution")
+	t.Log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	result2, err := runner.RunWithRevocation(ctx)
+	if err != nil {
+		t.Fatalf("RunWithRevocation error: %v", err)
+	}
+
+	t.Logf("Mode:           %s", result2.Mode)
+	t.Logf("Settlement:     %s", result2.ExecuteResult.SettlementStatus)
+	t.Log("")
+	t.Log("⚠ Action was REVOKED before external write")
+	t.Log("  No calendar event was created (safety guarantee)")
+	t.Logf("Audit Entries:  %d", len(result2.AuditEntries))
+
+	t.Log("")
+	t.Log("╔═══════════════════════════════════════════════════════════════╗")
+	t.Log("║              v6 Execute Mode Demo Complete                    ║")
+	t.Log("╚═══════════════════════════════════════════════════════════════╝")
+}
+
 // TestRunner_Deterministic verifies deterministic output for same input.
 func TestRunner_Deterministic(t *testing.T) {
 	runner1 := NewRunnerWithClock(func() time.Time { return testTime })

@@ -108,6 +108,15 @@ const (
 	EventSettlementAborted         EventType = "settlement.aborted"
 	EventRevocationReceived        EventType = "revocation.received"
 	EventRevocationApplied         EventType = "revocation.applied"
+
+	// v7 Multi-party approval events
+	EventApprovalRequested           EventType = "approval.requested"
+	EventApprovalSubmitted           EventType = "approval.submitted"
+	EventApprovalExpired             EventType = "approval.expired"
+	EventApprovalVerified            EventType = "approval.verified"
+	EventApprovalVerificationFailed  EventType = "approval.verification.failed"
+	EventExecutionBlockedNoApprovals EventType = "execution.blocked.missing_approvals"
+	EventApprovalPolicyChecked       EventType = "approval.policy.checked"
 )
 
 // Event represents a system event for audit and observability.

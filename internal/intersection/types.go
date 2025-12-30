@@ -110,8 +110,119 @@ type Contract struct {
 	Scopes          []Scope
 	Ceilings        []Ceiling
 	Governance      Governance
+	ApprovalPolicy  ApprovalPolicy // v7: Multi-party approval requirements
 	CreatedAt       time.Time
 	PreviousVersion string
+}
+
+// ApprovalPolicy defines multi-party approval requirements for execute-mode writes.
+// This is intersection-scoped - no global policies allowed.
+//
+// CRITICAL: Changing ApprovalPolicy bumps contract MINOR version.
+//
+// Reference: v7 Multi-party approval governance
+type ApprovalPolicy struct {
+	// Mode defines the approval mode: "single" or "multi"
+	// "single" - standard v6 approval (--approve flag sufficient)
+	// "multi" - requires approvals from multiple circles
+	Mode string
+
+	// RequiredApprovers lists specific circle IDs that MUST approve.
+	// If empty and Mode="multi", any circles in the intersection can approve.
+	RequiredApprovers []string
+
+	// Threshold is the minimum number of approvals required.
+	// Must be >= 1. For "single" mode, this is always 1.
+	// For "multi" mode, must be <= Total.
+	Threshold int
+
+	// Total is the total number of potential approvers.
+	// If 0, derived from len(RequiredApprovers) or contract parties count.
+	Total int
+
+	// ExpirySeconds defines how long an approval artifact is valid.
+	// After expiry, the approval cannot be used for execution.
+	// Default: 3600 (1 hour)
+	ExpirySeconds int
+
+	// AppliesToScopes lists which scopes require this policy.
+	// If empty, applies to all write scopes (e.g., ["calendar:write"]).
+	AppliesToScopes []string
+}
+
+// ApprovalPolicyMode constants.
+const (
+	ApprovalModeSingle = "single"
+	ApprovalModeMulti  = "multi"
+)
+
+// DefaultApprovalPolicy returns the default single-approval policy.
+func DefaultApprovalPolicy() ApprovalPolicy {
+	return ApprovalPolicy{
+		Mode:          ApprovalModeSingle,
+		Threshold:     1,
+		ExpirySeconds: 3600,
+	}
+}
+
+// IsMultiApproval returns true if multi-party approval is required.
+func (p ApprovalPolicy) IsMultiApproval() bool {
+	return p.Mode == ApprovalModeMulti && p.Threshold > 1
+}
+
+// AppliesToScope checks if this policy applies to the given scope.
+func (p ApprovalPolicy) AppliesToScope(scope string) bool {
+	if len(p.AppliesToScopes) == 0 {
+		// Default: apply to all write scopes
+		return isWriteScope(scope)
+	}
+	for _, s := range p.AppliesToScopes {
+		if s == scope {
+			return true
+		}
+	}
+	return false
+}
+
+// isWriteScope checks if a scope is a write scope.
+func isWriteScope(scope string) bool {
+	// Write scopes end with :write or :execute
+	return len(scope) > 6 && (scope[len(scope)-6:] == ":write" || scope[len(scope)-8:] == ":execute")
+}
+
+// Validate checks that the approval policy is valid.
+func (p ApprovalPolicy) Validate() error {
+	switch p.Mode {
+	case ApprovalModeSingle:
+		// Single mode: threshold must be 1
+		if p.Threshold != 0 && p.Threshold != 1 {
+			return fmt.Errorf("single mode requires threshold=1, got %d", p.Threshold)
+		}
+	case ApprovalModeMulti:
+		// Multi mode: threshold must be >= 1
+		if p.Threshold < 1 {
+			return fmt.Errorf("multi mode requires threshold >= 1, got %d", p.Threshold)
+		}
+		// If Total is specified, threshold must be <= Total
+		if p.Total > 0 && p.Threshold > p.Total {
+			return fmt.Errorf("threshold (%d) cannot exceed total (%d)", p.Threshold, p.Total)
+		}
+		// If RequiredApprovers specified, threshold cannot exceed count
+		if len(p.RequiredApprovers) > 0 && p.Threshold > len(p.RequiredApprovers) {
+			return fmt.Errorf("threshold (%d) cannot exceed required approvers count (%d)",
+				p.Threshold, len(p.RequiredApprovers))
+		}
+	case "":
+		// Empty mode defaults to single
+	default:
+		return fmt.Errorf("invalid approval mode: %s", p.Mode)
+	}
+
+	if p.ExpirySeconds < 0 {
+		return fmt.Errorf("expiry seconds cannot be negative: %d", p.ExpirySeconds)
+	}
+
+	return nil
 }
 
 // Party represents a circle's participation in an intersection.

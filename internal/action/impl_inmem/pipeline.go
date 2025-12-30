@@ -1,12 +1,14 @@
-// Package impl_inmem provides the execution pipeline for v6 Execute mode.
+// Package impl_inmem provides the execution pipeline for v6/v7 Execute mode.
 // This implements the two-phase pattern for safe external writes.
 //
 // CRITICAL: This is the primary entry point for all Execute mode operations.
 // All external writes MUST go through this pipeline.
 //
 // Two-Phase Pattern:
-// 1. Prepare: Validate, authorize, check revocation, emit action.pending
+// 1. Prepare: Validate, authorize, check revocation, verify approvals, emit action.pending
 // 2. Execute: Check revocation again, perform write, settle
+//
+// v7 adds multi-party approval verification before any external write.
 //
 // Reference: docs/TECHNICAL_SPLIT_V1.md §3.5 Action Execution Layer
 package impl_inmem
@@ -17,10 +19,12 @@ import (
 	"fmt"
 	"time"
 
+	"quantumlife/internal/approval"
 	auditImpl "quantumlife/internal/audit/impl_inmem"
 	"quantumlife/internal/authority"
 	authorityImpl "quantumlife/internal/authority/impl_inmem"
 	"quantumlife/internal/connectors/calendar"
+	"quantumlife/internal/intersection"
 	"quantumlife/internal/revocation"
 	"quantumlife/pkg/events"
 	"quantumlife/pkg/primitives"
@@ -29,17 +33,19 @@ import (
 // Pipeline executes actions with the two-phase pattern.
 // CRITICAL: All external writes MUST go through this pipeline.
 type Pipeline struct {
-	authority  *authorityImpl.Engine
-	revocation revocation.Checker
-	auditStore *auditImpl.Store
-	clockFunc  func() time.Time
-	idCounter  int
+	authority        *authorityImpl.Engine
+	revocation       revocation.Checker
+	approvalVerifier approval.Verifier
+	auditStore       *auditImpl.Store
+	clockFunc        func() time.Time
+	idCounter        int
 }
 
 // PipelineConfig configures the execution pipeline.
 type PipelineConfig struct {
 	AuthorityEngine   *authorityImpl.Engine
 	RevocationChecker revocation.Checker
+	ApprovalVerifier  approval.Verifier
 	AuditStore        *auditImpl.Store
 	ClockFunc         func() time.Time
 }
@@ -52,10 +58,11 @@ func NewPipeline(config PipelineConfig) *Pipeline {
 	}
 
 	return &Pipeline{
-		authority:  config.AuthorityEngine,
-		revocation: config.RevocationChecker,
-		auditStore: config.AuditStore,
-		clockFunc:  clockFunc,
+		authority:        config.AuthorityEngine,
+		revocation:       config.RevocationChecker,
+		approvalVerifier: config.ApprovalVerifier,
+		auditStore:       config.AuditStore,
+		clockFunc:        clockFunc,
 	}
 }
 
@@ -72,6 +79,9 @@ type ExecuteRequest struct {
 
 	// ContractVersion is the version of the contract.
 	ContractVersion string
+
+	// Contract is the intersection contract (required for v7 approval verification).
+	Contract *intersection.Contract
 
 	// Action contains the action to execute.
 	Action *primitives.Action
@@ -118,10 +128,11 @@ type SettlementStatus string
 
 // Settlement statuses.
 const (
-	SettlementPending SettlementStatus = "pending"
-	SettlementSettled SettlementStatus = "settled"
-	SettlementAborted SettlementStatus = "aborted"
-	SettlementRevoked SettlementStatus = "revoked"
+	SettlementPending         SettlementStatus = "pending"
+	SettlementSettled         SettlementStatus = "settled"
+	SettlementAborted         SettlementStatus = "aborted"
+	SettlementRevoked         SettlementStatus = "revoked"
+	SettlementBlockedApproval SettlementStatus = "blocked_approval"
 )
 
 // Execute runs the two-phase execution pipeline.
@@ -129,6 +140,7 @@ const (
 // Phase 1 (Prepare):
 // - Validate request parameters
 // - Authorize action with approval
+// - Verify multi-party approvals (v7)
 // - Check revocation status
 // - Emit action.pending event
 //
@@ -175,7 +187,12 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) *ExecuteResu
 		return result
 	}
 
-	// 1.3 Check revocation status
+	// 1.3 Verify multi-party approvals (v7)
+	if err := p.verifyApprovals(ctx, req, result); err != nil {
+		return result
+	}
+
+	// 1.4 Check revocation status
 	if p.revocation != nil {
 		err := p.revocation.CheckBeforeWrite(ctx, req.Action.ID, req.IntersectionID, proof.ID)
 		if err != nil {
@@ -186,7 +203,7 @@ func (p *Pipeline) Execute(ctx context.Context, req ExecuteRequest) *ExecuteResu
 		}
 	}
 
-	// 1.4 Emit action.pending event
+	// 1.5 Emit action.pending event
 	p.auditActionPending(ctx, req, proof)
 
 	// =========================================================================
@@ -282,6 +299,113 @@ func (p *Pipeline) validateRequest(req ExecuteRequest) error {
 		return errors.New("connector does not support write operations")
 	}
 	return nil
+}
+
+// verifyApprovals checks multi-party approval requirements (v7).
+// Returns nil if approvals are sufficient, error otherwise.
+func (p *Pipeline) verifyApprovals(ctx context.Context, req ExecuteRequest, result *ExecuteResult) error {
+	// If no approval verifier is configured, skip (v6 compatibility)
+	if p.approvalVerifier == nil {
+		return nil
+	}
+
+	// If no contract is provided, skip (v6 compatibility)
+	if req.Contract == nil {
+		return nil
+	}
+
+	policy := req.Contract.ApprovalPolicy
+
+	// Check if policy requires multi-party approval
+	if policy.Mode == "" || policy.Mode == intersection.ApprovalModeSingle {
+		// Single approval mode - already handled by ApprovalArtifact in request
+		p.auditApprovalPolicyChecked(ctx, req, "single", true, "")
+		return nil
+	}
+
+	// Multi-party approval mode
+	// Check if policy applies to the scopes being used
+	scopesUsed := []string{"calendar:write"}
+	if len(policy.AppliesToScopes) > 0 {
+		applies := false
+		for _, scope := range scopesUsed {
+			for _, policyScope := range policy.AppliesToScopes {
+				if scope == policyScope {
+					applies = true
+					break
+				}
+			}
+			if applies {
+				break
+			}
+		}
+		if !applies {
+			// Policy doesn't apply to these scopes
+			p.auditApprovalPolicyChecked(ctx, req, "multi", true, "policy does not apply to scopes used")
+			return nil
+		}
+	}
+
+	// Compute action hash for replay protection
+	actionHash := primitives.ComputeActionHashFromAction(
+		req.Action,
+		req.IntersectionID,
+		req.ContractVersion,
+		scopesUsed,
+		primitives.ModeExecute,
+	)
+
+	// Convert intersection.Contract to approval.ContractForApproval
+	contractForApproval := convertToContractForApproval(req.Contract)
+
+	// Verify approvals
+	verifyReq := approval.VerifyApprovalsRequest{
+		Contract:   contractForApproval,
+		Action:     req.Action,
+		ActionHash: actionHash,
+		ScopesUsed: scopesUsed,
+		TraceID:    req.TraceID,
+	}
+
+	verifyResult, err := p.approvalVerifier.VerifyApprovals(ctx, verifyReq)
+	if err != nil {
+		result.Error = fmt.Errorf("approval verification failed: %w", err)
+		result.SettlementStatus = SettlementBlockedApproval
+		p.auditApprovalPolicyChecked(ctx, req, "multi", false, err.Error())
+		return err
+	}
+
+	if !verifyResult.Passed {
+		result.Error = fmt.Errorf("insufficient approvals: %s", verifyResult.Reason)
+		result.SettlementStatus = SettlementBlockedApproval
+		p.auditApprovalVerificationFailed(ctx, req, verifyResult)
+		return errors.New(verifyResult.Reason)
+	}
+
+	// Approvals verified successfully
+	p.auditApprovalVerified(ctx, req, verifyResult)
+	return nil
+}
+
+// convertToContractForApproval converts an intersection.Contract to approval.ContractForApproval.
+func convertToContractForApproval(c *intersection.Contract) *approval.ContractForApproval {
+	// Extract party IDs
+	parties := make([]string, len(c.Parties))
+	for i, p := range c.Parties {
+		parties[i] = p.CircleID
+	}
+
+	return &approval.ContractForApproval{
+		IntersectionID: c.IntersectionID,
+		ApprovalPolicy: approval.ApprovalPolicy{
+			Mode:              c.ApprovalPolicy.Mode,
+			RequiredApprovers: c.ApprovalPolicy.RequiredApprovers,
+			Threshold:         c.ApprovalPolicy.Threshold,
+			ExpirySeconds:     c.ApprovalPolicy.ExpirySeconds,
+			AppliesToScopes:   c.ApprovalPolicy.AppliesToScopes,
+		},
+		Parties: parties,
+	}
 }
 
 // rollback attempts to rollback a failed or revoked action.
@@ -476,6 +600,54 @@ func (p *Pipeline) auditRollbackFailed(ctx context.Context, req ExecuteRequest, 
 		IntersectionID: req.IntersectionID,
 		Action:         "rollback",
 		Outcome:        fmt.Sprintf("failed to delete %s: %s", calendar.RedactedExternalID(receipt.ExternalEventID), err.Error()),
+		TraceID:        req.TraceID,
+	})
+}
+
+// v7 Multi-party approval audit methods
+
+func (p *Pipeline) auditApprovalPolicyChecked(ctx context.Context, req ExecuteRequest, mode string, passed bool, reason string) {
+	if p.auditStore == nil {
+		return
+	}
+	outcome := fmt.Sprintf("mode=%s passed=%t", mode, passed)
+	if reason != "" {
+		outcome += fmt.Sprintf(" reason=%s", reason)
+	}
+	p.auditStore.Append(ctx, auditImpl.Entry{
+		Type:           string(events.EventApprovalPolicyChecked),
+		CircleID:       req.ActorCircleID,
+		IntersectionID: req.IntersectionID,
+		Action:         "approval_policy_check",
+		Outcome:        outcome,
+		TraceID:        req.TraceID,
+	})
+}
+
+func (p *Pipeline) auditApprovalVerified(ctx context.Context, req ExecuteRequest, result *primitives.ApprovalVerificationResult) {
+	if p.auditStore == nil {
+		return
+	}
+	p.auditStore.Append(ctx, auditImpl.Entry{
+		Type:           string(events.EventApprovalVerified),
+		CircleID:       req.ActorCircleID,
+		IntersectionID: req.IntersectionID,
+		Action:         "approval_verified",
+		Outcome:        fmt.Sprintf("approvals=%d/%d", result.ThresholdMet, result.ThresholdRequired),
+		TraceID:        req.TraceID,
+	})
+}
+
+func (p *Pipeline) auditApprovalVerificationFailed(ctx context.Context, req ExecuteRequest, result *primitives.ApprovalVerificationResult) {
+	if p.auditStore == nil {
+		return
+	}
+	p.auditStore.Append(ctx, auditImpl.Entry{
+		Type:           string(events.EventApprovalVerificationFailed),
+		CircleID:       req.ActorCircleID,
+		IntersectionID: req.IntersectionID,
+		Action:         "approval_verification_failed",
+		Outcome:        fmt.Sprintf("approvals=%d/%d reason=%s", result.ThresholdMet, result.ThresholdRequired, result.Reason),
 		TraceID:        req.TraceID,
 	})
 }
