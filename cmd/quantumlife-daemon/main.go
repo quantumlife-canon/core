@@ -7,6 +7,7 @@
 //	quantumlife-daemon --demo-family-invite-suggest # Run family invite demo (v2)
 //	quantumlife-daemon --demo-family-negotiate-commit # Run negotiation demo (v3)
 //	quantumlife-daemon --demo-family-finance         # Run family finance demo (v8.6)
+//	quantumlife-daemon --demo-v9-dryrun-execution   # Run v9 dry-run execution demo
 //
 // Reference: docs/TECHNOLOGY_SELECTION_V1.md §13 Implementation Checklist
 package main
@@ -22,6 +23,7 @@ import (
 	"quantumlife/internal/demo_family_calendar"
 	"quantumlife/internal/demo_family_negotiate"
 	"quantumlife/internal/demo_family_simulate"
+	"quantumlife/internal/demo_v9_dryrun"
 	"quantumlife/pkg/primitives"
 )
 
@@ -46,6 +48,7 @@ func main() {
 	demoFamilySimulateAction := flag.Bool("demo-family-simulate-action", false, "Run the simulate action demo (simulate mode, v4)")
 	demoFamilyRealCalendarRead := flag.Bool("demo-family-real-calendar-read", false, "Run the real calendar read demo (simulate mode, v5)")
 	demoFamilyFinance := flag.Bool("demo-family-finance", false, "Run the family finance demo (v8.6)")
+	demoV9DryrunExecution := flag.Bool("demo-v9-dryrun-execution", false, "Run the v9 dry-run execution demo (no real money moves)")
 	flag.Parse()
 
 	fmt.Print(banner)
@@ -80,6 +83,11 @@ func main() {
 		return
 	}
 
+	if *demoV9DryrunExecution {
+		runDemoV9DryrunExecution()
+		return
+	}
+
 	// Default: show status
 	fmt.Println("Runtime Layers:")
 	fmt.Println("  - Circle Runtime         [in-memory impl available]")
@@ -98,6 +106,7 @@ func main() {
 	fmt.Println("  --demo-family-simulate-action    Simulated execution pipeline (v4)")
 	fmt.Println("  --demo-family-real-calendar-read Real calendar read with OAuth (v5)")
 	fmt.Println("  --demo-family-finance            Family financial intersections (v8.6)")
+	fmt.Println("  --demo-v9-dryrun-execution       v9 dry-run financial execution (NO REAL MONEY)")
 	fmt.Println()
 	fmt.Println("Run with --help for more options.")
 
@@ -224,4 +233,43 @@ func runDemoFamilyFinance() {
 		fmt.Printf("Demo failed: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// runDemoV9DryrunExecution runs the v9 dry-run execution demo.
+// CRITICAL: This is DRY-RUN ONLY. NO REAL MONEY MOVES.
+func runDemoV9DryrunExecution() {
+	fmt.Println()
+	fmt.Println("Running v9 Dry-Run Execution Demo...")
+	fmt.Println()
+	fmt.Println("╔═══════════════════════════════════════════════════════════════╗")
+	fmt.Println("║  CRITICAL: DRY-RUN MODE                                       ║")
+	fmt.Println("║                                                               ║")
+	fmt.Println("║  NO REAL MONEY MOVES. NO PROVIDER WRITE CALLS.                ║")
+	fmt.Println("║  Settlement outcome ALWAYS: blocked, revoked, expired, or     ║")
+	fmt.Println("║  aborted - NEVER settled_successfully.                        ║")
+	fmt.Println("║                                                               ║")
+	fmt.Println("║  This slice proves execution safety without risk.             ║")
+	fmt.Println("╚═══════════════════════════════════════════════════════════════╝")
+	fmt.Println()
+	fmt.Println("Demonstrates:")
+	fmt.Println("  1. Intent creation with explicit amount, recipient, currency")
+	fmt.Println("  2. Sealed ExecutionEnvelope with action hash")
+	fmt.Println("  3. Approval request with neutral language")
+	fmt.Println("  4. Approval verification bound to action hash")
+	fmt.Println("  5. Revocation window with circle-initiated revocation")
+	fmt.Println("  6. Affirmative validity check (6 conditions)")
+	fmt.Println("  7. Execution blocked/aborted (NEVER succeeds)")
+	fmt.Println("  8. Settlement recorded as non-success")
+	fmt.Println("  9. Complete audit trail reconstruction")
+	fmt.Println()
+
+	runner := demo_v9_dryrun.NewRunner()
+	result, err := runner.Run()
+
+	if err != nil {
+		fmt.Printf("Demo failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	demo_v9_dryrun.PrintResult(result)
 }

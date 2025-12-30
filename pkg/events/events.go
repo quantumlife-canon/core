@@ -218,6 +218,59 @@ const (
 	EventFinancialPolicyDisabled EventType = "financial.policy.disabled"
 	EventFinancialPolicyUpdated  EventType = "financial.policy.updated"
 	EventSymmetryRequirementSet  EventType = "symmetry.requirement.set"
+
+	// v9 Financial Execution events
+	// CRITICAL: v9 Slice 1 is DRY-RUN ONLY. No real money moves.
+	//
+	// Per TECHNICAL_SPLIT_V9_EXECUTION.md §8.1, these events are MANDATORY.
+	// Per ACCEPTANCE_TESTS_V9_EXECUTION.md, all events must be auditable.
+
+	// Intent lifecycle events
+	EventExecutionIntentCreated EventType = "execution.intent.created"
+	EventExecutionIntentExpired EventType = "execution.intent.expired"
+
+	// Envelope lifecycle events
+	EventExecutionEnvelopeBuilt   EventType = "execution.envelope.built"
+	EventExecutionEnvelopeSealed  EventType = "execution.envelope.sealed"
+	EventExecutionEnvelopeExpired EventType = "execution.envelope.expired"
+
+	// Approval lifecycle events (v9 specific - per-action only)
+	EventV9ApprovalRequested         EventType = "v9.approval.requested"
+	EventV9ApprovalSubmitted         EventType = "v9.approval.submitted"
+	EventV9ApprovalVerified          EventType = "v9.approval.verified"
+	EventV9ApprovalExpired           EventType = "v9.approval.expired"
+	EventV9ApprovalRejected          EventType = "v9.approval.rejected"
+	EventV9ApprovalLanguageChecked   EventType = "v9.approval.language.checked"
+	EventV9ApprovalLanguageViolation EventType = "v9.approval.language.violation"
+
+	// Revocation lifecycle events
+	EventV9RevocationWindowOpened EventType = "v9.revocation.window.opened"
+	EventV9RevocationWindowClosed EventType = "v9.revocation.window.closed"
+	EventV9RevocationTriggered    EventType = "v9.revocation.triggered"
+	EventV9RevocationApplied      EventType = "v9.revocation.applied"
+
+	// Validity check events
+	EventV9ValidityChecked     EventType = "v9.validity.checked"
+	EventV9ValidityCheckPassed EventType = "v9.validity.check.passed"
+	EventV9ValidityCheckFailed EventType = "v9.validity.check.failed"
+
+	// Execution lifecycle events
+	EventV9ExecutionStarted   EventType = "v9.execution.started"
+	EventV9ExecutionBlocked   EventType = "v9.execution.blocked"
+	EventV9ExecutionAborted   EventType = "v9.execution.aborted"
+	EventV9ExecutionCompleted EventType = "v9.execution.completed"
+	EventV9ExecutionRevoked   EventType = "v9.execution.revoked"
+
+	// Settlement events (v9 - always non-success in Slice 1)
+	EventV9SettlementRecorded EventType = "v9.settlement.recorded"
+	EventV9SettlementPending  EventType = "v9.settlement.pending"
+	EventV9SettlementBlocked  EventType = "v9.settlement.blocked"
+	EventV9SettlementRevoked  EventType = "v9.settlement.revoked"
+	EventV9SettlementExpired  EventType = "v9.settlement.expired"
+	EventV9SettlementAborted  EventType = "v9.settlement.aborted"
+
+	// Audit finalization events
+	EventV9AuditTraceFinalized EventType = "v9.audit.trace.finalized"
 )
 
 // Event represents a system event for audit and observability.
