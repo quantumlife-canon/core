@@ -66,15 +66,13 @@ type Governance struct {
 	DissolutionPolicy string
 }
 
-// InviteToken represents a signed invitation to create an intersection.
-type InviteToken struct {
-	ID                 string
-	IssuerCircleID     string
-	Template           ContractTemplate
-	ScopesOffered      []string
-	ExpiresAt          time.Time
-	Signature          []byte
-	SignatureAlgorithm string
+// InviteTokenRef references an invite token stored elsewhere.
+// The actual token data is in pkg/primitives.InviteToken.
+type InviteTokenRef struct {
+	TokenID        string
+	IssuerCircleID string
+	AcceptedAt     *time.Time
+	AcceptorID     string
 }
 
 // ContractTemplate contains proposed contract terms.
@@ -114,6 +112,27 @@ type AmendRequest struct {
 // InviteRequest contains parameters for creating an invite.
 type InviteRequest struct {
 	IssuerCircleID string
+	TargetCircleID string // Optional: specific target, or "" for open invite
+	ProposedName   string
 	Template       ContractTemplate
 	ExpiresIn      time.Duration
+}
+
+// AcceptInviteRequest contains parameters for accepting an invite.
+type AcceptInviteRequest struct {
+	TokenID        string
+	AcceptorID     string
+	AcceptorTenant string
+}
+
+// IntersectionSummary provides a summary of an intersection for display.
+type IntersectionSummary struct {
+	ID             string
+	Name           string
+	Version        string
+	State          State
+	PartyIDs       []string
+	ScopeNames     []string
+	CeilingSummary string
+	CreatedAt      time.Time
 }

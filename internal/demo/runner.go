@@ -196,4 +196,3 @@ func PrintResult(result *DemoResult) {
 	fmt.Println("  All output is suggestions only.")
 	fmt.Println("============================================================")
 }
-

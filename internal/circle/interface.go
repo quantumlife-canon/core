@@ -6,6 +6,9 @@ package circle
 
 import (
 	"context"
+	"time"
+
+	"quantumlife/pkg/primitives"
 )
 
 // Runtime defines the interface for circle runtime operations.
@@ -69,4 +72,50 @@ type IdentityProvider interface {
 
 	// GetPublicKey returns the circle's public key for verification.
 	GetPublicKey(ctx context.Context, circleID string) ([]byte, error)
+}
+
+// InviteIssuer defines the interface for issuing intersection invite tokens.
+// Used by a circle to invite another circle to form an intersection.
+type InviteIssuer interface {
+	// IssueInviteToken creates a signed invite token for intersection creation.
+	// The token can be presented to another circle for acceptance.
+	IssueInviteToken(ctx context.Context, req IssueInviteRequest) (*primitives.InviteToken, error)
+}
+
+// InviteAcceptor defines the interface for accepting intersection invite tokens.
+// Used by a circle to accept an invitation and create an intersection.
+type InviteAcceptor interface {
+	// AcceptInviteToken validates and accepts an invite token.
+	// This creates the acceptor circle (if needed) and the intersection.
+	// Returns the intersection reference on success.
+	AcceptInviteToken(ctx context.Context, token *primitives.InviteToken, acceptorID string) (*IntersectionRef, error)
+
+	// ValidateInviteToken validates a token without accepting it.
+	// Returns nil if valid, error otherwise.
+	ValidateInviteToken(ctx context.Context, token *primitives.InviteToken) error
+}
+
+// IssueInviteRequest contains parameters for issuing an invite token.
+type IssueInviteRequest struct {
+	// IssuerCircleID is the circle issuing the invitation.
+	IssuerCircleID string
+
+	// TargetCircleID is the intended recipient (optional).
+	TargetCircleID string
+
+	// ProposedName is the human-readable name for the intersection.
+	ProposedName string
+
+	// Template contains the proposed intersection terms.
+	Template primitives.IntersectionTemplate
+
+	// ValidFor is how long the token should be valid.
+	ValidFor time.Duration
+}
+
+// IntersectionRef references a created intersection.
+type IntersectionRef struct {
+	IntersectionID string
+	Version        string
+	CreatedAt      time.Time
 }

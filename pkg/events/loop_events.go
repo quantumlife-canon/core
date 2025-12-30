@@ -13,39 +13,39 @@ import (
 // Loop step event types.
 const (
 	// Step start events
-	EventLoopStepIntentStarted              EventType = "loop.step.intent.started"
-	EventLoopStepDiscoveryStarted           EventType = "loop.step.discovery.started"
-	EventLoopStepAuthorityStarted           EventType = "loop.step.authority.started"
-	EventLoopStepCommitmentStarted          EventType = "loop.step.commitment.started"
-	EventLoopStepActionStarted              EventType = "loop.step.action.started"
-	EventLoopStepSettlementStarted          EventType = "loop.step.settlement.started"
-	EventLoopStepMemoryUpdateStarted        EventType = "loop.step.memory_update.started"
+	EventLoopStepIntentStarted       EventType = "loop.step.intent.started"
+	EventLoopStepDiscoveryStarted    EventType = "loop.step.discovery.started"
+	EventLoopStepAuthorityStarted    EventType = "loop.step.authority.started"
+	EventLoopStepCommitmentStarted   EventType = "loop.step.commitment.started"
+	EventLoopStepActionStarted       EventType = "loop.step.action.started"
+	EventLoopStepSettlementStarted   EventType = "loop.step.settlement.started"
+	EventLoopStepMemoryUpdateStarted EventType = "loop.step.memory_update.started"
 
 	// Step completion events
-	EventLoopStepIntentCompleted            EventType = "loop.step.intent.completed"
-	EventLoopStepDiscoveryCompleted         EventType = "loop.step.discovery.completed"
-	EventLoopStepAuthorityCompleted         EventType = "loop.step.authority.completed"
-	EventLoopStepCommitmentCompleted        EventType = "loop.step.commitment.completed"
-	EventLoopStepActionCompleted            EventType = "loop.step.action.completed"
-	EventLoopStepSettlementCompleted        EventType = "loop.step.settlement.completed"
-	EventLoopStepMemoryUpdateCompleted      EventType = "loop.step.memory_update.completed"
+	EventLoopStepIntentCompleted       EventType = "loop.step.intent.completed"
+	EventLoopStepDiscoveryCompleted    EventType = "loop.step.discovery.completed"
+	EventLoopStepAuthorityCompleted    EventType = "loop.step.authority.completed"
+	EventLoopStepCommitmentCompleted   EventType = "loop.step.commitment.completed"
+	EventLoopStepActionCompleted       EventType = "loop.step.action.completed"
+	EventLoopStepSettlementCompleted   EventType = "loop.step.settlement.completed"
+	EventLoopStepMemoryUpdateCompleted EventType = "loop.step.memory_update.completed"
 
 	// Step failure events
-	EventLoopStepIntentFailed               EventType = "loop.step.intent.failed"
-	EventLoopStepDiscoveryFailed            EventType = "loop.step.discovery.failed"
-	EventLoopStepAuthorityFailed            EventType = "loop.step.authority.failed"
-	EventLoopStepCommitmentFailed           EventType = "loop.step.commitment.failed"
-	EventLoopStepActionFailed               EventType = "loop.step.action.failed"
-	EventLoopStepSettlementFailed           EventType = "loop.step.settlement.failed"
-	EventLoopStepMemoryUpdateFailed         EventType = "loop.step.memory_update.failed"
+	EventLoopStepIntentFailed       EventType = "loop.step.intent.failed"
+	EventLoopStepDiscoveryFailed    EventType = "loop.step.discovery.failed"
+	EventLoopStepAuthorityFailed    EventType = "loop.step.authority.failed"
+	EventLoopStepCommitmentFailed   EventType = "loop.step.commitment.failed"
+	EventLoopStepActionFailed       EventType = "loop.step.action.failed"
+	EventLoopStepSettlementFailed   EventType = "loop.step.settlement.failed"
+	EventLoopStepMemoryUpdateFailed EventType = "loop.step.memory_update.failed"
 
 	// Loop lifecycle events
-	EventLoopStarted                        EventType = "loop.started"
-	EventLoopCompleted                      EventType = "loop.completed"
-	EventLoopFailed                         EventType = "loop.failed"
-	EventLoopAborted                        EventType = "loop.aborted"
-	EventLoopPaused                         EventType = "loop.paused"
-	EventLoopResumed                        EventType = "loop.resumed"
+	EventLoopStarted   EventType = "loop.started"
+	EventLoopCompleted EventType = "loop.completed"
+	EventLoopFailed    EventType = "loop.failed"
+	EventLoopAborted   EventType = "loop.aborted"
+	EventLoopPaused    EventType = "loop.paused"
+	EventLoopResumed   EventType = "loop.resumed"
 )
 
 // LoopEvent extends Event with loop-specific fields.

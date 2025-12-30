@@ -81,8 +81,8 @@ func (c *MockCalendar) GetFreeSlots(minDuration time.Duration) []FreeSlot {
 	// Check each day for free slots
 	for day := 0; day < 7; day++ {
 		dayStart := baseDate.Add(time.Duration(day) * 24 * time.Hour)
-		wakingStart := dayStart.Add(8 * time.Hour)  // 8am
-		wakingEnd := dayStart.Add(22 * time.Hour)   // 10pm
+		wakingStart := dayStart.Add(8 * time.Hour) // 8am
+		wakingEnd := dayStart.Add(22 * time.Hour)  // 10pm
 
 		// Get events for this day
 		var dayEvents []CalendarEvent

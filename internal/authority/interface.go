@@ -66,11 +66,11 @@ type LoopContext = primitives.LoopContext
 
 // NegotiationRequest contains a request for authority negotiation.
 type NegotiationRequest struct {
-	IntersectionID  string
-	RequiredScopes  []string
-	ActionType      string
-	RequestedBy     string
-	Conditions      []string
+	IntersectionID string
+	RequiredScopes []string
+	ActionType     string
+	RequestedBy    string
+	Conditions     []string
 }
 
 // NegotiationResult contains the result of authority negotiation.

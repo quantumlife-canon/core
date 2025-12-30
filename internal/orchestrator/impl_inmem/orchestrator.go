@@ -23,9 +23,9 @@ import (
 // CRITICAL: This implementation skips the Action step and goes directly to
 // Settlement with a "suggested" outcome. No external systems are touched.
 type SuggestOnlyOrchestrator struct {
-	auditLogger    audit.LoopEventEmitter
-	memoryUpdater  memory.LoopMemoryUpdater
-	intDiscoverer  intersection.LoopDiscoverer
+	auditLogger   audit.LoopEventEmitter
+	memoryUpdater memory.LoopMemoryUpdater
+	intDiscoverer intersection.LoopDiscoverer
 
 	// suggestionEngine produces deterministic suggestions
 	suggestionEngine SuggestionEngine
@@ -97,11 +97,11 @@ func (o *SuggestOnlyOrchestrator) ExecuteLoop(ctx context.Context, loopCtx primi
 	}
 
 	intentResult := &orchestrator.IntentResult{
-		IntentID:       intent.ID,
-		Classification: intent.Type,
+		IntentID:        intent.ID,
+		Classification:  intent.Type,
 		SuggestedAction: "suggest_activities",
-		RequiredScopes: []string{"calendar:read"},
-		ProcessedAt:    time.Now(),
+		RequiredScopes:  []string{"calendar:read"},
+		ProcessedAt:     time.Now(),
 	}
 	result.IntentResult = intentResult
 

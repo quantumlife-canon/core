@@ -101,7 +101,7 @@ type LoopOutcome struct {
 
 // MemoryRecord contains confirmation of a memory update.
 type MemoryRecord struct {
-	RecordID  string
-	TraceID   string
-	StoredAt  string
+	RecordID string
+	TraceID  string
+	StoredAt string
 }

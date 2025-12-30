@@ -56,6 +56,18 @@ const (
 	EventIntersectionCreated   EventType = "intersection.created"
 	EventIntersectionAmended   EventType = "intersection.amended"
 	EventIntersectionDissolved EventType = "intersection.dissolved"
+
+	// Invite token events
+	EventInviteTokenIssued   EventType = "invite.token.issued"
+	EventInviteTokenAccepted EventType = "invite.token.accepted"
+	EventInviteTokenRejected EventType = "invite.token.rejected"
+	EventInviteTokenExpired  EventType = "invite.token.expired"
+	EventInviteTokenInvalid  EventType = "invite.token.invalid"
+
+	// Intersection scope events
+	EventIntersectionScopeUsed    EventType = "intersection.scope.used"
+	EventIntersectionScopeChecked EventType = "intersection.scope.checked"
+	EventIntersectionScopeDenied  EventType = "intersection.scope.denied"
 )
 
 // Event represents a system event for audit and observability.

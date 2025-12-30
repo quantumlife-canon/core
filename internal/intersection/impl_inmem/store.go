@@ -271,6 +271,6 @@ func generateID(prefix string) string {
 
 // Verify interface compliance at compile time.
 var (
-	_ intersection.Runtime       = (*Runtime)(nil)
+	_ intersection.Runtime        = (*Runtime)(nil)
 	_ intersection.LoopDiscoverer = (*Runtime)(nil)
 )

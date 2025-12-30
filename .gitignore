@@ -4,8 +4,8 @@
 *.dll
 *.so
 *.dylib
-quantumlife-daemon
-quantumlife-cli
+/quantumlife-daemon
+/quantumlife-cli
 
 # Test binary
 *.test

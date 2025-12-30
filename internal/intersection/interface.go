@@ -46,10 +46,10 @@ type Runtime interface {
 // InviteService defines the interface for invite token operations.
 type InviteService interface {
 	// CreateInvite generates a signed invite token.
-	CreateInvite(ctx context.Context, req InviteRequest) (*InviteToken, error)
+	CreateInvite(ctx context.Context, req InviteRequest) (*primitives.InviteToken, error)
 
 	// ValidateInvite verifies and parses an invite token.
-	ValidateInvite(ctx context.Context, token string) (*InviteToken, error)
+	ValidateInvite(ctx context.Context, token string) (*primitives.InviteToken, error)
 
 	// AcceptInvite accepts an invite and creates an intersection.
 	AcceptInvite(ctx context.Context, token string, acceptorCircleID string) (*Intersection, error)
@@ -81,11 +81,11 @@ type LoopContext = primitives.LoopContext
 
 // DiscoveryCriteria contains criteria for intersection discovery.
 type DiscoveryCriteria struct {
-	IssuerCircleID  string
-	TargetCircleID  string
-	RequiredScopes  []string
-	PreferExisting  bool
-	ContractTerms   *ContractTemplate
+	IssuerCircleID string
+	TargetCircleID string
+	RequiredScopes []string
+	PreferExisting bool
+	ContractTerms  *ContractTemplate
 }
 
 // DiscoveryResult contains the result of intersection discovery.
