@@ -44,3 +44,10 @@ internal/intersection/types.go
 internal/connectors/auth/impl_inmem/scope_map.go
 # Conformance tests verify financial read behavior with "accounts" terminology
 internal/connectors/conformance/finance_readonly_test.go
+# v8.6 Family Financial Intersections
+# These files use "account" for bank/financial account filtering in shared views.
+# QuantumLife core uses "circle" for identity - these are financial data adapters.
+internal/demo_family/family_finance.go
+internal/finance/sharedview/*.go
+internal/finance/neutrality/*.go
+pkg/events/events.go

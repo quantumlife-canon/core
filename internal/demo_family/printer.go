@@ -6,6 +6,57 @@ import (
 	"strings"
 )
 
+// Printer provides formatted output for demos.
+type Printer struct{}
+
+// NewPrinter creates a new printer.
+func NewPrinter() *Printer {
+	return &Printer{}
+}
+
+// Header prints a major section header.
+func (p *Printer) Header(format string, args ...interface{}) {
+	msg := fmt.Sprintf(format, args...)
+	fmt.Println()
+	fmt.Println("============================================================")
+	fmt.Printf("  %s\n", msg)
+	fmt.Println("============================================================")
+	fmt.Println()
+}
+
+// SubHeader prints a subsection header.
+func (p *Printer) SubHeader(format string, args ...interface{}) {
+	msg := fmt.Sprintf(format, args...)
+	fmt.Println()
+	fmt.Println("------------------------------------------------------------")
+	fmt.Printf("  %s\n", msg)
+	fmt.Println("------------------------------------------------------------")
+	fmt.Println()
+}
+
+// Info prints an informational message.
+func (p *Printer) Info(format string, args ...interface{}) {
+	fmt.Printf(format+"\n", args...)
+}
+
+// Success prints a success message.
+func (p *Printer) Success(format string, args ...interface{}) {
+	msg := fmt.Sprintf(format, args...)
+	fmt.Printf("✓ %s\n", msg)
+}
+
+// Warning prints a warning message.
+func (p *Printer) Warning(format string, args ...interface{}) {
+	msg := fmt.Sprintf(format, args...)
+	fmt.Printf("⚠ %s\n", msg)
+}
+
+// Error prints an error message.
+func (p *Printer) Error(format string, args ...interface{}) {
+	msg := fmt.Sprintf(format, args...)
+	fmt.Printf("✗ %s\n", msg)
+}
+
 // PrintResult prints the family demo result in a formatted way.
 func PrintResult(result *FamilyDemoResult) {
 	fmt.Println("============================================================")

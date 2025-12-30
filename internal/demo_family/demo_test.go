@@ -760,3 +760,135 @@ func TestAuditStoreImplementsLogger(t *testing.T) {
 		t.Errorf("Expected 1 entry, got %d", len(entries))
 	}
 }
+
+// ============================================================
+// v8.6 Family Financial Intersections Tests
+// ============================================================
+
+// TestFamilyFinanceDemoRuns verifies the v8.6 family finance demo runs successfully.
+func TestFamilyFinanceDemoRuns(t *testing.T) {
+	printer := NewPrinter()
+	demo := NewFamilyFinanceDemo(printer)
+
+	err := demo.Run()
+	if err != nil {
+		t.Fatalf("Family finance demo failed: %v", err)
+	}
+}
+
+// TestFamilyFinanceDemoSymmetry verifies all parties receive identical views.
+func TestFamilyFinanceDemoSymmetry(t *testing.T) {
+	printer := NewPrinter()
+	demo := NewFamilyFinanceDemo(printer)
+
+	// Create policy and contributions
+	policy := demo.createFamilyPolicy()
+	contributions := demo.createFamilyContributions()
+
+	// Build the view
+	view, err := demo.buildSharedView(policy, contributions)
+	if err != nil {
+		t.Fatalf("Failed to build view: %v", err)
+	}
+
+	// Verify symmetry
+	proof := demo.verifySymmetry(view)
+
+	if !proof.Symmetric {
+		t.Error("Expected symmetric proof")
+	}
+
+	if len(proof.Discrepancies) != 0 {
+		t.Errorf("Expected no discrepancies, got %d", len(proof.Discrepancies))
+	}
+}
+
+// TestFamilyFinanceNoIndividualAttribution verifies no per-circle amounts are exposed.
+func TestFamilyFinanceNoIndividualAttribution(t *testing.T) {
+	printer := NewPrinter()
+	demo := NewFamilyFinanceDemo(printer)
+
+	policy := demo.createFamilyPolicy()
+	contributions := demo.createFamilyContributions()
+
+	view, err := demo.buildSharedView(policy, contributions)
+	if err != nil {
+		t.Fatalf("Failed to build view: %v", err)
+	}
+
+	// The view should aggregate contributions, not expose them individually
+	// Verify provenance lists circles but not their amounts
+	if view.Provenance.ContributorCount != 3 {
+		t.Errorf("Expected 3 contributors, got %d", view.Provenance.ContributorCount)
+	}
+
+	// The aggregated spend should be the sum, not individual amounts
+	// Alice: 35000 + Bob: 28000 + Charlie: 0 = 63000 for groceries
+	groceries := view.SpendByCategory["USD"]["groceries"]
+	if policy.AmountGranularity == "exact" && groceries.TotalCents != 63000 {
+		// Note: with bucketed granularity, TotalCents is 0
+		t.Errorf("Expected aggregated groceries 63000, got %d", groceries.TotalCents)
+	}
+}
+
+// TestFamilyFinanceNeutralLanguage verifies proposals use neutral language.
+func TestFamilyFinanceNeutralLanguage(t *testing.T) {
+	printer := NewPrinter()
+	demo := NewFamilyFinanceDemo(printer)
+
+	policy := demo.createFamilyPolicy()
+	contributions := demo.createFamilyContributions()
+
+	view, err := demo.buildSharedView(policy, contributions)
+	if err != nil {
+		t.Fatalf("Failed to build view: %v", err)
+	}
+
+	proposals := demo.generateProposals(view)
+
+	for i, p := range proposals {
+		violations := demo.languageChecker.Check(p.Summary)
+		if len(violations) > 0 {
+			t.Errorf("Proposal %d has language violations: %v", i, violations)
+		}
+	}
+}
+
+// TestFamilyFinanceDismissalPermanent verifies dismissals are permanent.
+func TestFamilyFinanceDismissalPermanent(t *testing.T) {
+	printer := NewPrinter()
+	demo := NewFamilyFinanceDemo(printer)
+
+	policy := demo.createFamilyPolicy()
+	contributions := demo.createFamilyContributions()
+
+	view, err := demo.buildSharedView(policy, contributions)
+	if err != nil {
+		t.Fatalf("Failed to build view: %v", err)
+	}
+
+	proposals := demo.generateProposals(view)
+	if len(proposals) == 0 {
+		t.Skip("No proposals generated")
+	}
+
+	proposal := &proposals[0]
+
+	// Before dismissal
+	if demo.proposalGenerator.IsDismissedBy(proposal, "alice") {
+		t.Error("Should not be dismissed yet")
+	}
+
+	// Dismiss
+	demo.proposalGenerator.DismissProposal(proposal, "alice")
+
+	// After dismissal - permanent
+	if !demo.proposalGenerator.IsDismissedBy(proposal, "alice") {
+		t.Error("Should be dismissed after dismissal")
+	}
+
+	// Bob should still see it
+	if demo.proposalGenerator.IsDismissedBy(proposal, "bob") {
+		t.Error("Bob should still see the proposal")
+	}
+}

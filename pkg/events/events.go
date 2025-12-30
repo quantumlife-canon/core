@@ -171,6 +171,53 @@ const (
 	EventFinancePaginationStarted     EventType = "finance.pagination.started"
 	EventFinancePaginationCompleted   EventType = "finance.pagination.completed"
 	EventFinancePaginationCursorStale EventType = "finance.pagination.cursor_stale"
+
+	// v8.6 Family Financial Intersections events
+	// CRITICAL: READ + PROPOSE ONLY. No execution events.
+
+	// Shared view lifecycle events
+	EventSharedViewRequested     EventType = "sharedview.requested"
+	EventSharedViewBuilt         EventType = "sharedview.built"
+	EventSharedViewDelivered     EventType = "sharedview.delivered"
+	EventSharedViewExpired       EventType = "sharedview.expired"
+	EventSharedViewRefreshed     EventType = "sharedview.refreshed"
+	EventSharedViewPolicyApplied EventType = "sharedview.policy.applied"
+
+	// Visibility filtering events
+	EventSharedViewFiltered           EventType = "sharedview.filtered"
+	EventSharedViewCategoryExcluded   EventType = "sharedview.category.excluded"
+	EventSharedViewAccountExcluded    EventType = "sharedview.account.excluded"
+	EventSharedViewAmountAnonymized   EventType = "sharedview.amount.anonymized"
+	EventSharedViewMerchantAnonymized EventType = "sharedview.merchant.anonymized"
+
+	// Symmetry verification events
+	EventSymmetryVerified     EventType = "symmetry.verified"
+	EventSymmetryViolation    EventType = "symmetry.violation"
+	EventSymmetryProofCreated EventType = "symmetry.proof.created"
+
+	// Multi-party aggregation events
+	EventAggregationStarted   EventType = "aggregation.started"
+	EventAggregationCompleted EventType = "aggregation.completed"
+	EventContributionReceived EventType = "contribution.received"
+	EventContributionMissing  EventType = "contribution.missing"
+
+	// Proposal lifecycle events (v8.6)
+	EventSharedProposalGenerated  EventType = "sharedproposal.generated"
+	EventSharedProposalDelivered  EventType = "sharedproposal.delivered"
+	EventSharedProposalDismissed  EventType = "sharedproposal.dismissed"
+	EventSharedProposalExpired    EventType = "sharedproposal.expired"
+	EventSharedProposalSuppressed EventType = "sharedproposal.suppressed"
+
+	// Language neutrality events
+	EventLanguageChecked   EventType = "language.checked"
+	EventLanguageViolation EventType = "language.violation"
+	EventLanguageApproved  EventType = "language.approved"
+
+	// Intersection financial policy events
+	EventFinancialPolicyEnabled  EventType = "financial.policy.enabled"
+	EventFinancialPolicyDisabled EventType = "financial.policy.disabled"
+	EventFinancialPolicyUpdated  EventType = "financial.policy.updated"
+	EventSymmetryRequirementSet  EventType = "symmetry.requirement.set"
 )
 
 // Event represents a system event for audit and observability.
