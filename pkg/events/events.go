@@ -134,6 +134,16 @@ const (
 	EventFinanceProviderUnavailable EventType = "finance.provider.unavailable"
 	EventFinanceScopeRejected       EventType = "finance.scope.rejected"
 	EventFinanceModeRejected        EventType = "finance.mode.rejected"
+
+	// v8.4 Canonical Normalization + Reconciliation events
+	// CRITICAL: Contains COUNTS ONLY. No raw amounts logged.
+	EventFinanceReconciled           EventType = "finance.reconciled"
+	EventFinanceDeduplicationApplied EventType = "finance.deduplication.applied"
+	EventFinancePendingMerged        EventType = "finance.pending.merged"
+	EventFinanceCanonicalIDComputed  EventType = "finance.canonical_id.computed"
+	EventFinanceMatchKeyComputed     EventType = "finance.match_key.computed"
+	EventFinanceReconcileFailed      EventType = "finance.reconcile.failed"
+	EventFinanceMultiProviderMerged  EventType = "finance.multi_provider.merged"
 )
 
 // Event represents a system event for audit and observability.

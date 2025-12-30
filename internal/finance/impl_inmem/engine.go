@@ -16,7 +16,9 @@ import (
 	"quantumlife/internal/connectors/finance/read"
 	"quantumlife/internal/finance"
 	"quantumlife/internal/finance/categorize"
+	"quantumlife/internal/finance/normalize"
 	"quantumlife/internal/finance/propose"
+	"quantumlife/internal/finance/reconcile"
 	"quantumlife/pkg/primitives"
 	finprimitives "quantumlife/pkg/primitives/finance"
 )
@@ -34,12 +36,19 @@ type Engine struct {
 	// Proposal generator
 	proposalGen *propose.Generator
 
+	// v8.4: Normalizer registry and reconciliation engine
+	normalizers     *normalize.Registry
+	reconcileEngine reconcile.Engine
+
 	// In-memory storage
 	snapshots    map[string]*finprimitives.AccountSnapshot    // snapshotID -> snapshot
 	transactions map[string][]finprimitives.TransactionRecord // ownerID -> transactions
 	observations map[string][]finprimitives.FinancialObservation
 	proposals    map[string][]finprimitives.FinancialProposal
 	dismissals   map[string]*dismissalRecord // fingerprint -> record
+
+	// v8.4: Canonical ID tracking for deduplication
+	seenCanonicalIDs map[string]bool // canonicalID -> true
 
 	// Configuration
 	clockFunc func() time.Time
@@ -68,15 +77,18 @@ func NewEngine(config EngineConfig) *Engine {
 	}
 
 	e := &Engine{
-		connector:    config.Connector,
-		categorizer:  categorize.NewCategorizer(),
-		clockFunc:    clockFunc,
-		auditFunc:    config.AuditFunc,
-		snapshots:    make(map[string]*finprimitives.AccountSnapshot),
-		transactions: make(map[string][]finprimitives.TransactionRecord),
-		observations: make(map[string][]finprimitives.FinancialObservation),
-		proposals:    make(map[string][]finprimitives.FinancialProposal),
-		dismissals:   make(map[string]*dismissalRecord),
+		connector:        config.Connector,
+		categorizer:      categorize.NewCategorizer(),
+		normalizers:      normalize.DefaultRegistry(),
+		reconcileEngine:  reconcile.NewEngine(),
+		clockFunc:        clockFunc,
+		auditFunc:        config.AuditFunc,
+		snapshots:        make(map[string]*finprimitives.AccountSnapshot),
+		transactions:     make(map[string][]finprimitives.TransactionRecord),
+		observations:     make(map[string][]finprimitives.FinancialObservation),
+		proposals:        make(map[string][]finprimitives.FinancialProposal),
+		dismissals:       make(map[string]*dismissalRecord),
+		seenCanonicalIDs: make(map[string]bool),
 	}
 
 	// Create dismissal store for proposal generator
@@ -94,6 +106,7 @@ func NewEngine(config EngineConfig) *Engine {
 }
 
 // Sync fetches and normalizes financial data.
+// v8.4: Includes canonical ID computation and reconciliation.
 func (e *Engine) Sync(ctx context.Context, env primitives.ExecutionEnvelope, req finance.SyncRequest) (*finance.SyncResult, error) {
 	// CRITICAL: Validate envelope for finance read
 	if err := read.ValidateEnvelopeForFinanceRead(&env); err != nil {
@@ -143,20 +156,64 @@ func (e *Engine) Sync(ctx context.Context, env primitives.ExecutionEnvelope, req
 		return nil, fmt.Errorf("failed to list transactions: %w", err)
 	}
 
-	// Normalize and store
+	// v8.4: Normalize with canonical ID computation
 	snapshot := e.normalizeAccounts(req.CircleID, accountsReceipt, env.TraceID, now)
 	transactions := e.normalizeTransactions(req.CircleID, txReceipt, env.TraceID, now)
 
+	// v8.4: Reconcile to deduplicate and merge pending→posted
+	reconcileCtx := reconcile.ReconcileContext{
+		OwnerType:         "circle",
+		OwnerID:           req.CircleID,
+		TraceID:           env.TraceID,
+		ReconcilerVersion: "v8.4",
+	}
+
+	// Convert transactions to normalize.NormalizedTransactionResult for reconciliation
+	normalizedTxns := e.convertToNormalizedResults(transactions)
+
+	txnResult, err := e.reconcileEngine.ReconcileTransactions(reconcileCtx, normalizedTxns)
+	if err != nil {
+		e.emitAudit("finance.reconcile.failed", map[string]string{
+			"trace_id": env.TraceID,
+			"error":    err.Error(),
+		})
+		// Continue with unreconciled data
+		txnResult = nil
+	}
+
+	// Apply reconciliation results
+	var reconciledTransactions []finprimitives.TransactionRecord
+	var duplicatesRemoved, pendingMerged int
+
+	if txnResult != nil {
+		for _, rt := range txnResult.Transactions {
+			reconciledTransactions = append(reconciledTransactions, rt.Transaction)
+		}
+		duplicatesRemoved = txnResult.Report.DuplicatesRemoved
+		pendingMerged = txnResult.Report.PendingMerged
+
+		// v8.4 audit event for reconciliation (counts only, no amounts)
+		e.emitAudit("finance.reconciled", map[string]string{
+			"trace_id":           env.TraceID,
+			"input_count":        fmt.Sprintf("%d", txnResult.Report.InputCount),
+			"output_count":       fmt.Sprintf("%d", txnResult.Report.OutputCount),
+			"duplicates_removed": fmt.Sprintf("%d", duplicatesRemoved),
+			"pending_merged":     fmt.Sprintf("%d", pendingMerged),
+		})
+	} else {
+		reconciledTransactions = transactions
+	}
+
 	e.mu.Lock()
 	e.snapshots[snapshot.SnapshotID] = snapshot
-	e.transactions[req.CircleID] = transactions
+	e.transactions[req.CircleID] = reconciledTransactions
 	e.mu.Unlock()
 
 	e.emitAudit("finance.sync.completed", map[string]string{
 		"trace_id":          env.TraceID,
 		"snapshot_id":       snapshot.SnapshotID,
 		"account_count":     fmt.Sprintf("%d", len(snapshot.Accounts)),
-		"transaction_count": fmt.Sprintf("%d", len(transactions)),
+		"transaction_count": fmt.Sprintf("%d", len(reconciledTransactions)),
 	})
 
 	freshness := finprimitives.FreshnessCurrent
@@ -168,7 +225,7 @@ func (e *Engine) Sync(ctx context.Context, env primitives.ExecutionEnvelope, req
 		SnapshotID:         snapshot.SnapshotID,
 		TransactionBatchID: e.generateID(),
 		AccountCount:       len(snapshot.Accounts),
-		TransactionCount:   len(transactions),
+		TransactionCount:   len(reconciledTransactions),
 		Freshness:          freshness,
 		PartialReason:      accountsReceipt.PartialReason,
 		SyncedAt:           now,
@@ -558,6 +615,43 @@ func (e *Engine) emitAudit(eventType string, metadata map[string]string) {
 	if e.auditFunc != nil {
 		e.auditFunc(eventType, metadata)
 	}
+}
+
+// convertToNormalizedResults converts transactions to normalize.NormalizedTransactionResult for reconciliation.
+// v8.4: Computes canonical IDs and match keys for deduplication and pending→posted merging.
+func (e *Engine) convertToNormalizedResults(transactions []finprimitives.TransactionRecord) []normalize.NormalizedTransactionResult {
+	results := make([]normalize.NormalizedTransactionResult, 0, len(transactions))
+
+	for _, tx := range transactions {
+		// Compute canonical transaction ID
+		canonicalID := finprimitives.CanonicalTransactionID(finprimitives.TransactionIdentityInput{
+			Provider:              tx.SourceProvider,
+			ProviderAccountID:     tx.AccountID,
+			ProviderTransactionID: tx.ProviderTransactionID,
+			Date:                  tx.Date,
+			AmountMinorUnits:      tx.AmountCents,
+			Currency:              tx.Currency,
+			MerchantNormalized:    finprimitives.NormalizeMerchant(tx.MerchantName),
+		})
+
+		// Compute match key for pending→posted matching
+		matchKey := finprimitives.TransactionMatchKey(finprimitives.TransactionMatchInput{
+			CanonicalAccountID: tx.AccountID,
+			AmountMinorUnits:   tx.AmountCents,
+			Currency:           tx.Currency,
+			MerchantNormalized: finprimitives.NormalizeMerchant(tx.MerchantName),
+		})
+
+		results = append(results, normalize.NormalizedTransactionResult{
+			Transaction:           tx,
+			CanonicalID:           canonicalID,
+			MatchKey:              matchKey,
+			ProviderTransactionID: tx.ProviderTransactionID,
+			IsPending:             tx.Pending,
+		})
+	}
+
+	return results
 }
 
 // Helper functions
