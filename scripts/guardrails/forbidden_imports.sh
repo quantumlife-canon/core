@@ -114,7 +114,8 @@ if [[ -d "$INTERNAL_DIR" ]]; then
         # These are allowed to import across internal packages for wiring
         if [[ "$relative_path" == *"/impl_inmem/"* ]] || \
            [[ "$relative_path" == *"/impl_"* ]] || \
-           [[ "$relative_path" == "internal/demo/"* ]]; then
+           [[ "$relative_path" == "internal/demo/"* ]] || \
+           [[ "$relative_path" == internal/demo_* ]]; then
             continue
         fi
 
@@ -158,6 +159,11 @@ if [[ -d "$INTERNAL_DIR" ]]; then
 
         # Skip audit and negotiation packages themselves
         if [[ "$pkg_name" == "audit" || "$pkg_name" == "negotiation" ]]; then
+            continue
+        fi
+
+        # Skip demo packages (wiring layers that use audit for display only)
+        if [[ "$pkg_name" == demo_* ]]; then
             continue
         fi
 

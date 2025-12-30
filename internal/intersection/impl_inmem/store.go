@@ -88,9 +88,16 @@ func (r *Runtime) Amend(ctx context.Context, req intersection.AmendRequest) (*in
 		return nil, fmt.Errorf("intersection is not active: %s", req.IntersectionID)
 	}
 
-	// Increment version
-	contracts := r.contracts[req.IntersectionID]
-	newVersion := fmt.Sprintf("%d.0.0", len(contracts)+1)
+	// Parse current version and bump minor
+	currentVersion, err := intersection.ParseSemVer(i.Version)
+	if err != nil {
+		// Fallback to simple increment if parsing fails
+		contracts := r.contracts[req.IntersectionID]
+		currentVersion = intersection.SemVer{Major: len(contracts), Minor: 0, Patch: 0}
+	}
+
+	// Bump minor version for amendments (scope/ceiling changes)
+	newVersion := currentVersion.BumpMinor().String()
 
 	newContract := req.NewContract
 	newContract.IntersectionID = req.IntersectionID
@@ -98,7 +105,7 @@ func (r *Runtime) Amend(ctx context.Context, req intersection.AmendRequest) (*in
 	newContract.PreviousVersion = i.Version
 	newContract.CreatedAt = time.Now()
 
-	r.contracts[req.IntersectionID] = append(contracts, newContract)
+	r.contracts[req.IntersectionID] = append(r.contracts[req.IntersectionID], newContract)
 
 	i.Version = newVersion
 	i.UpdatedAt = time.Now()

@@ -68,6 +68,19 @@ const (
 	EventIntersectionScopeUsed    EventType = "intersection.scope.used"
 	EventIntersectionScopeChecked EventType = "intersection.scope.checked"
 	EventIntersectionScopeDenied  EventType = "intersection.scope.denied"
+
+	// Negotiation events
+	EventNegotiationStarted   EventType = "negotiation.started"
+	EventNegotiationFinalized EventType = "negotiation.finalized"
+	EventNegotiationAborted   EventType = "negotiation.aborted"
+
+	// Contract amendment events
+	EventContractAmended EventType = "contract.amended"
+
+	// Trust events
+	EventTrustUpdated  EventType = "trust.updated"
+	EventTrustDegraded EventType = "trust.degraded"
+	EventTrustImproved EventType = "trust.improved"
 )
 
 // Event represents a system event for audit and observability.

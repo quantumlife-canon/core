@@ -27,8 +27,14 @@ type Proposal struct {
 	// IntentID links this proposal to the originating intent.
 	IntentID string
 
+	// Reason provides justification for the proposal.
+	Reason string
+
 	// ScopesRequested lists the authority scopes being requested.
 	ScopesRequested []string
+
+	// CeilingConstraints lists the ceiling constraints for this proposal.
+	CeilingConstraints []CeilingConstraint
 
 	// Terms contains the proposed contract terms.
 	Terms map[string]string
@@ -39,6 +45,19 @@ type Proposal struct {
 	// State indicates the current state of the proposal.
 	// Valid states: draft, submitted, counterproposal, accepted, rejected
 	State string
+
+	// ParentProposalID links to the parent if this is a counterproposal.
+	ParentProposalID string
+
+	// NegotiationID groups related proposals in a negotiation thread.
+	NegotiationID string
+}
+
+// CeilingConstraint represents a constraint on operations.
+type CeilingConstraint struct {
+	Type  string
+	Value string
+	Unit  string
 }
 
 // Validate checks that the proposal has all required fields.
@@ -56,4 +75,9 @@ func (p *Proposal) Validate() error {
 		return ErrMissingIntersectionID
 	}
 	return nil
+}
+
+// IsCounterproposal returns true if this proposal is a counterproposal.
+func (p *Proposal) IsCounterproposal() bool {
+	return p.ParentProposalID != ""
 }

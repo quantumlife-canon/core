@@ -25,8 +25,15 @@ type Commitment struct {
 	// ProposalID links this commitment to the accepted proposal.
 	ProposalID string
 
+	// NegotiationOutcomeID references the finalized negotiation that created this commitment.
+	// A commitment can only be formed from a finalized negotiation outcome.
+	NegotiationOutcomeID string
+
 	// IntersectionID identifies the intersection governing this commitment.
 	IntersectionID string
+
+	// Reason provides justification for the commitment.
+	Reason string
 
 	// Parties lists all circles bound by this commitment.
 	Parties []string
@@ -37,14 +44,27 @@ type Commitment struct {
 	// Conditions lists conditions that must be met for execution.
 	Conditions []string
 
+	// RequiredScopes lists the scopes required from the intersection.
+	RequiredScopes []string
+
+	// CeilingConstraints lists the ceilings this commitment must respect.
+	CeilingConstraints []CeilingConstraint
+
 	// ExpiresAt is when this commitment expires if not executed.
 	ExpiresAt time.Time
+
+	// State indicates the current state of the commitment.
+	// Valid states: pending, active, executing, completed, expired, cancelled
+	State string
 }
 
 // ActionSpec defines the specification for an action to be executed.
 type ActionSpec struct {
 	// Type identifies the kind of action.
 	Type string
+
+	// Description explains what this action does.
+	Description string
 
 	// Parameters contains action-specific parameters.
 	Parameters map[string]string
@@ -69,6 +89,14 @@ func (c *Commitment) Validate() error {
 	}
 	if len(c.Parties) == 0 {
 		return ErrMissingParties
+	}
+	return nil
+}
+
+// ValidateNegotiationOutcome checks that the commitment references a valid negotiation outcome.
+func (c *Commitment) ValidateNegotiationOutcome() error {
+	if c.NegotiationOutcomeID == "" {
+		return ErrMissingNegotiationOutcome
 	}
 	return nil
 }

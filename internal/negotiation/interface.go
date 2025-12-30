@@ -44,6 +44,142 @@ type Engine interface {
 	FormCommitment(ctx context.Context, proposalID string) (*primitives.Commitment, error)
 }
 
+// NegotiationLoop defines the interface for the complete negotiation loop.
+// This is used for proposal → counterproposal → acceptance → finalization flows.
+type NegotiationLoop interface {
+	// SubmitProposal submits a new proposal for an intersection amendment.
+	// Returns the proposal ID on success.
+	SubmitProposal(ctx context.Context, intersectionID string, proposal SubmitProposalRequest) (string, error)
+
+	// CounterProposal creates a counterproposal to an existing proposal.
+	// Returns the counter proposal ID on success.
+	CounterProposal(ctx context.Context, proposalID string, counter CounterProposalRequest) (string, error)
+
+	// Accept records a party's acceptance of a proposal or counterproposal.
+	Accept(ctx context.Context, proposalOrCounterID string, byCircleID string) (*AcceptResult, error)
+
+	// Reject records a party's rejection of a proposal.
+	Reject(ctx context.Context, proposalID string, byCircleID string, reason string) error
+
+	// Finalize completes the negotiation after all parties accept.
+	// Returns the commitment or contract change depending on the proposal type.
+	Finalize(ctx context.Context, proposalID string) (*FinalizeResult, error)
+
+	// GetProposal retrieves a proposal by ID.
+	GetProposal(ctx context.Context, proposalID string) (*ProposalThread, error)
+
+	// ListProposals lists all proposals for an intersection.
+	ListProposals(ctx context.Context, intersectionID string) ([]ProposalThread, error)
+}
+
+// SubmitProposalRequest contains parameters for submitting a proposal.
+type SubmitProposalRequest struct {
+	IssuerCircleID string
+	ProposalType   ProposalType
+	Reason         string
+
+	// For contract amendments
+	ScopeAdditions []ScopeChange
+	ScopeRemovals  []string
+	CeilingChanges []CeilingChange
+
+	// For commitment formation
+	ActionSpec *primitives.ActionSpec
+}
+
+// CounterProposalRequest contains parameters for a counterproposal.
+type CounterProposalRequest struct {
+	IssuerCircleID string
+	Reason         string
+
+	// Modified terms
+	ScopeAdditions []ScopeChange
+	ScopeRemovals  []string
+	CeilingChanges []CeilingChange
+}
+
+// ScopeChange represents a scope addition or modification.
+type ScopeChange struct {
+	Name        string
+	Description string
+	Permission  string
+}
+
+// CeilingChange represents a ceiling modification.
+type CeilingChange struct {
+	Type  string
+	Value string
+	Unit  string
+}
+
+// ProposalType indicates the type of proposal.
+type ProposalType string
+
+const (
+	ProposalTypeAmendment  ProposalType = "amendment"
+	ProposalTypeCommitment ProposalType = "commitment"
+)
+
+// ProposalState indicates the state of a proposal.
+type ProposalState string
+
+const (
+	ProposalStatePending    ProposalState = "pending"
+	ProposalStateCountered  ProposalState = "countered"
+	ProposalStateAccepted   ProposalState = "accepted"
+	ProposalStateRejected   ProposalState = "rejected"
+	ProposalStateFinalized  ProposalState = "finalized"
+	ProposalStateSuperseded ProposalState = "superseded"
+)
+
+// ProposalThread represents a proposal with its counters and approvals.
+type ProposalThread struct {
+	ID             string
+	IntersectionID string
+	IssuerCircleID string
+	ProposalType   ProposalType
+	State          ProposalState
+	Reason         string
+
+	// Amendment details
+	ScopeAdditions []ScopeChange
+	ScopeRemovals  []string
+	CeilingChanges []CeilingChange
+
+	// Action spec for commitment proposals
+	ActionSpec *primitives.ActionSpec
+
+	// Approval tracking
+	Approvals  map[string]bool   // circleID -> approved
+	Rejections map[string]string // circleID -> reason
+
+	// Counterproposal chain
+	ParentID      string   // If this is a counter, points to parent
+	CounterIDs    []string // IDs of counterproposals to this proposal
+	ActiveCounter string   // The currently active counterproposal
+
+	// Timestamps
+	CreatedAt   string
+	FinalizedAt string
+}
+
+// AcceptResult contains the result of accepting a proposal.
+type AcceptResult struct {
+	ProposalID     string
+	AcceptorID     string
+	AllAccepted    bool     // True if all parties have now accepted
+	PendingParties []string // Parties that still need to accept
+}
+
+// FinalizeResult contains the result of finalizing a negotiation.
+type FinalizeResult struct {
+	ProposalID     string
+	ResultType     string // "amendment" or "commitment"
+	NewVersion     string // For amendments: the new contract version
+	CommitmentID   string // For commitments: the new commitment ID
+	IntersectionID string
+}
+
 // ModelRouter routes requests between SLM and LLM.
 // Per Technology Selection: SLM-first with LLM escalation.
 type ModelRouter interface {

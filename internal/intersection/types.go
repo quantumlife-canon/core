@@ -1,6 +1,7 @@
 package intersection
 
 import (
+	"fmt"
 	"time"
 )
 
@@ -13,6 +14,81 @@ type Intersection struct {
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
+
+// SemVer represents a semantic version with Major.Minor.Patch.
+type SemVer struct {
+	Major int
+	Minor int
+	Patch int
+}
+
+// String returns the string representation of the version.
+func (v SemVer) String() string {
+	return fmt.Sprintf("%d.%d.%d", v.Major, v.Minor, v.Patch)
+}
+
+// Parse parses a version string into a SemVer.
+func ParseSemVer(version string) (SemVer, error) {
+	var v SemVer
+	_, err := fmt.Sscanf(version, "%d.%d.%d", &v.Major, &v.Minor, &v.Patch)
+	if err != nil {
+		return SemVer{}, fmt.Errorf("invalid version format: %s", version)
+	}
+	return v, nil
+}
+
+// BumpMajor returns a new version with major incremented.
+func (v SemVer) BumpMajor() SemVer {
+	return SemVer{Major: v.Major + 1, Minor: 0, Patch: 0}
+}
+
+// BumpMinor returns a new version with minor incremented.
+func (v SemVer) BumpMinor() SemVer {
+	return SemVer{Major: v.Major, Minor: v.Minor + 1, Patch: 0}
+}
+
+// BumpPatch returns a new version with patch incremented.
+func (v SemVer) BumpPatch() SemVer {
+	return SemVer{Major: v.Major, Minor: v.Minor, Patch: v.Patch + 1}
+}
+
+// Amendment represents a proposed change to an intersection contract.
+type Amendment struct {
+	ID             string
+	IntersectionID string
+	ProposerID     string
+	Reason         string
+
+	// Changes
+	ScopeAdditions []Scope
+	ScopeRemovals  []string // Scope names to remove
+	CeilingChanges []Ceiling
+	DurationExtend *time.Duration // Optional duration extension
+
+	// Approval tracking
+	Approvals  map[string]bool   // circleID -> approved
+	Rejections map[string]string // circleID -> rejection reason
+
+	// Version info
+	FromVersion string
+	ToVersion   string
+
+	// Timestamps
+	CreatedAt   time.Time
+	FinalizedAt *time.Time
+	State       AmendmentState
+}
+
+// AmendmentState represents the state of an amendment.
+type AmendmentState string
+
+const (
+	AmendmentStatePending   AmendmentState = "pending"
+	AmendmentStateApproved  AmendmentState = "approved"
+	AmendmentStateRejected  AmendmentState = "rejected"
+	AmendmentStateApplied   AmendmentState = "applied"
+	AmendmentStateCancelled AmendmentState = "cancelled"
+)
 
 // State represents the lifecycle state of an intersection.
 type State string

@@ -31,4 +31,10 @@ var (
 
 	// ErrMissingActionID is returned when a settlement is missing its action ID.
 	ErrMissingActionID = errors.New("missing required field: action_id")
+
+	// ErrMissingNegotiationOutcome is returned when a commitment is missing its negotiation outcome ID.
+	ErrMissingNegotiationOutcome = errors.New("missing required field: negotiation_outcome_id")
+
+	// ErrMissingReason is returned when a proposal/commitment is missing its reason.
+	ErrMissingReason = errors.New("missing required field: reason")
 )
