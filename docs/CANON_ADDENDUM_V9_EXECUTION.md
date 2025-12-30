@@ -109,6 +109,10 @@ Authority without all five bounds is not authority—it is a blank check. Blank 
 
 Every authority grant MUST include a revocation window—a period during which the human can cancel before execution occurs. Instant execution is forbidden except where the human explicitly waives the window for a specific action.
 
+### 3.6 Neutral Approval Language
+
+Approval prompts MUST be descriptive only. They MUST NOT contain urgency, fear, loss framing, authority language, recommendations, or optimization framing. The prompt describes what will happen; it does not advocate for or against approval.
+
 ---
 
 ## 4. Separation of Judgment and Power
@@ -142,6 +146,10 @@ No mechanism, user interface, or configuration MAY grant permanent execution aut
 ### 5.3 Renewal Requires Re-Consent
 
 When authority expires, it does not silently renew. Renewal requires explicit re-consent. The human MUST actively choose to continue, not passively allow continuation.
+
+### 5.4 No Standing or Blanket Approval
+
+Approval MUST be bound to a specific action instance. Standing approvals, predictive approvals, category-wide approvals, or approvals that apply to future unspecified actions are forbidden. "Approve all payments under $X" is not valid approval—each payment requires its own approval.
 
 ---
 
@@ -206,7 +214,7 @@ v8 guarantees that financial views are accurate, symmetric, and neutral. v9 exec
 
 ### 8.3 Read Before Write
 
-No execution MAY occur without first reading the current state. Execution based on stale data is forbidden. The system MUST verify that the conditions for execution still hold at the moment of execution.
+No execution MAY occur without first reading the current state. Execution based on stale data is forbidden. The system MUST verify that the conditions for execution still hold at the moment of execution. Execution MUST require an affirmative validity check at the moment of action; absence of revocation alone is insufficient.
 
 ---
 
