@@ -13,6 +13,7 @@
 //	quantumlife-daemon --demo-v9-multiparty-tiny-payment # Run v9.4 multi-party demo
 //	quantumlife-daemon --demo-v9-multiparty-execute-tiny-payment-real # Run v9.5 real multi-party demo
 //	quantumlife-daemon --demo-v9-idempotency-replay-defense # Run v9.6 idempotency demo
+//	quantumlife-daemon --demo-v9-caps-rate-limit           # Run v9.11 caps + rate limit demo
 //
 // Reference: docs/TECHNOLOGY_SELECTION_V1.md §13 Implementation Checklist
 package main
@@ -28,6 +29,7 @@ import (
 	"quantumlife/internal/demo_family_calendar"
 	"quantumlife/internal/demo_family_negotiate"
 	"quantumlife/internal/demo_family_simulate"
+	"quantumlife/internal/demo_v911_caps"
 	"quantumlife/internal/demo_v95_multiparty_real"
 	"quantumlife/internal/demo_v96_idempotency"
 	"quantumlife/internal/demo_v9_dryrun"
@@ -64,6 +66,7 @@ func main() {
 	demoV9MultipartyTinyPayment := flag.Bool("demo-v9-multiparty-tiny-payment", false, "Run the v9.4 multi-party payment demo (SIMULATED)")
 	demoV95MultipartyReal := flag.Bool("demo-v9-multiparty-execute-tiny-payment-real", false, "Run the v9.5 real multi-party payment demo (SANDBOX ONLY)")
 	demoV96Idempotency := flag.Bool("demo-v9-idempotency-replay-defense", false, "Run the v9.6 idempotency and replay defense demo")
+	demoV911CapsRateLimit := flag.Bool("demo-v9-caps-rate-limit", false, "Run the v9.11 caps and rate limit demo")
 	flag.Parse()
 
 	fmt.Print(banner)
@@ -128,6 +131,11 @@ func main() {
 		return
 	}
 
+	if *demoV911CapsRateLimit {
+		runDemoV911CapsRateLimit()
+		return
+	}
+
 	// Default: show status
 	fmt.Println("Runtime Layers:")
 	fmt.Println("  - Circle Runtime         [in-memory impl available]")
@@ -152,6 +160,7 @@ func main() {
 	fmt.Println("  --demo-v9-multiparty-tiny-payment v9.4 multi-party payment (SIMULATED)")
 	fmt.Println("  --demo-v9-multiparty-execute-tiny-payment-real v9.5 real multi-party (SANDBOX)")
 	fmt.Println("  --demo-v9-idempotency-replay-defense v9.6 idempotency + replay defense")
+	fmt.Println("  --demo-v9-caps-rate-limit            v9.11 daily caps + rate limits")
 	fmt.Println()
 	fmt.Println("Run with --help for more options.")
 
@@ -539,4 +548,53 @@ func runDemoV96Idempotency() {
 	for _, result := range results {
 		demo_v96_idempotency.PrintResult(result)
 	}
+}
+
+// runDemoV911CapsRateLimit runs the v9.11 caps and rate limit demo.
+// CRITICAL: This demo proves daily caps and rate limiting mechanisms.
+func runDemoV911CapsRateLimit() {
+	fmt.Println()
+	fmt.Println("Running v9.11 Caps + Rate Limit Demo...")
+	fmt.Println()
+	fmt.Println("╔═══════════════════════════════════════════════════════════════╗")
+	fmt.Println("║  v9.11: DAILY CAPS + RATE-LIMITED EXECUTION LEDGER            ║")
+	fmt.Println("║                                                               ║")
+	fmt.Println("║  PREVENTS SLOW DRAIN AND BURST EXECUTION VIA:                 ║")
+	fmt.Println("║  1) Per-circle daily caps (by currency)                       ║")
+	fmt.Println("║  2) Per-intersection daily caps (by currency)                 ║")
+	fmt.Println("║  3) Per-payee daily caps (by currency)                        ║")
+	fmt.Println("║  4) Rate limits: max attempts per day                         ║")
+	fmt.Println("║                                                               ║")
+	fmt.Println("║  KEY DESIGN:                                                  ║")
+	fmt.Println("║  - Caps are HARD BLOCKS (no auto-split, no reduce amount)     ║")
+	fmt.Println("║  - Attempts count regardless of outcome (prevents bypass)     ║")
+	fmt.Println("║  - Spend only counts when money actually moves                ║")
+	fmt.Println("║  - Simulated payments count attempts but NOT spend            ║")
+	fmt.Println("║                                                               ║")
+	fmt.Println("║  All v9.3-v9.10 constraints remain in force.                  ║")
+	fmt.Println("╚═══════════════════════════════════════════════════════════════╝")
+	fmt.Println()
+	fmt.Println("Demonstrates:")
+	fmt.Println("  S1: Attempt limit blocks after N attempts")
+	fmt.Println("  S2: Circle daily cap blocks when spend exceeds cap")
+	fmt.Println("  S3: Simulated payments don't count toward spend")
+	fmt.Println("  S4: Intersection attempt limit with scope isolation")
+	fmt.Println()
+
+	runner := demo_v911_caps.NewRunner()
+	results, err := runner.Run()
+
+	if err != nil {
+		fmt.Printf("Demo failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	for _, result := range results {
+		demo_v911_caps.PrintResult(result)
+	}
+
+	fmt.Println()
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println("v9.11 Demo Complete")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 }
