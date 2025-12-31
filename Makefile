@@ -7,7 +7,7 @@
 #
 # Guardrails enforce Canon invariants at build time.
 
-.PHONY: all build test fmt lint vet guardrails ci clean help
+.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once
 
 # Default target
 all: ci
@@ -25,6 +25,7 @@ help:
 	@echo "  make guardrails - Run all guardrail checks"
 	@echo "  make ci         - Run full CI pipeline"
 	@echo "  make clean      - Clean build artifacts"
+	@echo "  make ingest-once- Run read-only ingestion (one-shot)"
 	@echo ""
 	@echo "Guardrail Checks:"
 	@echo "  make check-terms              - Check for forbidden terms"
@@ -159,3 +160,10 @@ dev-setup:
 .PHONY: quick
 quick: fmt-check vet build
 	@echo "Quick check passed."
+
+# Run read-only ingestion once (synchronous, no background polling)
+# CRITICAL: This command runs once and exits. For continuous ingestion,
+# use an external scheduler (e.g., cron) to invoke this periodically.
+ingest-once:
+	@echo "Running read-only ingestion..."
+	go run ./cmd/quantumlife-ingest
