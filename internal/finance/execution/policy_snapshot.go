@@ -29,7 +29,9 @@ import (
 
 // PolicySnapshotVersion is the current version of the policy snapshot format.
 // Increment when adding new fields to allow evolution.
-const PolicySnapshotVersion = "v9.12"
+// v9.12: Initial version with provider, payee, caps policies
+// v9.13: Added MaxStalenessSeconds for view freshness policy
+const PolicySnapshotVersion = "v9.13"
 
 // PolicySnapshot captures the state of all execution-time policy gates.
 // This is a snapshot of RULES/POLICIES, not a snapshot of balances/transactions.
@@ -48,6 +50,16 @@ type PolicySnapshot struct {
 
 	// CapsPolicy captures v9.11 caps and rate-limit configuration.
 	CapsPolicy CapsPolicySnapshot
+
+	// ViewPolicy captures v9.13 view freshness configuration.
+	ViewPolicy ViewPolicySnapshot
+}
+
+// ViewPolicySnapshot captures the view freshness policy configuration.
+type ViewPolicySnapshot struct {
+	// MaxStalenessSeconds is the maximum age of a view snapshot before execution.
+	// If view.CapturedAt is older than now - MaxStalenessSeconds, execution is blocked.
+	MaxStalenessSeconds int
 }
 
 // ProviderPolicySnapshot captures the provider registry state.
@@ -144,6 +156,11 @@ func buildCanonicalPolicyString(s PolicySnapshot) string {
 	b.WriteString(fmt.Sprintf("%d", s.CapsPolicy.MaxAttemptsPerDayCircle))
 	b.WriteString("|caps.maxattempts.intersection:")
 	b.WriteString(fmt.Sprintf("%d", s.CapsPolicy.MaxAttemptsPerDayIntersection))
+	b.WriteString("|")
+
+	// View policy (v9.13)
+	b.WriteString("view.maxstaleness:")
+	b.WriteString(fmt.Sprintf("%d", s.ViewPolicy.MaxStalenessSeconds))
 
 	return b.String()
 }
@@ -158,6 +175,15 @@ type PolicySnapshotInput struct {
 
 	// CapsDescriptor provides caps gate configuration.
 	CapsDescriptor CapsPolicyDescriptor
+
+	// ViewDescriptor provides view policy configuration.
+	ViewDescriptor ViewPolicyDescriptor
+}
+
+// ViewPolicyDescriptor provides read-only access to view policy configuration.
+type ViewPolicyDescriptor interface {
+	// MaxStalenessSeconds returns the maximum view staleness in seconds.
+	MaxStalenessSeconds() int
 }
 
 // ProviderPolicyDescriptor provides read-only access to provider registry state.
@@ -186,6 +212,12 @@ type CapsPolicyDescriptor interface {
 
 // ComputePolicySnapshot computes a policy snapshot from the input sources.
 func ComputePolicySnapshot(input PolicySnapshotInput) (PolicySnapshot, PolicySnapshotHash) {
+	// Get view policy, defaulting if no descriptor provided
+	maxStaleness := DefaultMaxStalenessSeconds
+	if input.ViewDescriptor != nil {
+		maxStaleness = input.ViewDescriptor.MaxStalenessSeconds()
+	}
+
 	snapshot := PolicySnapshot{
 		Version: PolicySnapshotVersion,
 		ProviderPolicy: ProviderPolicySnapshot{
@@ -197,6 +229,9 @@ func ComputePolicySnapshot(input PolicySnapshotInput) (PolicySnapshot, PolicySna
 			BlockedPayeeIDs: input.PayeeDescriptor.BlockedPayeeIDs(),
 		},
 		CapsPolicy: input.CapsDescriptor.PolicyDescriptor(),
+		ViewPolicy: ViewPolicySnapshot{
+			MaxStalenessSeconds: maxStaleness,
+		},
 	}
 
 	// Ensure all slices are sorted for determinism

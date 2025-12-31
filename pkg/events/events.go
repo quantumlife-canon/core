@@ -531,6 +531,38 @@ const (
 
 	// EventV912ExecutionBlockedMissingHash is emitted when execution is blocked due to missing hash.
 	EventV912ExecutionBlockedMissingHash EventType = "v9.execution.blocked.missing_hash"
+
+	// v9.13 View Freshness Binding events
+	// CRITICAL: These events track view snapshot verification for read-before-write enforcement.
+	// View must be fresh and hash must match for execution to proceed.
+
+	// EventV913ViewSnapshotRequested is emitted when a view snapshot is requested.
+	EventV913ViewSnapshotRequested EventType = "v9.view.snapshot.requested"
+
+	// EventV913ViewSnapshotReceived is emitted when a view snapshot is received.
+	EventV913ViewSnapshotReceived EventType = "v9.view.snapshot.received"
+
+	// EventV913ViewFreshnessChecked is emitted when view freshness is checked.
+	EventV913ViewFreshnessChecked EventType = "v9.view.freshness.checked"
+
+	// EventV913ViewHashVerified is emitted when view hash is verified against envelope.
+	EventV913ViewHashVerified EventType = "v9.view.hash.verified"
+
+	// EventV913ViewHashMismatch is emitted when view hash doesn't match envelope.
+	// CRITICAL: Execution MUST be blocked when this event is emitted.
+	EventV913ViewHashMismatch EventType = "v9.view.hash.mismatch"
+
+	// EventV913ExecutionBlockedViewStale is emitted when execution is blocked due to stale view.
+	EventV913ExecutionBlockedViewStale EventType = "v9.execution.blocked.view_stale"
+
+	// EventV913ExecutionBlockedViewHashMismatch is emitted when execution is blocked due to view hash mismatch.
+	EventV913ExecutionBlockedViewHashMismatch EventType = "v9.execution.blocked.view_hash_mismatch"
+
+	// EventV913ExecutionBlockedViewHashMissing is emitted when execution is blocked due to missing view hash.
+	EventV913ExecutionBlockedViewHashMissing EventType = "v9.execution.blocked.view_hash_missing"
+
+	// EventV913ViewSnapshotBound is emitted when view snapshot is bound to envelope at creation.
+	EventV913ViewSnapshotBound EventType = "v9.view.snapshot.bound"
 )
 
 // Event represents a system event for audit and observability.

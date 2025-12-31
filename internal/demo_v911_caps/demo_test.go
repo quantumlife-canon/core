@@ -135,6 +135,20 @@ func createTestExecutor(policy caps.Policy, connector *MockWriteConnector) (*exe
 	executor.SetProviderRegistry(registry.NewDefaultRegistry())
 	executor.SetPayeeRegistry(payees.NewDefaultRegistry())
 
+	// v9.13: Set view provider for view freshness verification
+	viewProvider := execution.NewMockViewProvider(execution.MockViewProviderConfig{
+		ProviderID:      "mock-view",
+		Clock:           testClock(),
+		IDGenerator:     idGen,
+		PayeeAllowed:    true,
+		ProviderAllowed: true,
+		BalanceOK:       true,
+		Accounts:        []string{"acct-1"},
+		SharedViewHash:  "test-shared-hash",
+	})
+	viewProvider.SetSnapshotIDOverride("test-snapshot")
+	executor.SetViewProvider(viewProvider)
+
 	return executor, capsGate, capturedEvents
 }
 
@@ -162,10 +176,38 @@ func createTestEnvelope(envelopeID, circleID, intersectionID string, amountCents
 
 // createTestEnvelopeWithHash creates a test envelope bound to the executor's current policy.
 // v9.12.1: PolicySnapshotHash is required - empty hash blocks execution.
+// v9.13: ViewSnapshotHash is required - empty hash blocks execution.
 func createTestEnvelopeWithHash(executor *execution.V96Executor, envelopeID, circleID, intersectionID string, amountCents int64, currency string) *execution.ExecutionEnvelope {
+	return createTestEnvelopeWithHashAndPayee(executor, envelopeID, circleID, intersectionID, amountCents, currency, "sandbox-utility")
+}
+
+// createTestEnvelopeWithHashAndPayee creates a test envelope with a specific payee.
+// v9.12.1: PolicySnapshotHash is required - empty hash blocks execution.
+// v9.13: ViewSnapshotHash is required - empty hash blocks execution.
+func createTestEnvelopeWithHashAndPayee(executor *execution.V96Executor, envelopeID, circleID, intersectionID string, amountCents int64, currency, payeeID string) *execution.ExecutionEnvelope {
 	envelope := createTestEnvelope(envelopeID, circleID, intersectionID, amountCents, currency)
 	_, hash := executor.ComputePolicySnapshotForEnvelope()
 	envelope.PolicySnapshotHash = string(hash)
+
+	// v9.13: Set ViewSnapshotHash (must match what viewProvider returns)
+	// SnapshotID must match the viewProvider's override ("test-snapshot")
+	now := testClock().Now()
+	viewSnapshot := execution.ViewSnapshot{
+		SnapshotID:         "test-snapshot", // Matches viewProvider.SetSnapshotIDOverride
+		CapturedAt:         now,
+		CircleID:           circleID,
+		IntersectionID:     intersectionID,
+		PayeeID:            payeeID,
+		Currency:           currency,
+		AmountCents:        amountCents,
+		PayeeAllowed:       true,
+		ProviderID:         "mock-write",
+		ProviderAllowed:    true,
+		AccountVisibility:  []string{"acct-1"},
+		SharedViewHash:     "test-shared-hash",
+		BalanceCheckPassed: true,
+	}
+	envelope.ViewSnapshotHash = string(execution.ComputeViewSnapshotHash(viewSnapshot))
 	return envelope
 }
 
@@ -638,7 +680,7 @@ func TestPayeeDailyCapBlocks(t *testing.T) {
 	})
 
 	t.Run("payment to different payee succeeds", func(t *testing.T) {
-		envelope := createTestEnvelopeWithHash(executor, "env-3", "circle-1", "", 50, "GBP")
+		envelope := createTestEnvelopeWithHashAndPayee(executor, "env-3", "circle-1", "", 50, "GBP", "sandbox-rent")
 
 		result, err := executor.Execute(ctx, execution.V96ExecuteRequest{
 			Envelope:        envelope,

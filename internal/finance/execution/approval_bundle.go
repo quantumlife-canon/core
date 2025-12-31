@@ -92,6 +92,11 @@ type ApprovalBundle struct {
 	// CRITICAL: All approvers must approve the same policy configuration.
 	PolicySnapshotHash string `json:"policy_snapshot_hash"`
 
+	// ViewSnapshotHash is the v9.13 view snapshot hash.
+	// CRITICAL: All approvers must see the same view state.
+	// Binds approval to a specific view snapshot for freshness verification.
+	ViewSnapshotHash string `json:"view_snapshot_hash"`
+
 	// ContentHash is computed from all fields for symmetry verification.
 	// This is NOT included in the hash computation itself.
 	ContentHash string `json:"-"`
@@ -142,6 +147,7 @@ func (b *ApprovalBundle) canonicalJSON() string {
 		fmt.Sprintf(`"revocation_waived":%t`, b.RevocationWaived),
 		fmt.Sprintf(`"revocation_window_end":"%s"`, b.RevocationWindowEnd.UTC().Format(time.RFC3339Nano)),
 		fmt.Sprintf(`"revocation_window_start":"%s"`, b.RevocationWindowStart.UTC().Format(time.RFC3339Nano)),
+		fmt.Sprintf(`"view_snapshot_hash":"%s"`, b.ViewSnapshotHash), // v9.13
 	}
 
 	// Optional fields
@@ -340,6 +346,7 @@ func BuildApprovalBundle(
 		RevocationWindowEnd:   envelope.RevocationWindowEnd,
 		RevocationWaived:      envelope.RevocationWaived,
 		ViewHash:              envelope.ViewHash,
+		ViewSnapshotHash:      envelope.ViewSnapshotHash, // v9.13: Copy from envelope
 		NeutralityAttestation: neutrality,
 		Description:           description,
 		CreatedAt:             now,

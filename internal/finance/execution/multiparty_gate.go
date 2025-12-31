@@ -10,6 +10,7 @@
 // 4) Expiry - approvals are verified at execution time
 // 5) Single-use - approvals cannot be reused
 // 6) v9.12: PolicySnapshotHash consistency between bundle and envelope
+// 7) v9.13: ViewSnapshotHash consistency between bundle and envelope
 //
 // Subordinate to:
 // - docs/QUANTUMLIFE_CANON_V1.md
@@ -285,6 +286,58 @@ func (g *MultiPartyGate) Verify(ctx context.Context, req MultiPartyGateRequest) 
 			Metadata: map[string]string{
 				"policy_snapshot_hash": req.Bundle.PolicySnapshotHash,
 				"verification_type":    "bundle_envelope_match",
+			},
+		})
+	}
+
+	// Step 1.6 (v9.13): Verify ViewSnapshotHash consistency between bundle and envelope
+	// CRITICAL: The bundle's ViewSnapshotHash must match the envelope's ViewSnapshotHash.
+	// This ensures approvers approved the SAME view state bound to the envelope.
+	// All approvers must have seen the same view when they approved.
+	if req.Bundle.ViewSnapshotHash != "" && req.Envelope.ViewSnapshotHash != "" {
+		if req.Bundle.ViewSnapshotHash != req.Envelope.ViewSnapshotHash {
+			result.Passed = false
+			result.BlockedReason = "view snapshot mismatch: bundle and envelope have different view bindings"
+			g.emitEvent(result, events.Event{
+				ID:             g.idGenerator(),
+				Type:           events.EventV913ViewHashMismatch,
+				Timestamp:      now,
+				CircleID:       req.Envelope.ActorCircleID,
+				IntersectionID: req.Envelope.IntersectionID,
+				SubjectID:      req.Envelope.EnvelopeID,
+				SubjectType:    "envelope",
+				Metadata: map[string]string{
+					"bundle_view_hash":   req.Bundle.ViewSnapshotHash,
+					"envelope_view_hash": req.Envelope.ViewSnapshotHash,
+					"reason":             "bundle/envelope view snapshot mismatch",
+				},
+			})
+			g.emitEvent(result, events.Event{
+				ID:             g.idGenerator(),
+				Type:           events.EventV913ExecutionBlockedViewHashMismatch,
+				Timestamp:      now,
+				CircleID:       req.Envelope.ActorCircleID,
+				IntersectionID: req.Envelope.IntersectionID,
+				SubjectID:      req.Envelope.EnvelopeID,
+				SubjectType:    "envelope",
+				Metadata: map[string]string{
+					"reason": result.BlockedReason,
+				},
+			})
+			return result, nil
+		}
+
+		g.emitEvent(result, events.Event{
+			ID:             g.idGenerator(),
+			Type:           events.EventV913ViewHashVerified,
+			Timestamp:      now,
+			CircleID:       req.Envelope.ActorCircleID,
+			IntersectionID: req.Envelope.IntersectionID,
+			SubjectID:      req.Envelope.EnvelopeID,
+			SubjectType:    "envelope",
+			Metadata: map[string]string{
+				"view_snapshot_hash": req.Bundle.ViewSnapshotHash,
+				"verification_type":  "bundle_envelope_match",
 			},
 		})
 	}

@@ -163,6 +163,14 @@ type ExecutionEnvelope struct {
 	// Execution will be blocked if current policy hash doesn't match.
 	PolicySnapshotHash string
 
+	// ViewSnapshotHash is the v9.13 view snapshot hash.
+	// CRITICAL: Binds this envelope to a specific view state.
+	// Execution will be blocked if:
+	// - ViewSnapshotHash is empty (v9.13.1 hardening)
+	// - Current view hash doesn't match (view drift)
+	// - View snapshot is stale (exceeds MaxStaleness)
+	ViewSnapshotHash string
+
 	// --- Internal state (not part of seal) ---
 
 	// Revoked indicates if this envelope has been revoked.
@@ -368,5 +376,6 @@ func ComputeSealHash(env *ExecutionEnvelope) string {
 	h.Write([]byte(env.TraceID))
 	h.Write([]byte(env.SealedAt.Format(time.RFC3339Nano)))
 	h.Write([]byte(env.PolicySnapshotHash)) // v9.12: Policy snapshot binding
+	h.Write([]byte(env.ViewSnapshotHash))   // v9.13: View snapshot binding
 	return hex.EncodeToString(h.Sum(nil))
 }

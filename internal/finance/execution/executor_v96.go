@@ -55,6 +55,7 @@ import (
 // - v9.10: Payee registry enforcement (no free-text recipients)
 // - v9.11: Daily caps and rate limits enforcement
 // - v9.12: Policy snapshot hash verification (prevents policy drift)
+// - v9.13: View freshness verification (read-before-write)
 type V96Executor struct {
 	mu sync.RWMutex
 
@@ -80,6 +81,9 @@ type V96Executor struct {
 
 	// v9.11: Caps gate for daily limits and rate limiting
 	capsGate caps.Gate
+
+	// v9.13: View provider for read-before-write verification
+	viewProvider ViewProvider
 
 	// State
 	abortedEnvelopes map[string]bool
@@ -182,6 +186,13 @@ func (e *V96Executor) SetCapsGate(gate caps.Gate) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.capsGate = gate
+}
+
+// SetViewProvider sets the v9.13 view provider.
+func (e *V96Executor) SetViewProvider(provider ViewProvider) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.viewProvider = provider
 }
 
 // V96ExecuteRequest contains parameters for v9.6 execution.
@@ -605,6 +616,265 @@ func (e *V96Executor) Execute(ctx context.Context, req V96ExecuteRequest) (*V96E
 			Check:   "policy_snapshot_verified",
 			Passed:  true,
 			Details: fmt.Sprintf("policy hash matches: %s...", req.Envelope.PolicySnapshotHash[:16]),
+		})
+	}
+
+	// Step 2.8 (v9.13): View Freshness Verification
+	// CRITICAL: Block execution BEFORE ledger entry if view is stale or hash mismatches.
+	// This ensures we are executing based on fresh, consistent view data.
+	//
+	// v9.13 HARDENING: ViewSnapshotHash is REQUIRED. Empty hash is a hard block.
+	// This prevents execution of envelopes created before v9.13 binding was enforced.
+	if req.Envelope.ViewSnapshotHash == "" {
+		// Emit missing hash event
+		e.emitEvent(result, events.Event{
+			ID:             e.idGenerator(),
+			Type:           events.EventV913ExecutionBlockedViewHashMissing,
+			Timestamp:      now,
+			CircleID:       req.Envelope.ActorCircleID,
+			IntersectionID: req.Envelope.IntersectionID,
+			SubjectID:      req.Envelope.EnvelopeID,
+			SubjectType:    "envelope",
+			TraceID:        req.TraceID,
+			Metadata: map[string]string{
+				"attempt_id": attemptID,
+				"reason":     "view snapshot hash missing",
+			},
+		})
+
+		result.Success = false
+		result.Status = SettlementBlocked
+		result.BlockedReason = "view snapshot hash missing: envelope must be bound to view state"
+		result.ValidationDetails = append(result.ValidationDetails, ValidationCheckResult{
+			Check:   "view_snapshot_hash_present",
+			Passed:  false,
+			Details: "ViewSnapshotHash is required but was empty",
+		})
+		return result, nil
+	}
+
+	// ViewSnapshotHash is present, verify freshness and hash match
+	if e.viewProvider != nil {
+		// Emit view snapshot requested event
+		e.emitEvent(result, events.Event{
+			ID:             e.idGenerator(),
+			Type:           events.EventV913ViewSnapshotRequested,
+			Timestamp:      now,
+			CircleID:       req.Envelope.ActorCircleID,
+			IntersectionID: req.Envelope.IntersectionID,
+			SubjectID:      req.Envelope.EnvelopeID,
+			SubjectType:    "envelope",
+			TraceID:        req.TraceID,
+			Metadata: map[string]string{
+				"attempt_id":  attemptID,
+				"provider_id": e.viewProvider.ProviderID(),
+			},
+		})
+
+		// Build clock for deterministic time
+		viewClock := req.Clock
+		if viewClock == nil {
+			viewClock = clock.NewFixed(now)
+		}
+
+		// Fetch current view snapshot
+		currentView, err := e.viewProvider.GetViewSnapshot(ctx, ViewSnapshotRequest{
+			CircleID:       req.Envelope.ActorCircleID,
+			IntersectionID: req.Envelope.IntersectionID,
+			PayeeID:        req.PayeeID,
+			Currency:       req.Envelope.ActionSpec.Currency,
+			AmountCents:    req.Envelope.ActionSpec.AmountCents,
+			ProviderID:     providerName,
+			Clock:          viewClock,
+			TraceID:        req.TraceID,
+		})
+		if err != nil {
+			result.Success = false
+			result.Status = SettlementBlocked
+			result.BlockedReason = fmt.Sprintf("view snapshot fetch failed: %v", err)
+			result.ValidationDetails = append(result.ValidationDetails, ValidationCheckResult{
+				Check:   "view_snapshot_fetch",
+				Passed:  false,
+				Details: err.Error(),
+			})
+			return result, nil
+		}
+
+		// Emit view snapshot received event
+		e.emitEvent(result, events.Event{
+			ID:             e.idGenerator(),
+			Type:           events.EventV913ViewSnapshotReceived,
+			Timestamp:      now,
+			CircleID:       req.Envelope.ActorCircleID,
+			IntersectionID: req.Envelope.IntersectionID,
+			SubjectID:      currentView.SnapshotID,
+			SubjectType:    "view_snapshot",
+			TraceID:        req.TraceID,
+			Metadata: map[string]string{
+				"attempt_id":  attemptID,
+				"snapshot_id": currentView.SnapshotID,
+				"captured_at": currentView.CapturedAt.UTC().Format(time.RFC3339),
+			},
+		})
+
+		// Compute current view hash
+		currentViewHash := ComputeViewSnapshotHash(currentView)
+
+		// Verify hash matches
+		hashResult := VerifyViewSnapshotHash(ViewSnapshotHash(req.Envelope.ViewSnapshotHash), currentViewHash)
+
+		// Emit hash verification event
+		e.emitEvent(result, events.Event{
+			ID:             e.idGenerator(),
+			Type:           events.EventV913ViewHashVerified,
+			Timestamp:      now,
+			CircleID:       req.Envelope.ActorCircleID,
+			IntersectionID: req.Envelope.IntersectionID,
+			SubjectID:      req.Envelope.EnvelopeID,
+			SubjectType:    "envelope",
+			TraceID:        req.TraceID,
+			Metadata: map[string]string{
+				"attempt_id":    attemptID,
+				"expected_hash": hashResult.ExpectedHash[:16] + "...",
+				"actual_hash":   hashResult.ActualHash[:16] + "...",
+				"match":         fmt.Sprintf("%t", hashResult.Match),
+			},
+		})
+
+		if !hashResult.Match {
+			// Emit hash mismatch event
+			e.emitEvent(result, events.Event{
+				ID:             e.idGenerator(),
+				Type:           events.EventV913ViewHashMismatch,
+				Timestamp:      now,
+				CircleID:       req.Envelope.ActorCircleID,
+				IntersectionID: req.Envelope.IntersectionID,
+				SubjectID:      req.Envelope.EnvelopeID,
+				SubjectType:    "envelope",
+				TraceID:        req.TraceID,
+				Metadata: map[string]string{
+					"attempt_id":    attemptID,
+					"expected_hash": hashResult.ExpectedHash[:16] + "...",
+					"actual_hash":   hashResult.ActualHash[:16] + "...",
+					"reason":        hashResult.Reason,
+				},
+			})
+
+			// Emit execution blocked event
+			e.emitEvent(result, events.Event{
+				ID:             e.idGenerator(),
+				Type:           events.EventV913ExecutionBlockedViewHashMismatch,
+				Timestamp:      now,
+				CircleID:       req.Envelope.ActorCircleID,
+				IntersectionID: req.Envelope.IntersectionID,
+				SubjectID:      req.Envelope.EnvelopeID,
+				SubjectType:    "envelope",
+				TraceID:        req.TraceID,
+				Metadata: map[string]string{
+					"attempt_id": attemptID,
+				},
+			})
+
+			result.Success = false
+			result.Status = SettlementBlocked
+			result.BlockedReason = fmt.Sprintf("view drift: %s", hashResult.Reason)
+			result.ValidationDetails = append(result.ValidationDetails, ValidationCheckResult{
+				Check:   "view_snapshot_hash_verified",
+				Passed:  false,
+				Details: hashResult.Reason,
+			})
+			return result, nil
+		}
+
+		// Hash matches, now check freshness
+		maxStaleness := DefaultMaxStalenessSeconds
+		// Get max staleness from policy snapshot if available
+		if e.viewProvider != nil {
+			// Use default - can be extended via ViewPolicyDescriptor if needed
+		}
+
+		freshnessResult := CheckViewFreshness(currentView, now, maxStaleness)
+
+		// Emit freshness check event
+		e.emitEvent(result, events.Event{
+			ID:             e.idGenerator(),
+			Type:           events.EventV913ViewFreshnessChecked,
+			Timestamp:      now,
+			CircleID:       req.Envelope.ActorCircleID,
+			IntersectionID: req.Envelope.IntersectionID,
+			SubjectID:      req.Envelope.EnvelopeID,
+			SubjectType:    "envelope",
+			TraceID:        req.TraceID,
+			Metadata: map[string]string{
+				"attempt_id":       attemptID,
+				"staleness_ms":     fmt.Sprintf("%d", freshnessResult.StalenessMs),
+				"max_staleness_ms": fmt.Sprintf("%d", freshnessResult.MaxStalenessMs),
+				"fresh":            fmt.Sprintf("%t", freshnessResult.Fresh),
+			},
+		})
+
+		if !freshnessResult.Fresh {
+			// Emit staleness blocked event
+			e.emitEvent(result, events.Event{
+				ID:             e.idGenerator(),
+				Type:           events.EventV913ExecutionBlockedViewStale,
+				Timestamp:      now,
+				CircleID:       req.Envelope.ActorCircleID,
+				IntersectionID: req.Envelope.IntersectionID,
+				SubjectID:      req.Envelope.EnvelopeID,
+				SubjectType:    "envelope",
+				TraceID:        req.TraceID,
+				Metadata: map[string]string{
+					"attempt_id":       attemptID,
+					"staleness_ms":     fmt.Sprintf("%d", freshnessResult.StalenessMs),
+					"max_staleness_ms": fmt.Sprintf("%d", freshnessResult.MaxStalenessMs),
+					"reason":           freshnessResult.Reason,
+				},
+			})
+
+			result.Success = false
+			result.Status = SettlementBlocked
+			result.BlockedReason = freshnessResult.Reason
+			result.ValidationDetails = append(result.ValidationDetails, ValidationCheckResult{
+				Check:   "view_freshness_verified",
+				Passed:  false,
+				Details: freshnessResult.Reason,
+			})
+			return result, nil
+		}
+
+		// Both hash and freshness verified
+		result.ValidationDetails = append(result.ValidationDetails, ValidationCheckResult{
+			Check:   "view_snapshot_verified",
+			Passed:  true,
+			Details: fmt.Sprintf("hash matches, staleness %dms <= %dms", freshnessResult.StalenessMs, freshnessResult.MaxStalenessMs),
+		})
+
+		// Emit successful binding event
+		e.emitEvent(result, events.Event{
+			ID:             e.idGenerator(),
+			Type:           events.EventV913ViewSnapshotBound,
+			Timestamp:      now,
+			CircleID:       req.Envelope.ActorCircleID,
+			IntersectionID: req.Envelope.IntersectionID,
+			SubjectID:      req.Envelope.EnvelopeID,
+			SubjectType:    "envelope",
+			TraceID:        req.TraceID,
+			Metadata: map[string]string{
+				"attempt_id":       attemptID,
+				"snapshot_id":      currentView.SnapshotID,
+				"view_hash":        string(currentViewHash)[:16] + "...",
+				"staleness_ms":     fmt.Sprintf("%d", freshnessResult.StalenessMs),
+				"max_staleness_ms": fmt.Sprintf("%d", freshnessResult.MaxStalenessMs),
+			},
+		})
+	} else {
+		// No view provider configured - hash was present but can't verify freshness
+		// This is acceptable as long as the hash is set (envelope was bound at creation)
+		result.ValidationDetails = append(result.ValidationDetails, ValidationCheckResult{
+			Check:   "view_snapshot_hash_present",
+			Passed:  true,
+			Details: fmt.Sprintf("hash present: %s... (no provider for freshness check)", req.Envelope.ViewSnapshotHash[:16]),
 		})
 	}
 

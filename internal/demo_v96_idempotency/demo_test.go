@@ -66,11 +66,45 @@ func setupTestExecutor() (
 	executor.SetProviderRegistry(registry.NewDefaultRegistry())
 	executor.SetPayeeRegistry(payees.NewDefaultRegistry())
 
+	// v9.13: Set view provider for view freshness verification
+	viewProvider := execution.NewMockViewProvider(execution.MockViewProviderConfig{
+		ProviderID:      "mock-view",
+		Clock:           &testClock{},
+		IDGenerator:     idGen,
+		PayeeAllowed:    true,
+		ProviderAllowed: true,
+		BalanceOK:       true,
+		Accounts:        []string{"acct-1"},
+		SharedViewHash:  "test-shared-hash",
+	})
+	viewProvider.SetSnapshotIDOverride("test-snapshot")
+	viewProvider.SetCapturedAtOverride(testTime)
+	executor.SetViewProvider(viewProvider)
+
 	return executor, presentationStore, revocationChecker, attemptLedger, idGen, emitter
+}
+
+// testTime is the fixed time used for all v9.13 view snapshot tests.
+// Must be consistent between MockViewProvider and envelope creation.
+var testTime = time.Date(2025, 12, 31, 12, 0, 0, 0, time.UTC)
+
+// testClock provides a fixed time for deterministic tests.
+type testClock struct{}
+
+func (c *testClock) Now() time.Time {
+	return testTime
+}
+
+// realTimeClock uses actual wall clock time.
+type realTimeClock struct{}
+
+func (c *realTimeClock) Now() time.Time {
+	return time.Now()
 }
 
 // createTestEnvelope creates a test envelope with bundle.
 // v9.12.1: Now takes executor to compute PolicySnapshotHash.
+// v9.13: Also sets ViewSnapshotHash.
 func createTestEnvelope(executor *execution.V96Executor, idGen func() string, amountCents int64, currency string) (*execution.ExecutionEnvelope, *execution.ApprovalBundle) {
 	now := time.Now()
 	builder := execution.NewEnvelopeBuilder(idGen)
@@ -105,6 +139,25 @@ func createTestEnvelope(executor *execution.V96Executor, idGen func() string, am
 	_, hash := executor.ComputePolicySnapshotForEnvelope()
 	envelope.PolicySnapshotHash = string(hash)
 
+	// v9.13: Compute and bind view snapshot hash (using deterministic snapshot)
+	// Use testTime for CapturedAt to match MockViewProvider's override
+	viewSnapshot := execution.ViewSnapshot{
+		SnapshotID:         "test-snapshot",
+		CapturedAt:         testTime,
+		CircleID:           "circle_alice",
+		IntersectionID:     "intersection_test",
+		PayeeID:            "sandbox-utility",
+		Currency:           currency,
+		AmountCents:        amountCents,
+		PayeeAllowed:       true,
+		ProviderID:         "mock-write",
+		ProviderAllowed:    true,
+		AccountVisibility:  []string{"acct-1"},
+		SharedViewHash:     "test-shared-hash",
+		BalanceCheckPassed: true,
+	}
+	envelope.ViewSnapshotHash = string(execution.ComputeViewSnapshotHash(viewSnapshot))
+
 	bundle, _ := execution.BuildApprovalBundle(
 		envelope,
 		"sandbox-utility",
@@ -112,6 +165,7 @@ func createTestEnvelope(executor *execution.V96Executor, idGen func() string, am
 		300,
 		idGen,
 	)
+	// v9.13: BuildApprovalBundle now copies ViewSnapshotHash from envelope automatically
 
 	return envelope, bundle
 }
@@ -371,7 +425,7 @@ func TestExecutorReplayBlocked(t *testing.T) {
 			ExplicitApprove: true,
 			TraceID:         traceID,
 			AttemptID:       attemptID,
-			Now:             time.Now(),
+			Now:             testTime,
 		}
 
 		// First invocation
@@ -381,7 +435,7 @@ func TestExecutorReplayBlocked(t *testing.T) {
 		}
 
 		// Second invocation with same attempt ID
-		req.Now = time.Now()
+		req.Now = testTime
 		result2, _ := executor.Execute(context.Background(), req)
 		if result2.Success {
 			t.Error("second invocation should be blocked")
@@ -433,7 +487,7 @@ func TestExecutorInflightBlocked(t *testing.T) {
 				ExplicitApprove: true,
 				TraceID:         traceID,
 				AttemptID:       attemptID1,
-				Now:             time.Now(),
+				Now:             testTime,
 			}
 			result1, _ = executor.Execute(context.Background(), req)
 		}()
@@ -451,7 +505,7 @@ func TestExecutorInflightBlocked(t *testing.T) {
 			ExplicitApprove: true,
 			TraceID:         traceID,
 			AttemptID:       attemptID2,
-			Now:             time.Now(),
+			Now:             testTime,
 		}
 		result2, _ = executor.Execute(context.Background(), req2)
 
@@ -499,7 +553,7 @@ func TestMockConnectorMoneyMovedFalse(t *testing.T) {
 			PayeeID:         "sandbox-utility",
 			ExplicitApprove: true,
 			TraceID:         traceID,
-			Now:             time.Now(),
+			Now:             testTime,
 		}
 
 		result, _ := executor.Execute(context.Background(), req)
@@ -670,7 +724,7 @@ func TestAuditEventsContainRequiredFields(t *testing.T) {
 			PayeeID:         "sandbox-utility",
 			ExplicitApprove: true,
 			TraceID:         traceID,
-			Now:             time.Now(),
+			Now:             testTime,
 		}
 
 		result, _ := executor.Execute(context.Background(), req)
@@ -739,7 +793,7 @@ func TestSingleAttemptFinalization(t *testing.T) {
 			PayeeID:         "sandbox-utility",
 			ExplicitApprove: true,
 			TraceID:         traceID,
-			Now:             time.Now(),
+			Now:             testTime,
 		}
 
 		result, _ := executor.Execute(context.Background(), req)
@@ -757,11 +811,97 @@ func TestSingleAttemptFinalization(t *testing.T) {
 	})
 }
 
+// createTestEnvelopeWithRealTime creates a test envelope using real time for v9.13 view freshness.
+// This is needed for tests that rely on wall clock behavior (like forced pause).
+func createTestEnvelopeWithRealTime(executor *execution.V96Executor, idGen func() string, amountCents int64, currency string, realNow time.Time) (*execution.ExecutionEnvelope, *execution.ApprovalBundle) {
+	builder := execution.NewEnvelopeBuilder(idGen)
+
+	intent := execution.ExecutionIntent{
+		IntentID:       idGen(),
+		CircleID:       "circle_alice",
+		IntersectionID: "intersection_test",
+		Description:    "Test payment",
+		ActionType:     execution.ActionTypePayment,
+		AmountCents:    amountCents,
+		Currency:       currency,
+		PayeeID:        "sandbox-utility",
+		ViewHash:       "v8_view_" + idGen(),
+		CreatedAt:      realNow,
+	}
+
+	envelope, _ := builder.Build(execution.BuildRequest{
+		Intent:                   intent,
+		ApprovalThreshold:        2,
+		RevocationWindowDuration: 0,
+		RevocationWaived:         true,
+		Expiry:                   realNow.Add(time.Hour),
+		AmountCap:                100,
+		FrequencyCap:             1,
+		DurationCap:              time.Hour,
+		TraceID:                  idGen(),
+	}, realNow)
+	envelope.SealHash = execution.ComputeSealHash(envelope)
+
+	// v9.12.1: Compute and bind policy snapshot hash
+	_, hash := executor.ComputePolicySnapshotForEnvelope()
+	envelope.PolicySnapshotHash = string(hash)
+
+	// v9.13: Compute and bind view snapshot hash using real time
+	viewSnapshot := execution.ViewSnapshot{
+		SnapshotID:         "test-snapshot",
+		CapturedAt:         realNow,
+		CircleID:           "circle_alice",
+		IntersectionID:     "intersection_test",
+		PayeeID:            "sandbox-utility",
+		Currency:           currency,
+		AmountCents:        amountCents,
+		PayeeAllowed:       true,
+		ProviderID:         "mock-write",
+		ProviderAllowed:    true,
+		AccountVisibility:  []string{"acct-1"},
+		SharedViewHash:     "test-shared-hash",
+		BalanceCheckPassed: true,
+	}
+	envelope.ViewSnapshotHash = string(execution.ComputeViewSnapshotHash(viewSnapshot))
+
+	bundle, _ := execution.BuildApprovalBundle(
+		envelope,
+		"sandbox-utility",
+		"Test approval request for payment.",
+		300,
+		idGen,
+	)
+
+	return envelope, bundle
+}
+
 // Test 13: Revocation during pause aborts with proper ledger update
+// NOTE: This test requires real time for the forced pause loop to work correctly.
+// It uses a specialized executor/envelope setup that works with wall clock time.
 func TestRevocationDuringPauseWithLedger(t *testing.T) {
 	t.Run("revocation updates ledger to revoked status", func(t *testing.T) {
 		executor, presentationStore, revocationChecker, ledger, idGen, _ := setupTestExecutor()
-		envelope, bundle := createTestEnvelope(executor, idGen, 100, "GBP")
+
+		// For this test, we need real time for the forced pause to work.
+		// Create envelope with real time for ViewSnapshot.
+		realNow := time.Now()
+
+		// Update view provider to use real time instead of testTime
+		viewProvider := execution.NewMockViewProvider(execution.MockViewProviderConfig{
+			ProviderID:      "mock-view",
+			Clock:           &realTimeClock{},
+			IDGenerator:     idGen,
+			PayeeAllowed:    true,
+			ProviderAllowed: true,
+			BalanceOK:       true,
+			Accounts:        []string{"acct-1"},
+			SharedViewHash:  "test-shared-hash",
+		})
+		viewProvider.SetSnapshotIDOverride("test-snapshot")
+		viewProvider.SetCapturedAtOverride(realNow)
+		executor.SetViewProvider(viewProvider)
+
+		envelope, bundle := createTestEnvelopeWithRealTime(executor, idGen, 100, "GBP", realNow)
 		traceID := idGen()
 
 		approvals, hashes := createTestApprovalsWithPresentation(
@@ -795,13 +935,13 @@ func TestRevocationDuringPauseWithLedger(t *testing.T) {
 				ExplicitApprove: true,
 				TraceID:         traceID,
 				AttemptID:       attemptID,
-				Now:             time.Now(),
+				Now:             time.Now(), // Use real time for forced pause to work
 			}
 			result, _ = executor.Execute(context.Background(), req)
 		}()
 
-		// Revoke during forced pause
-		time.Sleep(50 * time.Millisecond)
+		// Revoke during forced pause - wait a bit for goroutine to enter pause
+		time.Sleep(20 * time.Millisecond)
 		revocationChecker.Revoke(envelope.EnvelopeID, "test-circle", "test-user", "test revocation", time.Now())
 
 		wg.Wait()
@@ -854,7 +994,7 @@ func TestProviderReceivesIdempotencyKey(t *testing.T) {
 			PayeeID:         "sandbox-utility",
 			ExplicitApprove: true,
 			TraceID:         traceID,
-			Now:             time.Now(),
+			Now:             testTime,
 		}
 
 		result, _ := executor.Execute(context.Background(), req)
@@ -909,7 +1049,7 @@ func TestCapEnforcementWithIdempotency(t *testing.T) {
 			ExplicitApprove: true,
 			TraceID:         traceID,
 			AttemptID:       attemptID,
-			Now:             time.Now(),
+			Now:             testTime,
 		}
 
 		result, _ := executor.Execute(context.Background(), req)
@@ -934,6 +1074,7 @@ func TestCapEnforcementWithIdempotency(t *testing.T) {
 
 // createTestEnvelopeWithCap creates a test envelope with custom cap.
 // v9.12.1: Now takes executor to compute PolicySnapshotHash.
+// v9.13: Also sets ViewSnapshotHash.
 func createTestEnvelopeWithCap(executor *execution.V96Executor, idGen func() string, amountCents int64, currency string, cap int64) (*execution.ExecutionEnvelope, *execution.ApprovalBundle) {
 	now := time.Now()
 	builder := execution.NewEnvelopeBuilder(idGen)
@@ -968,6 +1109,25 @@ func createTestEnvelopeWithCap(executor *execution.V96Executor, idGen func() str
 	_, hash := executor.ComputePolicySnapshotForEnvelope()
 	envelope.PolicySnapshotHash = string(hash)
 
+	// v9.13: Compute and bind view snapshot hash (using deterministic snapshot)
+	// Use testTime for CapturedAt to match MockViewProvider's override
+	viewSnapshot := execution.ViewSnapshot{
+		SnapshotID:         "test-snapshot",
+		CapturedAt:         testTime,
+		CircleID:           "circle_alice",
+		IntersectionID:     "intersection_test",
+		PayeeID:            "sandbox-utility",
+		Currency:           currency,
+		AmountCents:        amountCents,
+		PayeeAllowed:       true,
+		ProviderID:         "mock-write",
+		ProviderAllowed:    true,
+		AccountVisibility:  []string{"acct-1"},
+		SharedViewHash:     "test-shared-hash",
+		BalanceCheckPassed: true,
+	}
+	envelope.ViewSnapshotHash = string(execution.ComputeViewSnapshotHash(viewSnapshot))
+
 	bundle, _ := execution.BuildApprovalBundle(
 		envelope,
 		"sandbox-utility",
@@ -975,6 +1135,7 @@ func createTestEnvelopeWithCap(executor *execution.V96Executor, idGen func() str
 		300,
 		idGen,
 	)
+	// v9.13: BuildApprovalBundle now copies ViewSnapshotHash from envelope automatically
 
 	return envelope, bundle
 }
