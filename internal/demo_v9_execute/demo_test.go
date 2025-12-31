@@ -718,7 +718,7 @@ func createTestEnvelopeWithKey(idGen func() string, signingKey []byte, amountCen
 		ActionType:     execution.ActionTypePayment,
 		AmountCents:    amountCents,
 		Currency:       currency,
-		Recipient:      "test-recipient",
+		PayeeID:        "sandbox-utility",
 		ViewHash:       "v8_view_hash_test",
 		CreatedAt:      now,
 	}

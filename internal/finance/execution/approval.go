@@ -59,14 +59,15 @@ func (m *ApprovalManager) CreateApprovalRequest(
 
 // generateNeutralPrompt generates a neutral, factual approval prompt.
 // Per Canon Addendum v9 §3.6: descriptive only, no urgency/fear/authority/optimization.
+// v9.10: Uses PayeeID (pre-registered payee) instead of free-text recipient.
 func (m *ApprovalManager) generateNeutralPrompt(env *ExecutionEnvelope) string {
 	return fmt.Sprintf(
-		"Approval requested for %s of %s %d.%02d to %s. Action hash: %s",
+		"Approval requested for %s of %s %d.%02d to payee %s. Action hash: %s",
 		env.ActionSpec.Type,
 		env.ActionSpec.Currency,
 		env.ActionSpec.AmountCents/100,
 		env.ActionSpec.AmountCents%100,
-		env.ActionSpec.Recipient,
+		env.ActionSpec.PayeeID, // v9.10: PayeeID instead of free-text Recipient
 		env.ActionHash[:16]+"...",
 	)
 }

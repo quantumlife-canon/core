@@ -451,7 +451,7 @@ func (r *Runner) createTestEnvelope(amountCents int64, currency string, now time
 		ActionType:     execution.ActionTypePayment,
 		AmountCents:    amountCents,
 		Currency:       currency,
-		Recipient:      "sandbox-utility",
+		PayeeID:        "sandbox-utility",
 		ViewHash:       "v8_view_" + r.generateID(),
 		CreatedAt:      now,
 	}

@@ -71,8 +71,10 @@ type ExecutionIntent struct {
 	// Currency is the currency code.
 	Currency string
 
-	// Recipient is the intended recipient (for display/audit only).
-	Recipient string
+	// PayeeID is the pre-registered payee identifier.
+	// CRITICAL (v9.10): No free-text recipients allowed.
+	// This MUST reference a registered payee in the payee registry.
+	PayeeID string
 
 	// ViewHash is the ContentHash of the v8 SharedFinancialView this is based on.
 	ViewHash string
@@ -179,8 +181,9 @@ type ActionSpec struct {
 	// Currency is the currency code.
 	Currency string
 
-	// Recipient is the recipient identifier.
-	Recipient string
+	// PayeeID is the pre-registered payee identifier.
+	// CRITICAL (v9.10): No free-text recipients allowed.
+	PayeeID string
 
 	// Description is a neutral description.
 	Description string
@@ -330,7 +333,7 @@ func ComputeActionHash(intent ExecutionIntent) string {
 	h.Write([]byte(intent.ActionType))
 	h.Write([]byte(fmt.Sprintf("%d", intent.AmountCents)))
 	h.Write([]byte(intent.Currency))
-	h.Write([]byte(intent.Recipient))
+	h.Write([]byte(intent.PayeeID)) // v9.10: PayeeID instead of free-text Recipient
 	h.Write([]byte(intent.ViewHash))
 	h.Write([]byte(intent.CreatedAt.Format(time.RFC3339Nano)))
 	return hex.EncodeToString(h.Sum(nil))
@@ -348,7 +351,7 @@ func ComputeSealHash(env *ExecutionEnvelope) string {
 	h.Write([]byte(env.ActionSpec.Type))
 	h.Write([]byte(fmt.Sprintf("%d", env.ActionSpec.AmountCents)))
 	h.Write([]byte(env.ActionSpec.Currency))
-	h.Write([]byte(env.ActionSpec.Recipient))
+	h.Write([]byte(env.ActionSpec.PayeeID)) // v9.10: PayeeID instead of free-text Recipient
 	h.Write([]byte(fmt.Sprintf("%d", env.AmountCap)))
 	h.Write([]byte(fmt.Sprintf("%d", env.FrequencyCap)))
 	h.Write([]byte(fmt.Sprintf("%d", env.DurationCap)))

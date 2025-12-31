@@ -53,7 +53,7 @@ func ToWriteEnvelope(env *ExecutionEnvelope) *write.ExecutionEnvelope {
 			Type:        string(env.ActionSpec.Type),
 			AmountCents: env.ActionSpec.AmountCents,
 			Currency:    env.ActionSpec.Currency,
-			Recipient:   env.ActionSpec.Recipient,
+			PayeeID:     env.ActionSpec.PayeeID, // v9.10: PayeeID instead of free-text Recipient
 			Description: env.ActionSpec.Description,
 		},
 	}

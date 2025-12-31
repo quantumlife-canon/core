@@ -111,7 +111,7 @@ func DefaultScenario() *Scenario {
 			ActionType:     execution.ActionTypePayment,
 			AmountCents:    7500, // GBP 75.00
 			Currency:       "GBP",
-			Recipient:      "Utility Provider",
+			PayeeID:        "Utility Provider",
 			ViewHash:       "", // Will be set from v8 view
 			CreatedAt:      time.Time{},
 		},
@@ -136,7 +136,7 @@ func RevocationScenario() *Scenario {
 			ActionType:     execution.ActionTypePayment,
 			AmountCents:    3000, // GBP 30.00
 			Currency:       "GBP",
-			Recipient:      "Streaming Service",
+			PayeeID:        "Streaming Service",
 			ViewHash:       "",
 			CreatedAt:      time.Time{},
 		},
@@ -161,7 +161,7 @@ func ExpiredApprovalScenario() *Scenario {
 			ActionType:     execution.ActionTypePayment,
 			AmountCents:    2000, // GBP 20.00
 			Currency:       "GBP",
-			Recipient:      "Food Delivery",
+			PayeeID:        "Food Delivery",
 			ViewHash:       "",
 			CreatedAt:      time.Time{},
 		},
@@ -186,7 +186,7 @@ func PlaidStubScenario() *Scenario {
 			ActionType:     execution.ActionTypeTransfer,
 			AmountCents:    5000, // GBP 50.00
 			Currency:       "GBP",
-			Recipient:      "Savings Pot",
+			PayeeID:        "Savings Pot",
 			ViewHash:       "",
 			CreatedAt:      time.Time{},
 		},

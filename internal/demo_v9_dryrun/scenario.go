@@ -105,7 +105,7 @@ func DefaultScenario() *Scenario {
 			ActionType:     execution.ActionTypePayment,
 			AmountCents:    5000, // £50.00
 			Currency:       "GBP",
-			Recipient:      "Household Expenses",
+			PayeeID:        "Household Expenses",
 			ViewHash:       "",          // Will be set from v8 view
 			CreatedAt:      time.Time{}, // Will be set by runner
 		},
@@ -129,7 +129,7 @@ func NoRevocationScenario() *Scenario {
 			ActionType:     execution.ActionTypeTransfer,
 			AmountCents:    2500, // £25.00
 			Currency:       "GBP",
-			Recipient:      "Savings Pot",
+			PayeeID:        "Savings Pot",
 			ViewHash:       "",
 			CreatedAt:      time.Time{},
 		},
@@ -151,7 +151,7 @@ func ExpiredApprovalScenario() *Scenario {
 			ActionType:     execution.ActionTypePayment,
 			AmountCents:    1000, // £10.00
 			Currency:       "GBP",
-			Recipient:      "Utility Company",
+			PayeeID:        "Utility Company",
 			ViewHash:       "",
 			CreatedAt:      time.Time{},
 		},

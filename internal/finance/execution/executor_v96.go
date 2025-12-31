@@ -37,6 +37,7 @@ import (
 	"time"
 
 	"quantumlife/internal/connectors/finance/write"
+	"quantumlife/internal/connectors/finance/write/payees"
 	"quantumlife/internal/connectors/finance/write/registry"
 	"quantumlife/internal/finance/execution/attempts"
 	"quantumlife/pkg/events"
@@ -49,6 +50,7 @@ import (
 // - Deterministic idempotency key derivation
 // - One in-flight attempt per envelope enforcement
 // - v9.9: Provider registry allowlist enforcement
+// - v9.10: Payee registry enforcement (no free-text recipients)
 type V96Executor struct {
 	mu sync.RWMutex
 
@@ -68,6 +70,9 @@ type V96Executor struct {
 
 	// v9.9: Provider registry for allowlist enforcement
 	providerRegistry registry.Registry
+
+	// v9.10: Payee registry for free-text recipient elimination
+	payeeRegistry payees.Registry
 
 	// State
 	abortedEnvelopes map[string]bool
@@ -118,6 +123,7 @@ func DefaultV96ExecutorConfig() V96ExecutorConfig {
 
 // NewV96Executor creates a new v9.6 executor.
 // v9.9: Uses the default provider registry for allowlist enforcement.
+// v9.10: Uses the default payee registry for free-text recipient elimination.
 func NewV96Executor(
 	trueLayerConnector write.WriteConnector,
 	mockConnector write.WriteConnector,
@@ -140,6 +146,7 @@ func NewV96Executor(
 		revocationChecker:  revocationChecker,
 		attemptLedger:      attemptLedger,
 		providerRegistry:   registry.NewDefaultRegistry(), // v9.9: Default registry
+		payeeRegistry:      payees.NewDefaultRegistry(),   // v9.10: Default payee registry
 		abortedEnvelopes:   make(map[string]bool),
 		auditEmitter:       emitter,
 		idGenerator:        idGen,
@@ -152,6 +159,14 @@ func (e *V96Executor) SetProviderRegistry(reg registry.Registry) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.providerRegistry = reg
+}
+
+// SetPayeeRegistry sets a custom payee registry.
+// This is primarily for testing - production code should use NewDefaultRegistry().
+func (e *V96Executor) SetPayeeRegistry(reg payees.Registry) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.payeeRegistry = reg
 }
 
 // V96ExecuteRequest contains parameters for v9.6 execution.
@@ -345,6 +360,88 @@ func (e *V96Executor) Execute(ctx context.Context, req V96ExecuteRequest) (*V96E
 		TraceID:        req.TraceID,
 		Metadata: map[string]string{
 			"provider_id": string(providerID),
+			"attempt_id":  attemptID,
+		},
+	})
+
+	// Step 2.6 (v9.10): Check payee registry allowlist
+	// CRITICAL: Block execution BEFORE ledger entry if payee is not allowed.
+	// This prevents free-text recipients from being used in execution.
+	payeeID := payees.PayeeID(req.PayeeID)
+	if err := e.payeeRegistry.RequireAllowed(payeeID, providerName); err != nil {
+		// Emit payee blocked event
+		blockReason := "payee not allowed"
+		var payeeErr *payees.PayeeError
+		if errors.As(err, &payeeErr) {
+			if payeeErr.BlockReason != "" {
+				blockReason = payeeErr.BlockReason
+			}
+		}
+
+		// Determine specific event type based on error
+		eventType := events.EventV910PayeeNotAllowed
+		if errors.Is(err, payees.ErrPayeeNotRegistered) {
+			eventType = events.EventV910PayeeNotRegistered
+		} else if errors.Is(err, payees.ErrPayeeLiveBlocked) {
+			eventType = events.EventV910PayeeLiveBlocked
+		} else if errors.Is(err, payees.ErrPayeeProviderMismatch) {
+			eventType = events.EventV910PayeeProviderMismatch
+		}
+
+		e.emitEvent(result, events.Event{
+			ID:             e.idGenerator(),
+			Type:           eventType,
+			Timestamp:      now,
+			CircleID:       req.Envelope.ActorCircleID,
+			IntersectionID: req.Envelope.IntersectionID,
+			SubjectID:      req.Envelope.EnvelopeID,
+			SubjectType:    "envelope",
+			TraceID:        req.TraceID,
+			Metadata: map[string]string{
+				"payee_id":     string(payeeID),
+				"provider_id":  providerName,
+				"attempt_id":   attemptID,
+				"block_reason": blockReason,
+				"error":        err.Error(),
+			},
+		})
+
+		// Emit execution blocked event
+		e.emitEvent(result, events.Event{
+			ID:             e.idGenerator(),
+			Type:           events.EventV910ExecutionBlockedInvalidPayee,
+			Timestamp:      now,
+			CircleID:       req.Envelope.ActorCircleID,
+			IntersectionID: req.Envelope.IntersectionID,
+			SubjectID:      req.Envelope.EnvelopeID,
+			SubjectType:    "envelope",
+			TraceID:        req.TraceID,
+			Metadata: map[string]string{
+				"payee_id":     string(payeeID),
+				"provider_id":  providerName,
+				"block_reason": blockReason,
+			},
+		})
+
+		result.Success = false
+		result.Status = SettlementBlocked
+		result.BlockedReason = fmt.Sprintf("payee %q blocked: %s", payeeID, blockReason)
+		return result, nil
+	}
+
+	// Emit payee allowed event
+	e.emitEvent(result, events.Event{
+		ID:             e.idGenerator(),
+		Type:           events.EventV910PayeeAllowed,
+		Timestamp:      now,
+		CircleID:       req.Envelope.ActorCircleID,
+		IntersectionID: req.Envelope.IntersectionID,
+		SubjectID:      req.Envelope.EnvelopeID,
+		SubjectType:    "envelope",
+		TraceID:        req.TraceID,
+		Metadata: map[string]string{
+			"payee_id":    string(payeeID),
+			"provider_id": providerName,
 			"attempt_id":  attemptID,
 		},
 	})

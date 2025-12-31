@@ -109,7 +109,7 @@ func (r *Runner) RunScenario(scenario *Scenario) (*ScenarioResult, error) {
 		map[string]string{
 			"action_type": string(intent.ActionType),
 			"amount":      FormatAmount(intent.AmountCents, intent.Currency),
-			"recipient":   intent.Recipient,
+			"payee_id":    intent.PayeeID,
 			"view_hash":   intent.ViewHash[:20] + "...",
 		})
 
@@ -375,7 +375,7 @@ func PrintResult(result *ScenarioResult) {
 	fmt.Printf("   Circle: %s\n", result.Intent.CircleID)
 	fmt.Printf("   Action: %s\n", result.Intent.ActionType)
 	fmt.Printf("   Amount: %s\n", FormatAmount(result.Intent.AmountCents, result.Intent.Currency))
-	fmt.Printf("   Recipient: %s\n", result.Intent.Recipient)
+	fmt.Printf("   PayeeID: %s\n", result.Intent.PayeeID)
 	fmt.Printf("   View Hash: %s...\n", result.Intent.ViewHash[:20])
 	fmt.Println()
 

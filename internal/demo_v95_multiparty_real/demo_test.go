@@ -89,7 +89,7 @@ func createTestEnvelopeWithCap(idGen func() string, emitter func(events.Event), 
 		ActionType:     execution.ActionTypePayment,
 		AmountCents:    amountCents,
 		Currency:       currency,
-		Recipient:      "sandbox-utility",
+		PayeeID:        "sandbox-utility",
 		ViewHash:       "v8_view_" + idGen(),
 		CreatedAt:      now,
 	}

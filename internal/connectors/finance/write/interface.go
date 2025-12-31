@@ -59,7 +59,9 @@ type ActionSpec struct {
 	Type        string
 	AmountCents int64
 	Currency    string
-	Recipient   string
+	// PayeeID is the pre-registered payee identifier.
+	// CRITICAL (v9.10): No free-text recipients allowed.
+	PayeeID     string
 	Description string
 }
 

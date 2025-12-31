@@ -27,7 +27,7 @@ func TestA1_SilenceResultsInNoExecution(t *testing.T) {
 			ActionType:  execution.ActionTypePayment,
 			AmountCents: 1000,
 			Currency:    "GBP",
-			Recipient:   "Test",
+			PayeeID:     "sandbox-utility",
 		},
 		ShouldRevoke:   false,
 		ExpectedStatus: execution.SettlementBlocked, // Will be blocked due to no approval
@@ -86,7 +86,7 @@ func TestA2_ClosingWindowWithoutApprovalResultsInNoExecution(t *testing.T) {
 		ActionType:  execution.ActionTypePayment,
 		AmountCents: 500,
 		Currency:    "GBP",
-		Recipient:   "Test",
+		PayeeID:     "sandbox-utility",
 		ViewHash:    "test_view_hash",
 		CreatedAt:   now,
 	}
@@ -122,7 +122,7 @@ func TestB1_ApprovalPromptContainsNoUrgencyLanguage(t *testing.T) {
 		ActionType:  execution.ActionTypePayment,
 		AmountCents: 5000,
 		Currency:    "GBP",
-		Recipient:   "Utility Bill Due Tomorrow", // Potentially urgent context
+		PayeeID:     "sandbox-utility", // Potentially urgent context
 		ViewHash:    "test_view_hash",
 		CreatedAt:   now,
 	}
@@ -232,7 +232,7 @@ func TestC1_ApprovalBoundToSpecificActionHash(t *testing.T) {
 		ActionType:  execution.ActionTypePayment,
 		AmountCents: 1000,
 		Currency:    "GBP",
-		Recipient:   "Merchant A",
+		PayeeID:     "sandbox-merchant",
 		ViewHash:    "view_1",
 		CreatedAt:   now,
 	}
@@ -243,7 +243,7 @@ func TestC1_ApprovalBoundToSpecificActionHash(t *testing.T) {
 		ActionType:  execution.ActionTypePayment,
 		AmountCents: 1000, // Same amount
 		Currency:    "GBP",
-		Recipient:   "Merchant A", // Same recipient
+		PayeeID:     "sandbox-merchant", // Same recipient
 		ViewHash:    "view_2",
 		CreatedAt:   now.Add(1 * time.Second),
 	}
@@ -268,7 +268,7 @@ func TestC3_ApprovalReuseRejected(t *testing.T) {
 		ActionType:  execution.ActionTypePayment,
 		AmountCents: 1000,
 		Currency:    "GBP",
-		Recipient:   "Test",
+		PayeeID:     "sandbox-utility",
 		ViewHash:    "view_c3",
 		CreatedAt:   now,
 	}

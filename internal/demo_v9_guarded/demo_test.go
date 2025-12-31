@@ -128,7 +128,7 @@ func TestB1_ApprovalAloneDoesNotTriggerExecution(t *testing.T) {
 		ActionType:  execution.ActionTypePayment,
 		AmountCents: 1000,
 		Currency:    "GBP",
-		Recipient:   "Test Recipient",
+		PayeeID:     "sandbox-utility",
 		ViewHash:    "view_b1",
 		CreatedAt:   now,
 	}
@@ -277,7 +277,7 @@ func TestD1_ExpiredEnvelopeBlocksExecution(t *testing.T) {
 		ActionType:  execution.ActionTypePayment,
 		AmountCents: 1000,
 		Currency:    "GBP",
-		Recipient:   "Test Recipient",
+		PayeeID:     "sandbox-utility",
 		ViewHash:    "view_d1",
 		CreatedAt:   now,
 	}
@@ -341,7 +341,7 @@ func TestE2_AllStubsReturnGuardedError(t *testing.T) {
 		ActionSpec: execution.ActionSpec{
 			AmountCents: 1000,
 			Currency:    "GBP",
-			Recipient:   "Test",
+			PayeeID:     "sandbox-utility",
 		},
 		SealHash: "sealed_hash_test", // Non-empty means sealed
 		Expiry:   now.Add(1 * time.Hour),

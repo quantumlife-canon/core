@@ -183,7 +183,7 @@ func (a *GuardedExecutionAdapter) Execute(envelope *ExecutionEnvelope, approval 
 				"action_hash": envelope.ActionHash,
 				"amount":      fmt.Sprintf("%d", envelope.ActionSpec.AmountCents),
 				"currency":    envelope.ActionSpec.Currency,
-				"recipient":   envelope.ActionSpec.Recipient,
+				"payee_id":    envelope.ActionSpec.PayeeID, // v9.10: PayeeID instead of free-text Recipient
 				"approver_id": approval.ApproverID,
 				"approval_id": approval.ArtifactID,
 			},

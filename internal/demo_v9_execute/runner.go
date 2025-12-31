@@ -181,7 +181,7 @@ func (r *Runner) Run() (*DemoResult, error) {
 		ActionType:     execution.ActionTypePayment,
 		AmountCents:    100, // £1.00
 		Currency:       "GBP",
-		Recipient:      "sandbox-utility",
+		PayeeID:        "sandbox-utility",
 		ViewHash:       "v8_view_hash_" + r.generateID(),
 		CreatedAt:      now,
 	}
@@ -198,7 +198,7 @@ func (r *Runner) Run() (*DemoResult, error) {
 			"action_type": string(intent.ActionType),
 			"amount":      fmt.Sprintf("%d", intent.AmountCents),
 			"currency":    intent.Currency,
-			"recipient":   intent.Recipient,
+			"payee_id":    intent.PayeeID,
 		},
 	})
 
@@ -396,7 +396,7 @@ func PrintResult(result *DemoResult) {
 	fmt.Printf("   Action: %s\n", result.Intent.ActionType)
 	fmt.Printf("   Amount: £%.2f\n", float64(result.Intent.AmountCents)/100)
 	fmt.Printf("   Currency: %s\n", result.Intent.Currency)
-	fmt.Printf("   Recipient: %s\n", result.Intent.Recipient)
+	fmt.Printf("   PayeeID: %s\n", result.Intent.PayeeID)
 	fmt.Println()
 
 	// Print envelope

@@ -448,6 +448,28 @@ const (
 	EventV99ProviderNotRegistered    EventType = "v9.provider.not_registered"
 	EventV99ProviderLiveBlocked      EventType = "v9.provider.live_blocked"
 	EventV99ProviderAllowlistChecked EventType = "v9.provider.allowlist.checked"
+
+	// v9.10 Payee Registry Lock + Free-Text Recipient Elimination events
+	// CRITICAL: v9.10 prevents free-text recipients from being used in execution.
+	// ALL executions MUST reference a registered PayeeID.
+	//
+	// NON-NEGOTIABLE:
+	// - No free-text recipients in any write execution path
+	// - No runtime-supplied payment destinations
+	// - Payee must be registered and allowed for the provider being used
+	// - Live payees are blocked by default
+	// - Registry violations produce blocking events with audit trail
+
+	// Payee registry check events
+	EventV910PayeeRegistryChecked  EventType = "v9.payee.registry.checked"
+	EventV910PayeeAllowed          EventType = "v9.payee.allowed"
+	EventV910PayeeNotRegistered    EventType = "v9.payee.not_registered"
+	EventV910PayeeNotAllowed       EventType = "v9.payee.not_allowed"
+	EventV910PayeeLiveBlocked      EventType = "v9.payee.live_blocked"
+	EventV910PayeeProviderMismatch EventType = "v9.payee.provider_mismatch"
+
+	// Execution blocking events for payee validation
+	EventV910ExecutionBlockedInvalidPayee EventType = "v9.execution.blocked.invalid_payee"
 )
 
 // Event represents a system event for audit and observability.

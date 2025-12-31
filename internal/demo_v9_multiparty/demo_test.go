@@ -81,7 +81,7 @@ func createTestEnvelope(idGen func() string, emitter func(events.Event), amountC
 		ActionType:     execution.ActionTypePayment,
 		AmountCents:    amountCents,
 		Currency:       currency,
-		Recipient:      "sandbox-utility",
+		PayeeID:        "sandbox-utility",
 		ViewHash:       "v8_view_" + idGen(),
 		CreatedAt:      now,
 	}
@@ -523,7 +523,7 @@ func TestNeutralLanguageEnforcement(t *testing.T) {
 				ActionType:     execution.ActionTypePayment,
 				AmountCents:    100,
 				Currency:       "GBP",
-				Recipient:      "sandbox-utility",
+				PayeeID:        "sandbox-utility",
 				ViewHash:       "v8_view_test",
 				CreatedAt:      now,
 			}

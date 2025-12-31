@@ -76,7 +76,7 @@ func createTestEnvelope(idGen func() string, amountCents int64, currency string)
 		ActionType:     execution.ActionTypePayment,
 		AmountCents:    amountCents,
 		Currency:       currency,
-		Recipient:      "sandbox-utility",
+		PayeeID:        "sandbox-utility",
 		ViewHash:       "v8_view_" + idGen(),
 		CreatedAt:      now,
 	}
@@ -934,7 +934,7 @@ func createTestEnvelopeWithCap(idGen func() string, amountCents int64, currency 
 		ActionType:     execution.ActionTypePayment,
 		AmountCents:    amountCents,
 		Currency:       currency,
-		Recipient:      "sandbox-utility",
+		PayeeID:        "sandbox-utility",
 		ViewHash:       "v8_view_" + idGen(),
 		CreatedAt:      now,
 	}

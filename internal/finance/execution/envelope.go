@@ -67,7 +67,7 @@ func (b *EnvelopeBuilder) Build(req BuildRequest, now time.Time) (*ExecutionEnve
 			Type:        req.Intent.ActionType,
 			AmountCents: req.Intent.AmountCents,
 			Currency:    req.Intent.Currency,
-			Recipient:   req.Intent.Recipient,
+			PayeeID:     req.Intent.PayeeID, // v9.10: PayeeID instead of free-text Recipient
 			Description: req.Intent.Description,
 		},
 		AmountCap:         req.AmountCap,

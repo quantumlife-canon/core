@@ -181,7 +181,7 @@ func (r *Runner) runSuccessScenario() (*DemoResult, error) {
 		ActionType:     execution.ActionTypePayment,
 		AmountCents:    100, // £1.00
 		Currency:       "GBP",
-		Recipient:      "sandbox-utility",
+		PayeeID:        "sandbox-utility",
 		ViewHash:       "v8_view_" + r.generateID(),
 		CreatedAt:      now,
 	}
@@ -335,7 +335,7 @@ func (r *Runner) runMissingPresentationScenario() (*DemoResult, error) {
 		ActionType:     execution.ActionTypePayment,
 		AmountCents:    50,
 		Currency:       "GBP",
-		Recipient:      "sandbox-utility",
+		PayeeID:        "sandbox-utility",
 		ViewHash:       "v8_view_" + r.generateID(),
 		CreatedAt:      now,
 	}
@@ -453,7 +453,7 @@ func (r *Runner) runRevocationDuringPauseScenario() (*DemoResult, error) {
 		ActionType:     execution.ActionTypePayment,
 		AmountCents:    75,
 		Currency:       "GBP",
-		Recipient:      "sandbox-utility",
+		PayeeID:        "sandbox-utility",
 		ViewHash:       "v8_view_" + r.generateID(),
 		CreatedAt:      now,
 	}
