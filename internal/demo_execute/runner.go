@@ -91,7 +91,7 @@ func (r *Runner) Run(ctx context.Context) (*Result, error) {
 	intersectionStore := intersectionImpl.NewRuntime()
 	auditStore := auditImpl.NewStore()
 	revocationRegistry := revocationImpl.NewRegistryWithClock(r.clockFunc)
-	authorityEngine := authorityImpl.NewEngine(intersectionStore)
+	authorityEngine := authorityImpl.NewEngineWithClock(intersectionStore, r.clockFunc)
 
 	// Create circles
 	parentCircle, err := circleStore.Create(ctx, circle.CreateRequest{TenantID: "demo-tenant"})
@@ -201,7 +201,7 @@ func (r *Runner) RunWithRevocation(ctx context.Context) (*Result, error) {
 	intersectionStore := intersectionImpl.NewRuntime()
 	auditStore := auditImpl.NewStore()
 	revocationRegistry := revocationImpl.NewRegistryWithClock(r.clockFunc)
-	authorityEngine := authorityImpl.NewEngine(intersectionStore)
+	authorityEngine := authorityImpl.NewEngineWithClock(intersectionStore, r.clockFunc)
 
 	// Create circle
 	circ, err := circleStore.Create(ctx, circle.CreateRequest{TenantID: "demo-tenant"})
