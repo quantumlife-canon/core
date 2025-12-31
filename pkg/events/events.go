@@ -470,6 +470,30 @@ const (
 
 	// Execution blocking events for payee validation
 	EventV910ExecutionBlockedInvalidPayee EventType = "v9.execution.blocked.invalid_payee"
+
+	// v9.11 Daily Caps + Rate-Limited Execution Ledger events
+	// CRITICAL: v9.11 enforces daily caps and rate limits on financial execution.
+	// Prevents "slow drain" attacks and burst execution patterns.
+	//
+	// NON-NEGOTIABLE:
+	// - Per-circle, per-intersection, per-payee daily caps (by currency)
+	// - Maximum attempts per day limits
+	// - Caps are hard blocks with no partial execution
+	// - All enforcement before provider Prepare/Execute
+	// - Neutral language in all blocking reasons
+
+	// Caps policy and check events
+	EventV911CapsPolicyApplied EventType = "v9.caps.policy.applied"
+	EventV911CapsChecked       EventType = "v9.caps.checked"
+	EventV911CapsBlocked       EventType = "v9.caps.blocked"
+
+	// Caps tracking events
+	EventV911CapsAttemptCounted EventType = "v9.caps.attempt.counted"
+	EventV911CapsSpendCounted   EventType = "v9.caps.spend.counted"
+
+	// Caps enforcement blocking events
+	EventV911ExecutionBlockedDailyCap     EventType = "v9.execution.blocked.daily_cap"
+	EventV911ExecutionBlockedAttemptLimit EventType = "v9.execution.blocked.attempt_limit"
 )
 
 // Event represents a system event for audit and observability.

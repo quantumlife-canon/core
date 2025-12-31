@@ -40,6 +40,8 @@ import (
 	"quantumlife/internal/connectors/finance/write/payees"
 	"quantumlife/internal/connectors/finance/write/registry"
 	"quantumlife/internal/finance/execution/attempts"
+	"quantumlife/internal/finance/execution/caps"
+	"quantumlife/pkg/clock"
 	"quantumlife/pkg/events"
 )
 
@@ -51,6 +53,7 @@ import (
 // - One in-flight attempt per envelope enforcement
 // - v9.9: Provider registry allowlist enforcement
 // - v9.10: Payee registry enforcement (no free-text recipients)
+// - v9.11: Daily caps and rate limits enforcement
 type V96Executor struct {
 	mu sync.RWMutex
 
@@ -73,6 +76,9 @@ type V96Executor struct {
 
 	// v9.10: Payee registry for free-text recipient elimination
 	payeeRegistry payees.Registry
+
+	// v9.11: Caps gate for daily limits and rate limiting
+	capsGate caps.Gate
 
 	// State
 	abortedEnvelopes map[string]bool
@@ -169,6 +175,14 @@ func (e *V96Executor) SetPayeeRegistry(reg payees.Registry) {
 	e.payeeRegistry = reg
 }
 
+// SetCapsGate sets a custom caps gate for v9.11 daily limits enforcement.
+// This is primarily for testing - production code should use NewDefaultGate().
+func (e *V96Executor) SetCapsGate(gate caps.Gate) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.capsGate = gate
+}
+
 // V96ExecuteRequest contains parameters for v9.6 execution.
 type V96ExecuteRequest struct {
 	// Envelope is the sealed execution envelope.
@@ -201,6 +215,10 @@ type V96ExecuteRequest struct {
 
 	// Now is the current time.
 	Now time.Time
+
+	// Clock is the deterministic clock for v9.11 caps enforcement.
+	// If nil, a fixed clock based on Now will be used.
+	Clock clock.Clock
 }
 
 // V96ExecuteResult contains the result of v9.6 execution.
@@ -663,6 +681,139 @@ func (e *V96Executor) Execute(ctx context.Context, req V96ExecuteRequest) (*V96E
 		Details: fmt.Sprintf("expires at %s", req.Envelope.Expiry.Format(time.RFC3339)),
 	})
 
+	// Step 13.5 (v9.11): Check caps and rate limits
+	// CRITICAL: This check is AFTER all other validations but BEFORE provider Prepare.
+	// Caps are hard blocks - no partial execution allowed.
+	if e.capsGate != nil {
+		// Determine execution mode
+		capsMode := caps.ModeExecute
+		if !e.config.TrueLayerConfigured {
+			capsMode = caps.ModeSimulate
+		}
+
+		// Build clock for deterministic day key
+		capsClock := req.Clock
+		if capsClock == nil {
+			capsClock = clock.NewFixed(now)
+		}
+
+		capsCtx := caps.Context{
+			Clock:          capsClock,
+			CircleID:       req.Envelope.ActorCircleID,
+			IntersectionID: req.Envelope.IntersectionID,
+			PayeeID:        req.PayeeID,
+			Currency:       req.Envelope.ActionSpec.Currency,
+			AmountCents:    req.Envelope.ActionSpec.AmountCents,
+			AttemptID:      attemptID,
+			EnvelopeID:     req.Envelope.EnvelopeID,
+			ActionHash:     req.Envelope.ActionHash,
+			ProviderID:     providerName,
+			Mode:           capsMode,
+		}
+
+		// Emit policy applied event
+		e.emitEvent(result, events.Event{
+			ID:             e.idGenerator(),
+			Type:           events.EventV911CapsPolicyApplied,
+			Timestamp:      now,
+			CircleID:       req.Envelope.ActorCircleID,
+			IntersectionID: req.Envelope.IntersectionID,
+			SubjectID:      req.Envelope.EnvelopeID,
+			SubjectType:    "envelope",
+			TraceID:        req.TraceID,
+			Metadata: map[string]string{
+				"attempt_id": attemptID,
+				"currency":   req.Envelope.ActionSpec.Currency,
+				"amount":     fmt.Sprintf("%d", req.Envelope.ActionSpec.AmountCents),
+			},
+		})
+
+		capsResult, err := e.capsGate.Check(ctx, capsCtx)
+		if err != nil {
+			return e.finalizeBlocked(result, req, attemptID,
+				fmt.Sprintf("caps check error: %v", err),
+				SettlementBlocked, now, "caps_check", err.Error())
+		}
+
+		if !capsResult.Allowed {
+			// Build neutral reason from caps result
+			reason := "daily limits reached"
+			if len(capsResult.Reasons) > 0 {
+				reason = capsResult.Reasons[0]
+			}
+
+			// Emit caps blocked event
+			e.emitEvent(result, events.Event{
+				ID:             e.idGenerator(),
+				Type:           events.EventV911CapsBlocked,
+				Timestamp:      now,
+				CircleID:       req.Envelope.ActorCircleID,
+				IntersectionID: req.Envelope.IntersectionID,
+				SubjectID:      req.Envelope.EnvelopeID,
+				SubjectType:    "envelope",
+				TraceID:        req.TraceID,
+				Metadata: map[string]string{
+					"attempt_id":         attemptID,
+					"reason":             reason,
+					"remaining_cents":    fmt.Sprintf("%d", capsResult.RemainingCents),
+					"remaining_attempts": fmt.Sprintf("%d", capsResult.RemainingAttempts),
+					"requested_cents":    fmt.Sprintf("%d", req.Envelope.ActionSpec.AmountCents),
+					"currency":           req.Envelope.ActionSpec.Currency,
+				},
+			})
+
+			return e.finalizeBlocked(result, req, attemptID, reason,
+				SettlementBlocked, now, "caps_check", reason)
+		}
+
+		// Emit caps checked (passed) event
+		e.emitEvent(result, events.Event{
+			ID:             e.idGenerator(),
+			Type:           events.EventV911CapsChecked,
+			Timestamp:      now,
+			CircleID:       req.Envelope.ActorCircleID,
+			IntersectionID: req.Envelope.IntersectionID,
+			SubjectID:      req.Envelope.EnvelopeID,
+			SubjectType:    "envelope",
+			TraceID:        req.TraceID,
+			Metadata: map[string]string{
+				"attempt_id":         attemptID,
+				"allowed":            "true",
+				"remaining_cents":    fmt.Sprintf("%d", capsResult.RemainingCents),
+				"remaining_attempts": fmt.Sprintf("%d", capsResult.RemainingAttempts),
+			},
+		})
+
+		// Record attempt started (increments attempt counters)
+		if err := e.capsGate.OnAttemptStarted(ctx, capsCtx); err != nil {
+			return e.finalizeBlocked(result, req, attemptID,
+				fmt.Sprintf("caps attempt recording error: %v", err),
+				SettlementBlocked, now, "caps_attempt_started", err.Error())
+		}
+
+		// Emit attempt counted event
+		e.emitEvent(result, events.Event{
+			ID:             e.idGenerator(),
+			Type:           events.EventV911CapsAttemptCounted,
+			Timestamp:      now,
+			CircleID:       req.Envelope.ActorCircleID,
+			IntersectionID: req.Envelope.IntersectionID,
+			SubjectID:      attemptID,
+			SubjectType:    "attempt",
+			TraceID:        req.TraceID,
+			Metadata: map[string]string{
+				"envelope_id": req.Envelope.EnvelopeID,
+				"currency":    req.Envelope.ActionSpec.Currency,
+			},
+		})
+
+		result.ValidationDetails = append(result.ValidationDetails, ValidationCheckResult{
+			Check:   "caps_check",
+			Passed:  true,
+			Details: fmt.Sprintf("within limits (remaining: %d cents, %d attempts)", capsResult.RemainingCents, capsResult.RemainingAttempts),
+		})
+	}
+
 	// Step 14: Update ledger to prepared
 	if err := e.attemptLedger.UpdateStatus(attemptID, attempts.AttemptStatusPrepared, now); err != nil {
 		return e.finalizeBlocked(result, req, attemptID,
@@ -813,6 +964,34 @@ func (e *V96Executor) Execute(ctx context.Context, req V96ExecuteRequest) (*V96E
 			Now:           errTime,
 		})
 
+		// v9.11: Finalize caps tracking for failed attempt
+		if e.capsGate != nil {
+			capsClock := req.Clock
+			if capsClock == nil {
+				capsClock = clock.NewFixed(errTime)
+			}
+
+			capsCtx := caps.Context{
+				Clock:          capsClock,
+				CircleID:       req.Envelope.ActorCircleID,
+				IntersectionID: req.Envelope.IntersectionID,
+				PayeeID:        req.PayeeID,
+				Currency:       req.Envelope.ActionSpec.Currency,
+				AmountCents:    req.Envelope.ActionSpec.AmountCents,
+				AttemptID:      attemptID,
+				EnvelopeID:     req.Envelope.EnvelopeID,
+				ActionHash:     req.Envelope.ActionHash,
+				ProviderID:     providerName,
+			}
+
+			e.capsGate.OnAttemptFinalized(ctx, capsCtx, caps.Finalized{
+				Status:           caps.StatusFailed,
+				MoneyMoved:       false,
+				AmountMovedCents: 0,
+				Currency:         req.Envelope.ActionSpec.Currency,
+			})
+		}
+
 		result.Success = false
 		result.Status = SettlementBlocked
 		result.BlockedReason = fmt.Sprintf("provider execute failed: %v", err)
@@ -854,6 +1033,66 @@ func (e *V96Executor) Execute(ctx context.Context, req V96ExecuteRequest) (*V96E
 		MoneyMoved:  result.MoneyMoved,
 		Now:         completedAt,
 	})
+
+	// v9.11: Finalize caps tracking
+	if e.capsGate != nil {
+		capsClock := req.Clock
+		if capsClock == nil {
+			capsClock = clock.NewFixed(completedAt)
+		}
+
+		capsCtx := caps.Context{
+			Clock:          capsClock,
+			CircleID:       req.Envelope.ActorCircleID,
+			IntersectionID: req.Envelope.IntersectionID,
+			PayeeID:        req.PayeeID,
+			Currency:       req.Envelope.ActionSpec.Currency,
+			AmountCents:    req.Envelope.ActionSpec.AmountCents,
+			AttemptID:      attemptID,
+			EnvelopeID:     req.Envelope.EnvelopeID,
+			ActionHash:     req.Envelope.ActionHash,
+			ProviderID:     providerName,
+		}
+
+		var capsStatus string
+		if receipt.Simulated {
+			capsStatus = caps.StatusSimulated
+		} else {
+			capsStatus = caps.StatusSucceeded
+		}
+
+		var amountMoved int64
+		if result.MoneyMoved {
+			amountMoved = receipt.AmountCents
+		}
+
+		e.capsGate.OnAttemptFinalized(ctx, capsCtx, caps.Finalized{
+			Status:           capsStatus,
+			MoneyMoved:       result.MoneyMoved,
+			AmountMovedCents: amountMoved,
+			Currency:         receipt.Currency,
+		})
+
+		// Emit spend counted event if money moved
+		if result.MoneyMoved {
+			e.emitEvent(result, events.Event{
+				ID:             e.idGenerator(),
+				Type:           events.EventV911CapsSpendCounted,
+				Timestamp:      completedAt,
+				CircleID:       req.Envelope.ActorCircleID,
+				IntersectionID: req.Envelope.IntersectionID,
+				SubjectID:      attemptID,
+				SubjectType:    "attempt",
+				TraceID:        req.TraceID,
+				Metadata: map[string]string{
+					"envelope_id":  req.Envelope.EnvelopeID,
+					"currency":     receipt.Currency,
+					"amount_cents": fmt.Sprintf("%d", amountMoved),
+					"money_moved":  "true",
+				},
+			})
+		}
+	}
 
 	// Emit success events
 	if receipt.Simulated {
