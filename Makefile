@@ -27,11 +27,13 @@ help:
 	@echo "  make clean      - Clean build artifacts"
 	@echo ""
 	@echo "Guardrail Checks:"
-	@echo "  make check-terms         - Check for forbidden terms"
-	@echo "  make check-imports       - Check for forbidden imports"
-	@echo "  make check-deps          - Check dependency policy"
-	@echo "  make check-time-now      - Check for forbidden time.Now() (v9.6.2)"
-	@echo "  make check-background-async - Check for background execution (v9.7)"
+	@echo "  make check-terms              - Check for forbidden terms"
+	@echo "  make check-imports            - Check for forbidden imports"
+	@echo "  make check-deps               - Check dependency policy"
+	@echo "  make check-time-now           - Check for forbidden time.Now() (v9.6.2)"
+	@echo "  make check-background-async   - Check for background execution (v9.7)"
+	@echo "  make check-no-auto-retry      - Check for auto-retry patterns (v9.8)"
+	@echo "  make check-single-trace-final - Check for single trace finalization (v9.8)"
 	@echo ""
 
 # Build
@@ -89,8 +91,16 @@ check-background-async:
 	@echo "Checking for forbidden background execution (v9.7)..."
 	@./scripts/guardrails/forbidden_background_async.sh --check
 
+check-no-auto-retry:
+	@echo "Checking for forbidden auto-retry patterns (v9.8)..."
+	@./scripts/guardrails/forbidden_auto_retry.sh --check
+
+check-single-trace-final:
+	@echo "Checking for single trace finalization (v9.8)..."
+	@./scripts/guardrails/single_trace_finalization.sh --check
+
 # All guardrails
-guardrails: check-terms check-imports check-deps check-time-now check-background-async
+guardrails: check-terms check-imports check-deps check-time-now check-background-async check-no-auto-retry check-single-trace-final
 	@echo ""
 	@echo "All guardrails passed."
 
@@ -110,6 +120,8 @@ ci: fmt-check vet build test guardrails
 	@echo "  ✓ Dependency policy"
 	@echo "  ✓ No forbidden time.Now() (v9.6.2)"
 	@echo "  ✓ No background execution (v9.7)"
+	@echo "  ✓ No auto-retry patterns (v9.8)"
+	@echo "  ✓ Single trace finalization (v9.8)"
 
 # Clean
 clean:
