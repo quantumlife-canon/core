@@ -431,6 +431,23 @@ const (
 	EventV96LedgerEntryCreated   EventType = "v9.ledger.entry.created"
 	EventV96LedgerEntryUpdated   EventType = "v9.ledger.entry.updated"
 	EventV96LedgerDuplicateFound EventType = "v9.ledger.duplicate.found"
+
+	// v9.9 Provider Registry Lock + Write Allowlist Enforcement events
+	// CRITICAL: v9.9 prevents unapproved/unregistered write providers from being used.
+	// Executors MUST consult the registry before invoking any WriteConnector.
+	//
+	// NON-NEGOTIABLE:
+	// - Only allowlisted providers may execute financial writes
+	// - Live/production providers are blocked by default
+	// - Registry violations produce blocking events with audit trail
+
+	// Provider registry check events
+	EventV99ProviderRegistryChecked  EventType = "v9.provider.registry.checked"
+	EventV99ProviderAllowed          EventType = "v9.provider.allowed"
+	EventV99ProviderBlocked          EventType = "v9.provider.blocked"
+	EventV99ProviderNotRegistered    EventType = "v9.provider.not_registered"
+	EventV99ProviderLiveBlocked      EventType = "v9.provider.live_blocked"
+	EventV99ProviderAllowlistChecked EventType = "v9.provider.allowlist.checked"
 )
 
 // Event represents a system event for audit and observability.

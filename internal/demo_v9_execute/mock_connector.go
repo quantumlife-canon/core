@@ -43,9 +43,21 @@ func NewMockWriteConnector(idGen func() string, emitter func(event events.Event)
 	}
 }
 
-// Provider returns the provider name.
+// Provider returns the provider name (legacy - use ProviderID for v9.9+).
 func (c *MockWriteConnector) Provider() string {
 	return "mock-write"
+}
+
+// ProviderID returns the canonical provider identifier for registry lookup.
+// v9.9: Mock connector always returns "mock-write".
+func (c *MockWriteConnector) ProviderID() string {
+	return "mock-write"
+}
+
+// ProviderInfo returns the provider identifier and environment.
+// v9.9: Mock connector returns ("mock-write", "mock").
+func (c *MockWriteConnector) ProviderInfo() (string, string) {
+	return "mock-write", "mock"
 }
 
 // Prepare validates that the payment can be executed.

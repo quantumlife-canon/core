@@ -145,9 +145,27 @@ func NewConnector(cfg ConnectorConfig) (*Connector, error) {
 	}, nil
 }
 
-// Provider returns the provider name.
+// Provider returns the provider name (legacy - use ProviderID for v9.9+).
 func (c *Connector) Provider() string {
 	return "truelayer"
+}
+
+// ProviderID returns the canonical provider identifier for registry lookup.
+// v9.9: Returns "truelayer-sandbox" or "truelayer-live" based on configuration.
+func (c *Connector) ProviderID() string {
+	if c.environment == "live" || c.environment == "production" {
+		return "truelayer-live"
+	}
+	return "truelayer-sandbox"
+}
+
+// ProviderInfo returns the provider identifier and environment.
+// v9.9: Used by executors for audit events and registry enforcement.
+func (c *Connector) ProviderInfo() (string, string) {
+	if c.environment == "live" || c.environment == "production" {
+		return "truelayer-live", "live"
+	}
+	return "truelayer-sandbox", "sandbox"
 }
 
 // Prepare validates that the payment can be executed.

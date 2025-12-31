@@ -84,9 +84,22 @@ func (a *ApprovalArtifact) IsExpired(now time.Time) bool {
 //
 // CRITICAL: Only TrueLayer is implemented in v9 Slice 3.
 // This interface exists to prove the pattern, not to enable multiple providers.
+//
+// v9.9 REQUIREMENT: Providers MUST expose their ProviderID for registry enforcement.
+// Executors MUST consult the registry before invoking any WriteConnector.
 type WriteConnector interface {
-	// Provider returns the provider name.
+	// Provider returns the provider name (legacy - use ProviderID for v9.9+).
 	Provider() string
+
+	// ProviderID returns the canonical provider identifier for registry lookup.
+	// This MUST match a registered provider ID in the write provider registry.
+	// v9.9: Required for provider allowlist enforcement.
+	ProviderID() string
+
+	// ProviderInfo returns the provider identifier and environment.
+	// Returns (id, environment) where environment is "sandbox", "live", or "mock".
+	// v9.9: Used by executors for audit events and registry enforcement.
+	ProviderInfo() (id string, env string)
 
 	// Prepare validates that the payment can be executed.
 	// This performs pre-execution checks WITHOUT side effects.

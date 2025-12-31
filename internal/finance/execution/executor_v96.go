@@ -31,11 +31,13 @@ package execution
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"quantumlife/internal/connectors/finance/write"
+	"quantumlife/internal/connectors/finance/write/registry"
 	"quantumlife/internal/finance/execution/attempts"
 	"quantumlife/pkg/events"
 )
@@ -46,6 +48,7 @@ import (
 // - Attempt ledger for replay prevention
 // - Deterministic idempotency key derivation
 // - One in-flight attempt per envelope enforcement
+// - v9.9: Provider registry allowlist enforcement
 type V96Executor struct {
 	mu sync.RWMutex
 
@@ -62,6 +65,9 @@ type V96Executor struct {
 	approvalVerifier  *ApprovalVerifier
 	revocationChecker *RevocationChecker
 	attemptLedger     attempts.AttemptLedger
+
+	// v9.9: Provider registry for allowlist enforcement
+	providerRegistry registry.Registry
 
 	// State
 	abortedEnvelopes map[string]bool
@@ -111,6 +117,7 @@ func DefaultV96ExecutorConfig() V96ExecutorConfig {
 }
 
 // NewV96Executor creates a new v9.6 executor.
+// v9.9: Uses the default provider registry for allowlist enforcement.
 func NewV96Executor(
 	trueLayerConnector write.WriteConnector,
 	mockConnector write.WriteConnector,
@@ -132,10 +139,19 @@ func NewV96Executor(
 		approvalVerifier:   approvalVerifier,
 		revocationChecker:  revocationChecker,
 		attemptLedger:      attemptLedger,
+		providerRegistry:   registry.NewDefaultRegistry(), // v9.9: Default registry
 		abortedEnvelopes:   make(map[string]bool),
 		auditEmitter:       emitter,
 		idGenerator:        idGen,
 	}
+}
+
+// SetProviderRegistry sets a custom provider registry.
+// This is primarily for testing - production code should use NewDefaultRegistry().
+func (e *V96Executor) SetProviderRegistry(reg registry.Registry) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.providerRegistry = reg
 }
 
 // V96ExecuteRequest contains parameters for v9.6 execution.
@@ -279,6 +295,59 @@ func (e *V96Executor) Execute(ctx context.Context, req V96ExecuteRequest) (*V96E
 	// Step 2: Select provider
 	provider, providerName := e.selectProvider()
 	result.ProviderUsed = providerName
+
+	// Step 2.5 (v9.9): Check provider registry allowlist
+	// CRITICAL: Block execution BEFORE ledger entry if provider is not allowed.
+	// This prevents unapproved providers from being used for financial execution.
+	providerID := registry.ProviderID(providerName)
+	if err := e.providerRegistry.RequireAllowed(providerID); err != nil {
+		// Emit provider blocked event
+		blockReason := "provider not allowed"
+		var providerErr *registry.ProviderError
+		if errors.As(err, &providerErr) {
+			if providerErr.BlockReason != "" {
+				blockReason = providerErr.BlockReason
+			}
+		}
+
+		e.emitEvent(result, events.Event{
+			ID:             e.idGenerator(),
+			Type:           events.EventV99ProviderBlocked,
+			Timestamp:      now,
+			CircleID:       req.Envelope.ActorCircleID,
+			IntersectionID: req.Envelope.IntersectionID,
+			SubjectID:      req.Envelope.EnvelopeID,
+			SubjectType:    "envelope",
+			TraceID:        req.TraceID,
+			Metadata: map[string]string{
+				"provider_id":  string(providerID),
+				"attempt_id":   attemptID,
+				"block_reason": blockReason,
+				"error":        err.Error(),
+			},
+		})
+
+		result.Success = false
+		result.Status = SettlementBlocked
+		result.BlockedReason = fmt.Sprintf("provider %q blocked: %s", providerID, blockReason)
+		return result, nil
+	}
+
+	// Emit provider allowed event
+	e.emitEvent(result, events.Event{
+		ID:             e.idGenerator(),
+		Type:           events.EventV99ProviderAllowed,
+		Timestamp:      now,
+		CircleID:       req.Envelope.ActorCircleID,
+		IntersectionID: req.Envelope.IntersectionID,
+		SubjectID:      req.Envelope.EnvelopeID,
+		SubjectType:    "envelope",
+		TraceID:        req.TraceID,
+		Metadata: map[string]string{
+			"provider_id": string(providerID),
+			"attempt_id":  attemptID,
+		},
+	})
 
 	// Step 3: Start attempt in ledger (blocks replays and in-flight duplicates)
 	attemptRecord, err := e.attemptLedger.StartAttempt(attempts.StartAttemptRequest{

@@ -34,6 +34,7 @@ help:
 	@echo "  make check-background-async   - Check for background execution (v9.7)"
 	@echo "  make check-no-auto-retry      - Check for auto-retry patterns (v9.8)"
 	@echo "  make check-single-trace-final - Check for single trace finalization (v9.8)"
+	@echo "  make check-write-provider-reg - Check write provider registry (v9.9)"
 	@echo ""
 
 # Build
@@ -99,8 +100,12 @@ check-single-trace-final:
 	@echo "Checking for single trace finalization (v9.8)..."
 	@./scripts/guardrails/single_trace_finalization.sh --check
 
+check-write-provider-reg:
+	@echo "Checking write provider registry enforcement (v9.9)..."
+	@./scripts/guardrails/forbidden_unregistered_write_provider.sh --check
+
 # All guardrails
-guardrails: check-terms check-imports check-deps check-time-now check-background-async check-no-auto-retry check-single-trace-final
+guardrails: check-terms check-imports check-deps check-time-now check-background-async check-no-auto-retry check-single-trace-final check-write-provider-reg
 	@echo ""
 	@echo "All guardrails passed."
 
@@ -122,6 +127,7 @@ ci: fmt-check vet build test guardrails
 	@echo "  ✓ No background execution (v9.7)"
 	@echo "  ✓ No auto-retry patterns (v9.8)"
 	@echo "  ✓ Single trace finalization (v9.8)"
+	@echo "  ✓ Write provider registry (v9.9)"
 
 # Clean
 clean:
