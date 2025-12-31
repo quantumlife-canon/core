@@ -78,3 +78,27 @@ internal/demo_readonly_mirror/*.go
 # v9.11+ demos use ViewSnapshot.Accounts for financial account visibility
 internal/demo_v911_caps/*.go
 internal/demo_v913_view_freshness/*.go
+
+# Phase 2: Obligation Extraction (ADR-0019)
+# These files use "user" in email addresses (e.g., user@work.com) which is external
+# data, NOT QuantumLife identity. Also uses "account balance" for financial context.
+# QuantumLife core uses "circle" for identity - these are data plane components.
+internal/demo_phase2_obligations/*.go
+internal/obligations/*.go
+pkg/domain/obligation/*.go
+pkg/domain/view/*.go
+
+# Phase 3: Interruption Engine (ADR-0020)
+# These files use "user" in comments about surfacing interruptions and "account"
+# for financial account balance context. QuantumLife core uses "circle" for identity.
+internal/demo_phase3_interruptions/*.go
+internal/interruptions/*.go
+internal/digest/*.go
+pkg/domain/interrupt/*.go
+
+# Memory interfaces use "user" for describing memory access patterns
+pkg/domain/memory/*.go
+
+# Phase 3.1: Digest Rollup (ADR-0020)
+# Uses "Account low" as test data for financial balance scenarios.
+pkg/domain/digestrollup/*.go

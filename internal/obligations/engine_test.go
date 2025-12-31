@@ -63,11 +63,11 @@ func TestEngineExtractFromEmail(t *testing.T) {
 	engine := NewEngine(config, clk, repo)
 
 	tests := []struct {
-		name          string
-		setupEmail    func() *events.EmailMessageEvent
-		expectOblig   bool
-		expectedType  obligation.ObligationType
-		minRegret     float64
+		name         string
+		setupEmail   func() *events.EmailMessageEvent
+		expectOblig  bool
+		expectedType obligation.ObligationType
+		minRegret    float64
 	}{
 		{
 			name: "action required email",
@@ -330,11 +330,11 @@ func TestEngineExtractFromBalance(t *testing.T) {
 	engine := NewEngine(config, clk, repo)
 
 	tests := []struct {
-		name          string
+		name           string
 		availableMinor int64
-		expectOblig   bool
+		expectOblig    bool
 	}{
-		{"low balance triggers obligation", 25000, true},      // £250
+		{"low balance triggers obligation", 25000, true},       // £250
 		{"threshold balance triggers obligation", 49999, true}, // Just below £500
 		{"healthy balance no obligation", 100000, false},       // £1000
 		{"very healthy balance no obligation", 500000, false},  // £5000

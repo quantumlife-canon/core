@@ -323,10 +323,10 @@ func TestIsSupportedAlgorithm(t *testing.T) {
 		{AlgEd25519, true},
 		{AlgSHA256, true},
 		{AlgAES256GCM, true},
-		{AlgMLDSA65, false},      // Reserved but not implemented
-		{AlgMLKEM768, false},     // Reserved but not implemented
-		{AlgHybridSig, false},    // Reserved but not implemented
-		{"unknown", false},       // Unknown algorithm
+		{AlgMLDSA65, false},   // Reserved but not implemented
+		{AlgMLKEM768, false},  // Reserved but not implemented
+		{AlgHybridSig, false}, // Reserved but not implemented
+		{"unknown", false},    // Unknown algorithm
 	}
 
 	for _, tt := range tests {

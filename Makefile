@@ -7,7 +7,7 @@
 #
 # Guardrails enforce Canon invariants at build time.
 
-.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once
+.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3
 
 # Default target
 all: ci
@@ -26,6 +26,10 @@ help:
 	@echo "  make ci         - Run full CI pipeline"
 	@echo "  make clean      - Clean build artifacts"
 	@echo "  make ingest-once- Run read-only ingestion (one-shot)"
+	@echo ""
+	@echo "Demos:"
+	@echo "  make demo-phase2  - Run Phase 2 obligation extraction demo"
+	@echo "  make demo-phase3  - Run Phase 3 interruption engine demo"
 	@echo ""
 	@echo "Guardrail Checks:"
 	@echo "  make check-terms              - Check for forbidden terms"
@@ -167,3 +171,15 @@ quick: fmt-check vet build
 ingest-once:
 	@echo "Running read-only ingestion..."
 	go run ./cmd/quantumlife-ingest
+
+# Phase 2 Demo: Obligation Extraction + Daily View Generation
+# Reference: docs/ADR/ADR-0019-phase2-obligation-extraction.md
+demo-phase2:
+	@echo "Running Phase 2 Demo: Obligation Extraction..."
+	go run ./internal/demo_phase2_obligations
+
+# Phase 3 Demo: Interruption Engine + Weekly Digest
+# Reference: docs/ADR/ADR-0020-phase3-interruptions-and-digest.md
+demo-phase3:
+	@echo "Running Phase 3 Demo: Interruption Engine..."
+	go run ./internal/demo_phase3_interruptions
