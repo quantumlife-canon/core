@@ -121,11 +121,11 @@ func (s *PresentationStore) RecordPresentation(
 			SubjectType:    "presentation",
 			TraceID:        traceID,
 			Metadata: map[string]string{
-				"approver_id":   approverID,
-				"bundle_hash":   bundle.ContentHash,
-				"envelope_id":   envelope.EnvelopeID,
-				"action_hash":   envelope.ActionHash,
-				"expires_at":    record.ExpiresAt.Format(time.RFC3339),
+				"approver_id": approverID,
+				"bundle_hash": bundle.ContentHash,
+				"envelope_id": envelope.EnvelopeID,
+				"action_hash": envelope.ActionHash,
+				"expires_at":  record.ExpiresAt.Format(time.RFC3339),
 			},
 		})
 	}
@@ -202,12 +202,12 @@ func (g *PresentationGate) VerifyPresentation(req PresentationVerifyRequest) *Pr
 
 		if g.auditEmitter != nil {
 			g.auditEmitter(events.Event{
-				ID:             g.idGenerator(),
-				Type:           events.EventV95ApprovalPresentationMissing,
-				Timestamp:      req.Now,
-				CircleID:       req.ApproverCircleID,
-				SubjectID:      req.EnvelopeID,
-				SubjectType:    "envelope",
+				ID:          g.idGenerator(),
+				Type:        events.EventV95ApprovalPresentationMissing,
+				Timestamp:   req.Now,
+				CircleID:    req.ApproverCircleID,
+				SubjectID:   req.EnvelopeID,
+				SubjectType: "envelope",
 				Metadata: map[string]string{
 					"bundle_hash": req.BundleHash,
 					"reason":      "no_presentation_record",
@@ -224,12 +224,12 @@ func (g *PresentationGate) VerifyPresentation(req PresentationVerifyRequest) *Pr
 
 		if g.auditEmitter != nil {
 			g.auditEmitter(events.Event{
-				ID:             g.idGenerator(),
-				Type:           events.EventV95ApprovalPresentationExpired,
-				Timestamp:      req.Now,
-				CircleID:       req.ApproverCircleID,
-				SubjectID:      record.RecordID,
-				SubjectType:    "presentation",
+				ID:          g.idGenerator(),
+				Type:        events.EventV95ApprovalPresentationExpired,
+				Timestamp:   req.Now,
+				CircleID:    req.ApproverCircleID,
+				SubjectID:   record.RecordID,
+				SubjectType: "presentation",
 				Metadata: map[string]string{
 					"expired_at": record.ExpiresAt.Format(time.RFC3339),
 					"checked_at": req.Now.Format(time.RFC3339),
@@ -247,16 +247,16 @@ func (g *PresentationGate) VerifyPresentation(req PresentationVerifyRequest) *Pr
 
 		if g.auditEmitter != nil {
 			g.auditEmitter(events.Event{
-				ID:             g.idGenerator(),
-				Type:           events.EventV95ApprovalPresentationMissing,
-				Timestamp:      req.Now,
-				CircleID:       req.ApproverCircleID,
-				SubjectID:      req.EnvelopeID,
-				SubjectType:    "envelope",
+				ID:          g.idGenerator(),
+				Type:        events.EventV95ApprovalPresentationMissing,
+				Timestamp:   req.Now,
+				CircleID:    req.ApproverCircleID,
+				SubjectID:   req.EnvelopeID,
+				SubjectType: "envelope",
 				Metadata: map[string]string{
-					"reason":               "action_hash_mismatch",
-					"presentation_hash":    record.ActionHash,
-					"approval_hash":        req.ActionHash,
+					"reason":            "action_hash_mismatch",
+					"presentation_hash": record.ActionHash,
+					"approval_hash":     req.ActionHash,
 				},
 			})
 		}
@@ -267,12 +267,12 @@ func (g *PresentationGate) VerifyPresentation(req PresentationVerifyRequest) *Pr
 
 	if g.auditEmitter != nil {
 		g.auditEmitter(events.Event{
-			ID:             g.idGenerator(),
-			Type:           events.EventV95ApprovalPresentationVerified,
-			Timestamp:      req.Now,
-			CircleID:       req.ApproverCircleID,
-			SubjectID:      record.RecordID,
-			SubjectType:    "presentation",
+			ID:          g.idGenerator(),
+			Type:        events.EventV95ApprovalPresentationVerified,
+			Timestamp:   req.Now,
+			CircleID:    req.ApproverCircleID,
+			SubjectID:   record.RecordID,
+			SubjectType: "presentation",
 			Metadata: map[string]string{
 				"bundle_hash":  req.BundleHash,
 				"envelope_id":  req.EnvelopeID,

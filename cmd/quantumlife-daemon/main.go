@@ -12,6 +12,7 @@
 //	quantumlife-daemon --demo-v9-execute-tiny-payment # Run v9.3 real payment demo
 //	quantumlife-daemon --demo-v9-multiparty-tiny-payment # Run v9.4 multi-party demo
 //	quantumlife-daemon --demo-v9-multiparty-execute-tiny-payment-real # Run v9.5 real multi-party demo
+//	quantumlife-daemon --demo-v9-idempotency-replay-defense # Run v9.6 idempotency demo
 //
 // Reference: docs/TECHNOLOGY_SELECTION_V1.md §13 Implementation Checklist
 package main
@@ -27,11 +28,12 @@ import (
 	"quantumlife/internal/demo_family_calendar"
 	"quantumlife/internal/demo_family_negotiate"
 	"quantumlife/internal/demo_family_simulate"
+	"quantumlife/internal/demo_v95_multiparty_real"
+	"quantumlife/internal/demo_v96_idempotency"
 	"quantumlife/internal/demo_v9_dryrun"
 	"quantumlife/internal/demo_v9_execute"
 	"quantumlife/internal/demo_v9_guarded"
 	"quantumlife/internal/demo_v9_multiparty"
-	"quantumlife/internal/demo_v95_multiparty_real"
 	"quantumlife/pkg/primitives"
 )
 
@@ -61,6 +63,7 @@ func main() {
 	demoV9ExecuteTinyPayment := flag.Bool("demo-v9-execute-tiny-payment", false, "Run the v9.3 real payment demo (REAL MONEY MAY MOVE)")
 	demoV9MultipartyTinyPayment := flag.Bool("demo-v9-multiparty-tiny-payment", false, "Run the v9.4 multi-party payment demo (SIMULATED)")
 	demoV95MultipartyReal := flag.Bool("demo-v9-multiparty-execute-tiny-payment-real", false, "Run the v9.5 real multi-party payment demo (SANDBOX ONLY)")
+	demoV96Idempotency := flag.Bool("demo-v9-idempotency-replay-defense", false, "Run the v9.6 idempotency and replay defense demo")
 	flag.Parse()
 
 	fmt.Print(banner)
@@ -120,6 +123,11 @@ func main() {
 		return
 	}
 
+	if *demoV96Idempotency {
+		runDemoV96Idempotency()
+		return
+	}
+
 	// Default: show status
 	fmt.Println("Runtime Layers:")
 	fmt.Println("  - Circle Runtime         [in-memory impl available]")
@@ -143,6 +151,7 @@ func main() {
 	fmt.Println("  --demo-v9-execute-tiny-payment   v9.3 real payment execution (REAL MONEY MAY MOVE)")
 	fmt.Println("  --demo-v9-multiparty-tiny-payment v9.4 multi-party payment (SIMULATED)")
 	fmt.Println("  --demo-v9-multiparty-execute-tiny-payment-real v9.5 real multi-party (SANDBOX)")
+	fmt.Println("  --demo-v9-idempotency-replay-defense v9.6 idempotency + replay defense")
 	fmt.Println()
 	fmt.Println("Run with --help for more options.")
 
@@ -488,5 +497,46 @@ func runDemoV95MultipartyReal() {
 
 	for _, result := range results {
 		demo_v95_multiparty_real.PrintResult(result)
+	}
+}
+
+// runDemoV96Idempotency runs the v9.6 idempotency and replay defense demo.
+// CRITICAL: This demo proves idempotency and replay defense mechanisms.
+func runDemoV96Idempotency() {
+	fmt.Println()
+	fmt.Println("Running v9.6 Idempotency + Replay Defense Demo...")
+	fmt.Println()
+	fmt.Println("╔═══════════════════════════════════════════════════════════════╗")
+	fmt.Println("║  v9.6: IDEMPOTENCY + REPLAY DEFENSE                           ║")
+	fmt.Println("║                                                               ║")
+	fmt.Println("║  PREVENTS DUPLICATE PAYMENTS AND REPLAYS VIA:                 ║")
+	fmt.Println("║  1) Deterministic idempotency key (envelope + action + attempt)║")
+	fmt.Println("║  2) Attempt ledger enforcing exactly-once semantics           ║")
+	fmt.Println("║  3) One in-flight attempt per envelope policy                 ║")
+	fmt.Println("║  4) Provider idempotency key propagation                      ║")
+	fmt.Println("║                                                               ║")
+	fmt.Println("║  All v9.3/v9.4/v9.5 constraints remain in force:              ║")
+	fmt.Println("║  - £1.00 cap, predefined payees only, forced pause            ║")
+	fmt.Println("║  - No retries, multi-party threshold, symmetry verification   ║")
+	fmt.Println("║  - Bundle MUST be presented before approval accepted          ║")
+	fmt.Println("╚═══════════════════════════════════════════════════════════════╝")
+	fmt.Println()
+	fmt.Println("Demonstrates:")
+	fmt.Println("  1. Double-invoke same attempt ID -> blocked (replay)")
+	fmt.Println("  2. Two attempts while first in-flight -> blocked (inflight)")
+	fmt.Println("  3. After terminal settle -> replay blocked")
+	fmt.Println("  4. Mock respects idempotency + MoneyMoved=false")
+	fmt.Println()
+
+	runner := demo_v96_idempotency.NewRunner()
+	results, err := runner.Run()
+
+	if err != nil {
+		fmt.Printf("Demo failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	for _, result := range results {
+		demo_v96_idempotency.PrintResult(result)
 	}
 }

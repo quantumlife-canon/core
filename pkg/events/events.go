@@ -379,8 +379,8 @@ const (
 	EventV95ApprovalPresentationVerified EventType = "v9.approval.presentation.verified"
 
 	// Provider selection events
-	EventV95ExecutionProviderSelected EventType = "v9.execution.provider.selected"
-	EventV95ExecutionProviderMock     EventType = "v9.execution.provider.mock"
+	EventV95ExecutionProviderSelected  EventType = "v9.execution.provider.selected"
+	EventV95ExecutionProviderMock      EventType = "v9.execution.provider.mock"
 	EventV95ExecutionProviderTrueLayer EventType = "v9.execution.provider.truelayer"
 
 	// TrueLayer sandbox execution events
@@ -390,8 +390,8 @@ const (
 	EventV95PaymentTrueLayerPending   EventType = "v9.payment.truelayer.pending"
 
 	// Revocation during forced pause events
-	EventV95RevocationDuringPause        EventType = "v9.revocation.during_pause"
-	EventV95ExecutionAbortedRevocation   EventType = "v9.execution.aborted.revocation_during_pause"
+	EventV95RevocationDuringPause          EventType = "v9.revocation.during_pause"
+	EventV95ExecutionAbortedRevocation     EventType = "v9.execution.aborted.revocation_during_pause"
 	EventV95ExecutionAbortedBeforeProvider EventType = "v9.execution.aborted.before_provider"
 
 	// Sandbox enforcement events
@@ -401,6 +401,36 @@ const (
 	// Attempt tracking events
 	EventV95AttemptStarted   EventType = "v9.attempt.started"
 	EventV95AttemptFinalized EventType = "v9.attempt.finalized"
+
+	// v9.6 Idempotency + Replay Defense events
+	// CRITICAL: v9.6 prevents duplicate payments and replays via:
+	// - Deterministic idempotency keys derived from envelope + action hash + attempt ID
+	// - Attempt ledger enforcing exactly-once semantics
+	// - Provider idempotency key propagation (when supported)
+	//
+	// NON-NEGOTIABLE:
+	// - Each (envelope_id, attempt_id) pair is unique
+	// - Terminal attempts (settled/aborted/blocked/revoked/expired/simulated) cannot be retried
+	// - One in-flight attempt per envelope at any time
+	// - Idempotency keys are NOT logged in full (prefix only for privacy)
+
+	// Idempotency key lifecycle events
+	EventV96IdempotencyKeyDerived EventType = "v9.idempotency.key.derived"
+
+	// Attempt lifecycle events
+	EventV96AttemptStarted         EventType = "v9.execution.attempt.started"
+	EventV96AttemptReplayBlocked   EventType = "v9.execution.attempt.replay_blocked"
+	EventV96AttemptInflightBlocked EventType = "v9.execution.attempt.inflight_blocked"
+	EventV96AttemptRecorded        EventType = "v9.execution.attempt.recorded"
+	EventV96AttemptFinalized       EventType = "v9.execution.attempt.finalized"
+
+	// Provider idempotency events
+	EventV96ProviderIdempotencyAttached EventType = "v9.provider.idempotency.attached"
+
+	// Ledger events
+	EventV96LedgerEntryCreated   EventType = "v9.ledger.entry.created"
+	EventV96LedgerEntryUpdated   EventType = "v9.ledger.entry.updated"
+	EventV96LedgerDuplicateFound EventType = "v9.ledger.duplicate.found"
 )
 
 // Event represents a system event for audit and observability.

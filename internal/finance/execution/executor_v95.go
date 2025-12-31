@@ -667,10 +667,10 @@ func (e *V95Executor) Execute(ctx context.Context, req V95ExecuteRequest) (*V95E
 					SubjectType:    "envelope",
 					TraceID:        req.TraceID,
 					Metadata: map[string]string{
-						"revoked_by":   signal.RevokerID,
-						"reason":       signal.Reason,
-						"aborted_at":   "before_provider_call",
-						"money_moved":  "false",
+						"revoked_by":  signal.RevokerID,
+						"reason":      signal.Reason,
+						"aborted_at":  "before_provider_call",
+						"money_moved": "false",
 					},
 				})
 
