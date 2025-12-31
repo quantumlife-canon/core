@@ -10,6 +10,7 @@
 //	quantumlife-daemon --demo-v9-dryrun-execution   # Run v9 dry-run execution demo
 //	quantumlife-daemon --demo-v9-guarded-execution # Run v9 guarded execution demo
 //	quantumlife-daemon --demo-v9-execute-tiny-payment # Run v9.3 real payment demo
+//	quantumlife-daemon --demo-v9-multiparty-tiny-payment # Run v9.4 multi-party demo
 //
 // Reference: docs/TECHNOLOGY_SELECTION_V1.md §13 Implementation Checklist
 package main
@@ -28,6 +29,7 @@ import (
 	"quantumlife/internal/demo_v9_dryrun"
 	"quantumlife/internal/demo_v9_execute"
 	"quantumlife/internal/demo_v9_guarded"
+	"quantumlife/internal/demo_v9_multiparty"
 	"quantumlife/pkg/primitives"
 )
 
@@ -55,6 +57,7 @@ func main() {
 	demoV9DryrunExecution := flag.Bool("demo-v9-dryrun-execution", false, "Run the v9 dry-run execution demo (no real money moves)")
 	demoV9GuardedExecution := flag.Bool("demo-v9-guarded-execution", false, "Run the v9 guarded execution demo (adapter blocks)")
 	demoV9ExecuteTinyPayment := flag.Bool("demo-v9-execute-tiny-payment", false, "Run the v9.3 real payment demo (REAL MONEY MAY MOVE)")
+	demoV9MultipartyTinyPayment := flag.Bool("demo-v9-multiparty-tiny-payment", false, "Run the v9.4 multi-party payment demo (SIMULATED)")
 	flag.Parse()
 
 	fmt.Print(banner)
@@ -104,6 +107,11 @@ func main() {
 		return
 	}
 
+	if *demoV9MultipartyTinyPayment {
+		runDemoV9MultipartyTinyPayment()
+		return
+	}
+
 	// Default: show status
 	fmt.Println("Runtime Layers:")
 	fmt.Println("  - Circle Runtime         [in-memory impl available]")
@@ -125,6 +133,7 @@ func main() {
 	fmt.Println("  --demo-v9-dryrun-execution       v9 dry-run financial execution (NO REAL MONEY)")
 	fmt.Println("  --demo-v9-guarded-execution      v9 guarded execution with adapter (NO REAL MONEY)")
 	fmt.Println("  --demo-v9-execute-tiny-payment   v9.3 real payment execution (REAL MONEY MAY MOVE)")
+	fmt.Println("  --demo-v9-multiparty-tiny-payment v9.4 multi-party payment (SIMULATED)")
 	fmt.Println()
 	fmt.Println("Run with --help for more options.")
 
@@ -377,4 +386,51 @@ func runDemoV9ExecuteTinyPayment() {
 	}
 
 	demo_v9_execute.PrintResult(result)
+}
+
+// runDemoV9MultipartyTinyPayment runs the v9.4 multi-party payment demo.
+// CRITICAL: This demo is SIMULATED. NO REAL MONEY MOVES.
+// It demonstrates multi-party approval requirements for shared money.
+func runDemoV9MultipartyTinyPayment() {
+	fmt.Println()
+	fmt.Println("Running v9.4 Multi-Party Payment Demo...")
+	fmt.Println()
+	fmt.Println("╔═══════════════════════════════════════════════════════════════╗")
+	fmt.Println("║  v9.4: MULTI-PARTY FINANCIAL EXECUTION                        ║")
+	fmt.Println("║                                                               ║")
+	fmt.Println("║  SIMULATED MODE - NO REAL MONEY MOVES                         ║")
+	fmt.Println("║                                                               ║")
+	fmt.Println("║  This slice extends v9.3 with multi-party approval for shared ║")
+	fmt.Println("║  money in intersections. All v9.3 constraints remain in force.║")
+	fmt.Println("║                                                               ║")
+	fmt.Println("║  MULTI-PARTY REQUIREMENTS:                                    ║")
+	fmt.Println("║  1) Threshold approvals per contract ApprovalPolicy           ║")
+	fmt.Println("║  2) Symmetry: all approvers see identical bundle              ║")
+	fmt.Println("║  3) Neutrality: no coercive language in approval requests     ║")
+	fmt.Println("║  4) Single-use: approvals cannot be reused                    ║")
+	fmt.Println("║  5) Expiry: approvals verified at execution time              ║")
+	fmt.Println("╚═══════════════════════════════════════════════════════════════╝")
+	fmt.Println()
+	fmt.Println("Demonstrates:")
+	fmt.Println("  1. Family intersection with 2/2 approval policy")
+	fmt.Println("  2. ApprovalBundle creation with deterministic hash")
+	fmt.Println("  3. Symmetry proof (all approvers received identical content)")
+	fmt.Println("  4. Neutral language verification")
+	fmt.Println("  5. Threshold verification (2 of 2 required)")
+	fmt.Println("  6. Multi-party gate blocks insufficient approvals")
+	fmt.Println("  7. Mock connector executes with Simulated=true")
+	fmt.Println("  8. Complete audit trail with v9.4 events")
+	fmt.Println()
+
+	runner := demo_v9_multiparty.NewRunner()
+	results, err := runner.Run()
+
+	if err != nil {
+		fmt.Printf("Demo failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	for _, result := range results {
+		demo_v9_multiparty.PrintResult(result)
+	}
 }

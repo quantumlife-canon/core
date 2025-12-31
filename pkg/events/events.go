@@ -323,6 +323,44 @@ const (
 	// Used when TrueLayer is not configured and mock connector is active.
 	EventV9PaymentSimulated    EventType = "v9.payment.simulated"
 	EventV9SettlementSimulated EventType = "v9.settlement.simulated"
+
+	// v9.4 Multi-party Financial Execution events
+	// CRITICAL: Multi-party approvals for shared money via intersections.
+	// Uses threshold approvals and symmetry guarantees while keeping v9.3 constraints.
+	//
+	// NON-NEGOTIABLE:
+	// - No blanket/standing approvals
+	// - Neutral approval language (no urgency/fear/shame/authority)
+	// - Symmetry: every approver receives IDENTICAL approval payload
+	// - Approvals do NOT bypass revocation windows
+
+	// Approval bundle lifecycle events
+	EventV94ApprovalBundleCreated   EventType = "v9.approval.bundle.created"
+	EventV94ApprovalBundlePresented EventType = "v9.approval.bundle.presented"
+
+	// Symmetry verification events
+	EventV94ApprovalSymmetryVerified EventType = "v9.approval.symmetry.verified"
+	EventV94ApprovalSymmetryFailed   EventType = "v9.approval.symmetry.failed"
+
+	// Threshold approval events
+	EventV94ApprovalThresholdChecked EventType = "v9.approval.threshold.checked"
+	EventV94ApprovalThresholdMet     EventType = "v9.approval.threshold.met"
+	EventV94ApprovalThresholdNotMet  EventType = "v9.approval.threshold.not_met"
+
+	// Multi-party execution gating events
+	EventV94MultiPartyRequired       EventType = "v9.multiparty.required"
+	EventV94MultiPartyGatePassed     EventType = "v9.multiparty.gate.passed"
+	EventV94MultiPartyGateBlocked    EventType = "v9.multiparty.gate.blocked"
+	EventV94MultiPartySingleFallback EventType = "v9.multiparty.single.fallback"
+
+	// Execution blocking events for multi-party
+	EventV94ExecutionBlockedInsufficientApprovals EventType = "v9.execution.blocked.insufficient_approvals"
+	EventV94ExecutionBlockedAsymmetricPayload     EventType = "v9.execution.blocked.asymmetric_payload"
+	EventV94ExecutionBlockedNeutralityViolation   EventType = "v9.execution.blocked.neutrality_violation"
+
+	// Approval reuse prevention events
+	EventV94ApprovalReuseAttempted EventType = "v9.approval.reuse.attempted"
+	EventV94ApprovalReuseBlocked   EventType = "v9.approval.reuse.blocked"
 )
 
 // Event represents a system event for audit and observability.
