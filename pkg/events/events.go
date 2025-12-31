@@ -361,6 +361,46 @@ const (
 	// Approval reuse prevention events
 	EventV94ApprovalReuseAttempted EventType = "v9.approval.reuse.attempted"
 	EventV94ApprovalReuseBlocked   EventType = "v9.approval.reuse.blocked"
+
+	// v9.5 Real Multi-Party Sandbox Execution events
+	// CRITICAL: v9.5 enables real TrueLayer sandbox execution with strengthened presentation semantics.
+	// Provider: TrueLayer ONLY (sandbox enforced), Cap: £1.00, Multi-party threshold required.
+	//
+	// NON-NEGOTIABLE:
+	// - Bundle MUST be presented before approval can be submitted
+	// - Each approver MUST receive identical bundle (proven via ContentHash)
+	// - Revocation during forced pause MUST abort BEFORE provider call
+	// - No retries without new approval artifacts
+
+	// Presentation lifecycle events
+	EventV95ApprovalPresentationRecorded EventType = "v9.approval.presentation.recorded"
+	EventV95ApprovalPresentationMissing  EventType = "v9.approval.presentation.missing"
+	EventV95ApprovalPresentationExpired  EventType = "v9.approval.presentation.expired"
+	EventV95ApprovalPresentationVerified EventType = "v9.approval.presentation.verified"
+
+	// Provider selection events
+	EventV95ExecutionProviderSelected EventType = "v9.execution.provider.selected"
+	EventV95ExecutionProviderMock     EventType = "v9.execution.provider.mock"
+	EventV95ExecutionProviderTrueLayer EventType = "v9.execution.provider.truelayer"
+
+	// TrueLayer sandbox execution events
+	EventV95PaymentTrueLayerCreated   EventType = "v9.payment.truelayer.created"
+	EventV95PaymentTrueLayerSucceeded EventType = "v9.payment.truelayer.succeeded"
+	EventV95PaymentTrueLayerFailed    EventType = "v9.payment.truelayer.failed"
+	EventV95PaymentTrueLayerPending   EventType = "v9.payment.truelayer.pending"
+
+	// Revocation during forced pause events
+	EventV95RevocationDuringPause        EventType = "v9.revocation.during_pause"
+	EventV95ExecutionAbortedRevocation   EventType = "v9.execution.aborted.revocation_during_pause"
+	EventV95ExecutionAbortedBeforeProvider EventType = "v9.execution.aborted.before_provider"
+
+	// Sandbox enforcement events
+	EventV95SandboxEnforced  EventType = "v9.sandbox.enforced"
+	EventV95SandboxViolation EventType = "v9.sandbox.violation"
+
+	// Attempt tracking events
+	EventV95AttemptStarted   EventType = "v9.attempt.started"
+	EventV95AttemptFinalized EventType = "v9.attempt.finalized"
 )
 
 // Event represents a system event for audit and observability.

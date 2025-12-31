@@ -11,6 +11,7 @@
 //	quantumlife-daemon --demo-v9-guarded-execution # Run v9 guarded execution demo
 //	quantumlife-daemon --demo-v9-execute-tiny-payment # Run v9.3 real payment demo
 //	quantumlife-daemon --demo-v9-multiparty-tiny-payment # Run v9.4 multi-party demo
+//	quantumlife-daemon --demo-v9-multiparty-execute-tiny-payment-real # Run v9.5 real multi-party demo
 //
 // Reference: docs/TECHNOLOGY_SELECTION_V1.md §13 Implementation Checklist
 package main
@@ -30,6 +31,7 @@ import (
 	"quantumlife/internal/demo_v9_execute"
 	"quantumlife/internal/demo_v9_guarded"
 	"quantumlife/internal/demo_v9_multiparty"
+	"quantumlife/internal/demo_v95_multiparty_real"
 	"quantumlife/pkg/primitives"
 )
 
@@ -58,6 +60,7 @@ func main() {
 	demoV9GuardedExecution := flag.Bool("demo-v9-guarded-execution", false, "Run the v9 guarded execution demo (adapter blocks)")
 	demoV9ExecuteTinyPayment := flag.Bool("demo-v9-execute-tiny-payment", false, "Run the v9.3 real payment demo (REAL MONEY MAY MOVE)")
 	demoV9MultipartyTinyPayment := flag.Bool("demo-v9-multiparty-tiny-payment", false, "Run the v9.4 multi-party payment demo (SIMULATED)")
+	demoV95MultipartyReal := flag.Bool("demo-v9-multiparty-execute-tiny-payment-real", false, "Run the v9.5 real multi-party payment demo (SANDBOX ONLY)")
 	flag.Parse()
 
 	fmt.Print(banner)
@@ -112,6 +115,11 @@ func main() {
 		return
 	}
 
+	if *demoV95MultipartyReal {
+		runDemoV95MultipartyReal()
+		return
+	}
+
 	// Default: show status
 	fmt.Println("Runtime Layers:")
 	fmt.Println("  - Circle Runtime         [in-memory impl available]")
@@ -134,6 +142,7 @@ func main() {
 	fmt.Println("  --demo-v9-guarded-execution      v9 guarded execution with adapter (NO REAL MONEY)")
 	fmt.Println("  --demo-v9-execute-tiny-payment   v9.3 real payment execution (REAL MONEY MAY MOVE)")
 	fmt.Println("  --demo-v9-multiparty-tiny-payment v9.4 multi-party payment (SIMULATED)")
+	fmt.Println("  --demo-v9-multiparty-execute-tiny-payment-real v9.5 real multi-party (SANDBOX)")
 	fmt.Println()
 	fmt.Println("Run with --help for more options.")
 
@@ -432,5 +441,52 @@ func runDemoV9MultipartyTinyPayment() {
 
 	for _, result := range results {
 		demo_v9_multiparty.PrintResult(result)
+	}
+}
+
+// runDemoV95MultipartyReal runs the v9.5 real multi-party payment demo.
+// CRITICAL: This demo uses SANDBOX mode only. TrueLayer sandbox or mock fallback.
+// It demonstrates strengthened presentation semantics and provider selection.
+func runDemoV95MultipartyReal() {
+	fmt.Println()
+	fmt.Println("Running v9.5 Real Multi-Party Payment Demo...")
+	fmt.Println()
+	fmt.Println("╔═══════════════════════════════════════════════════════════════╗")
+	fmt.Println("║  v9.5: REAL MULTI-PARTY SANDBOX EXECUTION                     ║")
+	fmt.Println("║                                                               ║")
+	fmt.Println("║  SANDBOX ONLY - TrueLayer sandbox or mock fallback            ║")
+	fmt.Println("║                                                               ║")
+	fmt.Println("║  This slice extends v9.4 with:                                ║")
+	fmt.Println("║  1) Strengthened presentation: bundle MUST be presented to    ║")
+	fmt.Println("║     each approver BEFORE their approval can be accepted       ║")
+	fmt.Println("║  2) Provider selection: TrueLayer (sandbox) or mock           ║")
+	fmt.Println("║  3) Revocation during forced pause: abort BEFORE provider     ║")
+	fmt.Println("║  4) Attempt tracking: exactly one trace finalization          ║")
+	fmt.Println("║                                                               ║")
+	fmt.Println("║  All v9.3/v9.4 constraints remain in force:                   ║")
+	fmt.Println("║  - £1.00 cap, predefined payees only, forced pause            ║")
+	fmt.Println("║  - No retries, multi-party threshold, symmetry verification   ║")
+	fmt.Println("╚═══════════════════════════════════════════════════════════════╝")
+	fmt.Println()
+	fmt.Println("Demonstrates:")
+	fmt.Println("  1. PresentationGate verifies bundle was presented")
+	fmt.Println("  2. Approval rejected if no presentation record exists")
+	fmt.Println("  3. Provider selection (TrueLayer sandbox vs mock)")
+	fmt.Println("  4. Revocation during forced pause aborts execution")
+	fmt.Println("  5. Sandbox enforcement (live TrueLayer rejected)")
+	fmt.Println("  6. Attempt tracking prevents audit duplication")
+	fmt.Println("  7. Complete audit trail with v9.5 events")
+	fmt.Println()
+
+	runner := demo_v95_multiparty_real.NewRunner()
+	results, err := runner.Run()
+
+	if err != nil {
+		fmt.Printf("Demo failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	for _, result := range results {
+		demo_v95_multiparty_real.PrintResult(result)
 	}
 }
