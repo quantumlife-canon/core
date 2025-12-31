@@ -252,5 +252,11 @@ func (g *DefaultGate) UpdatePolicy(policy Policy) {
 	g.policy = policy
 }
 
+// GetPolicy returns a copy of the current policy.
+// v9.12: Used for policy snapshot computation.
+func (g *DefaultGate) GetPolicy() Policy {
+	return g.policy
+}
+
 // Verify interface compliance at compile time.
 var _ Gate = (*DefaultGate)(nil)

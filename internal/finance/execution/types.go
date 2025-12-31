@@ -158,6 +158,11 @@ type ExecutionEnvelope struct {
 	// SealHash is the hash of all fields proving immutability.
 	SealHash string
 
+	// PolicySnapshotHash is the v9.12 policy snapshot hash.
+	// CRITICAL: Binds this envelope to a specific policy configuration.
+	// Execution will be blocked if current policy hash doesn't match.
+	PolicySnapshotHash string
+
 	// --- Internal state (not part of seal) ---
 
 	// Revoked indicates if this envelope has been revoked.
@@ -362,5 +367,6 @@ func ComputeSealHash(env *ExecutionEnvelope) string {
 	h.Write([]byte(fmt.Sprintf("%t", env.RevocationWaived)))
 	h.Write([]byte(env.TraceID))
 	h.Write([]byte(env.SealedAt.Format(time.RFC3339Nano)))
+	h.Write([]byte(env.PolicySnapshotHash)) // v9.12: Policy snapshot binding
 	return hex.EncodeToString(h.Sum(nil))
 }

@@ -100,6 +100,14 @@ type Registry interface {
 
 	// IsLiveEnvironment checks if a provider targets live/production.
 	IsLiveEnvironment(id ProviderID) bool
+
+	// AllowedProviderIDs returns a sorted list of allowed provider IDs.
+	// v9.12: Used for policy snapshot computation.
+	AllowedProviderIDs() []string
+
+	// BlockedProviderIDs returns a sorted list of blocked (but registered) provider IDs.
+	// v9.12: Used for policy snapshot computation.
+	BlockedProviderIDs() []string
 }
 
 // Errors.
@@ -287,6 +295,38 @@ func (r *inMemoryRegistry) IsLiveEnvironment(id ProviderID) bool {
 		return false
 	}
 	return entry.Environment == EnvLive
+}
+
+// AllowedProviderIDs returns a sorted list of allowed provider IDs.
+// v9.12: Used for policy snapshot computation.
+func (r *inMemoryRegistry) AllowedProviderIDs() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	result := make([]string, 0)
+	for id, entry := range r.entries {
+		if entry.Allowed {
+			result = append(result, string(id))
+		}
+	}
+	sort.Strings(result)
+	return result
+}
+
+// BlockedProviderIDs returns a sorted list of blocked (but registered) provider IDs.
+// v9.12: Used for policy snapshot computation.
+func (r *inMemoryRegistry) BlockedProviderIDs() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	result := make([]string, 0)
+	for id, entry := range r.entries {
+		if !entry.Allowed {
+			result = append(result, string(id))
+		}
+	}
+	sort.Strings(result)
+	return result
 }
 
 // Verify interface compliance.

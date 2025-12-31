@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"quantumlife/internal/connectors/finance/write"
+	"quantumlife/internal/connectors/finance/write/payees"
+	"quantumlife/internal/connectors/finance/write/registry"
 	"quantumlife/internal/finance/execution"
 	"quantumlife/internal/finance/execution/attempts"
 	"quantumlife/internal/finance/execution/caps"
@@ -129,10 +131,14 @@ func createTestExecutor(policy caps.Policy, connector *MockWriteConnector) (*exe
 	capsGate := caps.NewDefaultGate(policy, emitter)
 	executor.SetCapsGate(capsGate)
 
+	// v9.12: Set registries for policy snapshot computation
+	executor.SetProviderRegistry(registry.NewDefaultRegistry())
+	executor.SetPayeeRegistry(payees.NewDefaultRegistry())
+
 	return executor, capsGate, capturedEvents
 }
 
-// Helper to create a test envelope
+// Helper to create a test envelope with policy snapshot hash
 func createTestEnvelope(envelopeID, circleID, intersectionID string, amountCents int64, currency string) *execution.ExecutionEnvelope {
 	now := testClock().Now()
 	return &execution.ExecutionEnvelope{
@@ -154,6 +160,15 @@ func createTestEnvelope(envelopeID, circleID, intersectionID string, amountCents
 	}
 }
 
+// createTestEnvelopeWithHash creates a test envelope bound to the executor's current policy.
+// v9.12.1: PolicySnapshotHash is required - empty hash blocks execution.
+func createTestEnvelopeWithHash(executor *execution.V96Executor, envelopeID, circleID, intersectionID string, amountCents int64, currency string) *execution.ExecutionEnvelope {
+	envelope := createTestEnvelope(envelopeID, circleID, intersectionID, amountCents, currency)
+	_, hash := executor.ComputePolicySnapshotForEnvelope()
+	envelope.PolicySnapshotHash = string(hash)
+	return envelope
+}
+
 // Scenario 1: Attempt limit blocks after N attempts (simulated mode)
 // This is the primary test for caps blocking because attempt limits
 // count regardless of whether money moves.
@@ -170,7 +185,7 @@ func TestAttemptLimitBlocks(t *testing.T) {
 
 	// Execute 3 attempts (all should succeed - they're simulated)
 	for i := 1; i <= 3; i++ {
-		envelope := createTestEnvelope("env-"+string(rune('0'+i)), "circle-1", "", 10, "GBP")
+		envelope := createTestEnvelopeWithHash(executor, "env-"+string(rune('0'+i)), "circle-1", "", 10, "GBP")
 
 		result, err := executor.Execute(ctx, execution.V96ExecuteRequest{
 			Envelope:        envelope,
@@ -194,7 +209,7 @@ func TestAttemptLimitBlocks(t *testing.T) {
 
 	// 4th attempt should be blocked
 	t.Run("4th attempt blocked by rate limit", func(t *testing.T) {
-		envelope := createTestEnvelope("env-4", "circle-1", "", 10, "GBP")
+		envelope := createTestEnvelopeWithHash(executor, "env-4", "circle-1", "", 10, "GBP")
 
 		result, err := executor.Execute(ctx, execution.V96ExecuteRequest{
 			Envelope:        envelope,
@@ -247,7 +262,7 @@ func TestIntersectionAttemptLimit(t *testing.T) {
 
 	// Execute 2 attempts via intersection
 	for i := 1; i <= 2; i++ {
-		envelope := createTestEnvelope("env-"+string(rune('0'+i)), "circle-1", "intersection-1", 10, "GBP")
+		envelope := createTestEnvelopeWithHash(executor, "env-"+string(rune('0'+i)), "circle-1", "intersection-1", 10, "GBP")
 
 		result, err := executor.Execute(ctx, execution.V96ExecuteRequest{
 			Envelope:        envelope,
@@ -271,7 +286,7 @@ func TestIntersectionAttemptLimit(t *testing.T) {
 
 	// 3rd attempt via same intersection should be blocked
 	t.Run("3rd intersection attempt blocked", func(t *testing.T) {
-		envelope := createTestEnvelope("env-3", "circle-1", "intersection-1", 10, "GBP")
+		envelope := createTestEnvelopeWithHash(executor, "env-3", "circle-1", "intersection-1", 10, "GBP")
 
 		result, err := executor.Execute(ctx, execution.V96ExecuteRequest{
 			Envelope:        envelope,
@@ -295,7 +310,7 @@ func TestIntersectionAttemptLimit(t *testing.T) {
 
 	// Different intersection should have its own limit
 	t.Run("different intersection has own limit", func(t *testing.T) {
-		envelope := createTestEnvelope("env-4", "circle-1", "intersection-2", 10, "GBP")
+		envelope := createTestEnvelopeWithHash(executor, "env-4", "circle-1", "intersection-2", 10, "GBP")
 
 		result, err := executor.Execute(ctx, execution.V96ExecuteRequest{
 			Envelope:        envelope,
@@ -334,7 +349,7 @@ func TestCircleDailyCapBlocks(t *testing.T) {
 	now := testClock().Now()
 
 	t.Run("first payment within cap succeeds", func(t *testing.T) {
-		envelope := createTestEnvelope("env-1", "circle-1", "", 50, "GBP")
+		envelope := createTestEnvelopeWithHash(executor, "env-1", "circle-1", "", 50, "GBP")
 
 		result, err := executor.Execute(ctx, execution.V96ExecuteRequest{
 			Envelope:        envelope,
@@ -361,7 +376,7 @@ func TestCircleDailyCapBlocks(t *testing.T) {
 	})
 
 	t.Run("second payment exceeding cap is blocked", func(t *testing.T) {
-		envelope := createTestEnvelope("env-2", "circle-1", "", 60, "GBP")
+		envelope := createTestEnvelopeWithHash(executor, "env-2", "circle-1", "", 60, "GBP")
 
 		result, err := executor.Execute(ctx, execution.V96ExecuteRequest{
 			Envelope:        envelope,
@@ -418,7 +433,7 @@ func TestSimulatedDoesNotCountSpend(t *testing.T) {
 	// Execute 3 simulated payments of 50 cents each
 	// Since simulated, all should pass (spend not counted)
 	for i := 1; i <= 3; i++ {
-		envelope := createTestEnvelope("env-"+string(rune('0'+i)), "circle-1", "", 50, "GBP")
+		envelope := createTestEnvelopeWithHash(executor, "env-"+string(rune('0'+i)), "circle-1", "", 50, "GBP")
 
 		result, err := executor.Execute(ctx, execution.V96ExecuteRequest{
 			Envelope:        envelope,
@@ -473,7 +488,7 @@ func TestExactlyOneTraceFinalization(t *testing.T) {
 	ctx := context.Background()
 	now := testClock().Now()
 
-	envelope := createTestEnvelope("env-1", "circle-1", "", 50, "GBP")
+	envelope := createTestEnvelopeWithHash(executor, "env-1", "circle-1", "", 50, "GBP")
 
 	result, err := executor.Execute(ctx, execution.V96ExecuteRequest{
 		Envelope:        envelope,
@@ -517,7 +532,7 @@ func TestV911AuditEvents(t *testing.T) {
 	ctx := context.Background()
 	now := testClock().Now()
 
-	envelope := createTestEnvelope("env-1", "circle-1", "", 50, "GBP")
+	envelope := createTestEnvelopeWithHash(executor, "env-1", "circle-1", "", 50, "GBP")
 
 	result, err := executor.Execute(ctx, execution.V96ExecuteRequest{
 		Envelope:        envelope,
@@ -577,7 +592,7 @@ func TestPayeeDailyCapBlocks(t *testing.T) {
 	now := testClock().Now()
 
 	t.Run("payment to payee succeeds", func(t *testing.T) {
-		envelope := createTestEnvelope("env-1", "circle-1", "", 50, "GBP")
+		envelope := createTestEnvelopeWithHash(executor, "env-1", "circle-1", "", 50, "GBP")
 
 		result, err := executor.Execute(ctx, execution.V96ExecuteRequest{
 			Envelope:        envelope,
@@ -600,7 +615,7 @@ func TestPayeeDailyCapBlocks(t *testing.T) {
 	})
 
 	t.Run("second payment to same payee is blocked", func(t *testing.T) {
-		envelope := createTestEnvelope("env-2", "circle-1", "", 10, "GBP")
+		envelope := createTestEnvelopeWithHash(executor, "env-2", "circle-1", "", 10, "GBP")
 
 		result, err := executor.Execute(ctx, execution.V96ExecuteRequest{
 			Envelope:        envelope,
@@ -623,7 +638,7 @@ func TestPayeeDailyCapBlocks(t *testing.T) {
 	})
 
 	t.Run("payment to different payee succeeds", func(t *testing.T) {
-		envelope := createTestEnvelope("env-3", "circle-1", "", 50, "GBP")
+		envelope := createTestEnvelopeWithHash(executor, "env-3", "circle-1", "", 50, "GBP")
 
 		result, err := executor.Execute(ctx, execution.V96ExecuteRequest{
 			Envelope:        envelope,
@@ -660,7 +675,7 @@ func TestV911RateLimitAuditEvents(t *testing.T) {
 
 	// First attempt - should emit rate limit checked (passed)
 	t.Run("rate limit checked event on pass", func(t *testing.T) {
-		envelope := createTestEnvelope("env-1", "circle-rl", "", 10, "GBP")
+		envelope := createTestEnvelopeWithHash(executor, "env-1", "circle-rl", "", 10, "GBP")
 
 		result, err := executor.Execute(ctx, execution.V96ExecuteRequest{
 			Envelope:        envelope,
@@ -708,7 +723,7 @@ func TestV911RateLimitAuditEvents(t *testing.T) {
 	})
 
 	// Execute second attempt to use up the limit
-	envelope2 := createTestEnvelope("env-2", "circle-rl", "", 10, "GBP")
+	envelope2 := createTestEnvelopeWithHash(executor, "env-2", "circle-rl", "", 10, "GBP")
 	_, _ = executor.Execute(ctx, execution.V96ExecuteRequest{
 		Envelope:        envelope2,
 		PayeeID:         "sandbox-utility",
@@ -722,7 +737,7 @@ func TestV911RateLimitAuditEvents(t *testing.T) {
 
 	// Third attempt - should emit rate limit blocked
 	t.Run("rate limit blocked event on block", func(t *testing.T) {
-		envelope := createTestEnvelope("env-3", "circle-rl", "", 10, "GBP")
+		envelope := createTestEnvelopeWithHash(executor, "env-3", "circle-rl", "", 10, "GBP")
 
 		result, err := executor.Execute(ctx, execution.V96ExecuteRequest{
 			Envelope:        envelope,
@@ -785,7 +800,7 @@ func TestV911CapsEventMetadata(t *testing.T) {
 	ctx := context.Background()
 	now := testClock().Now()
 
-	envelope := createTestEnvelope("env-meta-1", "circle-meta", "", 50, "GBP")
+	envelope := createTestEnvelopeWithHash(executor, "env-meta-1", "circle-meta", "", 50, "GBP")
 
 	result, err := executor.Execute(ctx, execution.V96ExecuteRequest{
 		Envelope:        envelope,
@@ -861,7 +876,7 @@ func TestNoExtraFinalizationWithV911Events(t *testing.T) {
 	ctx := context.Background()
 	now := testClock().Now()
 
-	envelope := createTestEnvelope("env-fin", "circle-fin", "", 50, "GBP")
+	envelope := createTestEnvelopeWithHash(executor, "env-fin", "circle-fin", "", 50, "GBP")
 
 	result, err := executor.Execute(ctx, execution.V96ExecuteRequest{
 		Envelope:        envelope,

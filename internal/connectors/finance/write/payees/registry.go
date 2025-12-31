@@ -114,6 +114,14 @@ type Registry interface {
 
 	// IsLiveEnvironment returns true if the payee is in live environment.
 	IsLiveEnvironment(id PayeeID) bool
+
+	// AllowedPayeeIDs returns a sorted list of allowed payee IDs.
+	// v9.12: Used for policy snapshot computation.
+	AllowedPayeeIDs() []string
+
+	// BlockedPayeeIDs returns a sorted list of blocked (but registered) payee IDs.
+	// v9.12: Used for policy snapshot computation.
+	BlockedPayeeIDs() []string
 }
 
 // Sentinel errors for payee registry.
@@ -317,4 +325,30 @@ func (r *defaultRegistry) IsLiveEnvironment(id PayeeID) bool {
 		return false
 	}
 	return entry.Environment == EnvLive
+}
+
+// AllowedPayeeIDs returns a sorted list of allowed payee IDs.
+// v9.12: Used for policy snapshot computation.
+func (r *defaultRegistry) AllowedPayeeIDs() []string {
+	result := make([]string, 0)
+	for id, entry := range r.entries {
+		if entry.Allowed {
+			result = append(result, string(id))
+		}
+	}
+	sort.Strings(result)
+	return result
+}
+
+// BlockedPayeeIDs returns a sorted list of blocked (but registered) payee IDs.
+// v9.12: Used for policy snapshot computation.
+func (r *defaultRegistry) BlockedPayeeIDs() []string {
+	result := make([]string, 0)
+	for id, entry := range r.entries {
+		if !entry.Allowed {
+			result = append(result, string(id))
+		}
+	}
+	sort.Strings(result)
+	return result
 }

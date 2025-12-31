@@ -14,6 +14,7 @@
 //	quantumlife-daemon --demo-v9-multiparty-execute-tiny-payment-real # Run v9.5 real multi-party demo
 //	quantumlife-daemon --demo-v9-idempotency-replay-defense # Run v9.6 idempotency demo
 //	quantumlife-daemon --demo-v9-caps-rate-limit           # Run v9.11 caps + rate limit demo
+//	quantumlife-daemon --demo-v9-policy-snapshot          # Run v9.12 policy snapshot demo
 //
 // Reference: docs/TECHNOLOGY_SELECTION_V1.md §13 Implementation Checklist
 package main
@@ -30,6 +31,7 @@ import (
 	"quantumlife/internal/demo_family_negotiate"
 	"quantumlife/internal/demo_family_simulate"
 	"quantumlife/internal/demo_v911_caps"
+	"quantumlife/internal/demo_v912_policy_snapshot"
 	"quantumlife/internal/demo_v95_multiparty_real"
 	"quantumlife/internal/demo_v96_idempotency"
 	"quantumlife/internal/demo_v9_dryrun"
@@ -67,6 +69,7 @@ func main() {
 	demoV95MultipartyReal := flag.Bool("demo-v9-multiparty-execute-tiny-payment-real", false, "Run the v9.5 real multi-party payment demo (SANDBOX ONLY)")
 	demoV96Idempotency := flag.Bool("demo-v9-idempotency-replay-defense", false, "Run the v9.6 idempotency and replay defense demo")
 	demoV911CapsRateLimit := flag.Bool("demo-v9-caps-rate-limit", false, "Run the v9.11 caps and rate limit demo")
+	demoV912PolicySnapshot := flag.Bool("demo-v9-policy-snapshot", false, "Run the v9.12 policy snapshot hash binding demo")
 	flag.Parse()
 
 	fmt.Print(banner)
@@ -136,6 +139,11 @@ func main() {
 		return
 	}
 
+	if *demoV912PolicySnapshot {
+		runDemoV912PolicySnapshot()
+		return
+	}
+
 	// Default: show status
 	fmt.Println("Runtime Layers:")
 	fmt.Println("  - Circle Runtime         [in-memory impl available]")
@@ -161,6 +169,7 @@ func main() {
 	fmt.Println("  --demo-v9-multiparty-execute-tiny-payment-real v9.5 real multi-party (SANDBOX)")
 	fmt.Println("  --demo-v9-idempotency-replay-defense v9.6 idempotency + replay defense")
 	fmt.Println("  --demo-v9-caps-rate-limit            v9.11 daily caps + rate limits")
+	fmt.Println("  --demo-v9-policy-snapshot            v9.12 policy snapshot hash binding")
 	fmt.Println()
 	fmt.Println("Run with --help for more options.")
 
@@ -596,5 +605,53 @@ func runDemoV911CapsRateLimit() {
 	fmt.Println()
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println("v9.11 Demo Complete")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+}
+
+// runDemoV912PolicySnapshot runs the v9.12 policy snapshot hash binding demo.
+// CRITICAL: This demo proves policy drift detection between approval and execution.
+func runDemoV912PolicySnapshot() {
+	fmt.Println()
+	fmt.Println("Running v9.12 Policy Snapshot Hash Binding Demo...")
+	fmt.Println()
+	fmt.Println("╔═══════════════════════════════════════════════════════════════╗")
+	fmt.Println("║  v9.12: POLICY SNAPSHOT HASH BINDING                          ║")
+	fmt.Println("║                                                               ║")
+	fmt.Println("║  PREVENTS POLICY DRIFT BETWEEN APPROVAL AND EXECUTION VIA:   ║")
+	fmt.Println("║  1) PolicySnapshot captures provider/payee/caps policy state  ║")
+	fmt.Println("║  2) Deterministic hash bound to envelope at creation time     ║")
+	fmt.Println("║  3) Hash recomputed at execution time                         ║")
+	fmt.Println("║  4) Any policy change blocks execution                        ║")
+	fmt.Println("║                                                               ║")
+	fmt.Println("║  WHAT THIS PREVENTS:                                          ║")
+	fmt.Println("║  - Approving payment with one policy, executing with another  ║")
+	fmt.Println("║  - Silent cap changes between approval and execution          ║")
+	fmt.Println("║  - Provider/payee allowlist modifications going undetected    ║")
+	fmt.Println("║                                                               ║")
+	fmt.Println("║  All v9.3-v9.11 constraints remain in force.                  ║")
+	fmt.Println("╚═══════════════════════════════════════════════════════════════╝")
+	fmt.Println()
+	fmt.Println("Demonstrates:")
+	fmt.Println("  S1: Valid policy snapshot (no drift) -> execution succeeds")
+	fmt.Println("  S2: Policy drift detected -> execution blocked")
+	fmt.Println("  S3: Multi-party bundle/envelope hash consistency verified")
+	fmt.Println("  S4: Caps policy change -> execution blocked")
+	fmt.Println()
+
+	runner := demo_v912_policy_snapshot.NewRunner()
+	results, err := runner.Run()
+
+	if err != nil {
+		fmt.Printf("Demo failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	for _, result := range results {
+		demo_v912_policy_snapshot.PrintResult(result)
+	}
+
+	fmt.Println()
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println("v9.12 Demo Complete")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 }

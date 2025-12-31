@@ -54,6 +54,7 @@ import (
 // - v9.9: Provider registry allowlist enforcement
 // - v9.10: Payee registry enforcement (no free-text recipients)
 // - v9.11: Daily caps and rate limits enforcement
+// - v9.12: Policy snapshot hash verification (prevents policy drift)
 type V96Executor struct {
 	mu sync.RWMutex
 
@@ -463,6 +464,149 @@ func (e *V96Executor) Execute(ctx context.Context, req V96ExecuteRequest) (*V96E
 			"attempt_id":  attemptID,
 		},
 	})
+
+	// Step 2.7 (v9.12): Policy Snapshot Verification
+	// CRITICAL: Block execution BEFORE ledger entry if policy has drifted.
+	// This ensures the approved envelope matches current policy configuration.
+	//
+	// v9.12.1 HARDENING: PolicySnapshotHash is REQUIRED. Empty hash is a hard block.
+	// This prevents execution of envelopes created before v9.12 binding was enforced.
+	if req.Envelope.PolicySnapshotHash == "" {
+		// Emit missing hash event
+		e.emitEvent(result, events.Event{
+			ID:             e.idGenerator(),
+			Type:           events.EventV912PolicySnapshotMissing,
+			Timestamp:      now,
+			CircleID:       req.Envelope.ActorCircleID,
+			IntersectionID: req.Envelope.IntersectionID,
+			SubjectID:      req.Envelope.EnvelopeID,
+			SubjectType:    "envelope",
+			TraceID:        req.TraceID,
+			Metadata: map[string]string{
+				"attempt_id": attemptID,
+				"reason":     "policy snapshot hash missing",
+			},
+		})
+
+		// Emit execution blocked event
+		e.emitEvent(result, events.Event{
+			ID:             e.idGenerator(),
+			Type:           events.EventV912ExecutionBlockedMissingHash,
+			Timestamp:      now,
+			CircleID:       req.Envelope.ActorCircleID,
+			IntersectionID: req.Envelope.IntersectionID,
+			SubjectID:      req.Envelope.EnvelopeID,
+			SubjectType:    "envelope",
+			TraceID:        req.TraceID,
+			Metadata: map[string]string{
+				"attempt_id": attemptID,
+			},
+		})
+
+		result.Success = false
+		result.Status = SettlementBlocked
+		result.BlockedReason = "policy snapshot hash missing: envelope must be bound to policy configuration"
+		result.ValidationDetails = append(result.ValidationDetails, ValidationCheckResult{
+			Check:   "policy_snapshot_hash_present",
+			Passed:  false,
+			Details: "PolicySnapshotHash is required but was empty",
+		})
+		return result, nil
+	}
+
+	// PolicySnapshotHash is present, verify it matches current policy
+	if req.Envelope.PolicySnapshotHash != "" {
+		// Compute current policy snapshot
+		currentSnapshot, currentHash := e.computeCurrentPolicySnapshot()
+
+		// Emit policy snapshot computed event
+		e.emitEvent(result, events.Event{
+			ID:             e.idGenerator(),
+			Type:           events.EventV912PolicySnapshotComputed,
+			Timestamp:      now,
+			CircleID:       req.Envelope.ActorCircleID,
+			IntersectionID: req.Envelope.IntersectionID,
+			SubjectID:      req.Envelope.EnvelopeID,
+			SubjectType:    "envelope",
+			TraceID:        req.TraceID,
+			Metadata: map[string]string{
+				"attempt_id":   attemptID,
+				"current_hash": string(currentHash),
+			},
+		})
+
+		// Verify policy snapshot matches
+		if string(currentHash) != req.Envelope.PolicySnapshotHash {
+			// Emit policy snapshot mismatch event
+			e.emitEvent(result, events.Event{
+				ID:             e.idGenerator(),
+				Type:           events.EventV912PolicySnapshotMismatch,
+				Timestamp:      now,
+				CircleID:       req.Envelope.ActorCircleID,
+				IntersectionID: req.Envelope.IntersectionID,
+				SubjectID:      req.Envelope.EnvelopeID,
+				SubjectType:    "envelope",
+				TraceID:        req.TraceID,
+				Metadata: map[string]string{
+					"attempt_id":    attemptID,
+					"expected_hash": req.Envelope.PolicySnapshotHash,
+					"current_hash":  string(currentHash),
+					"reason":        "policy drift detected",
+				},
+			})
+
+			// Emit execution blocked event
+			e.emitEvent(result, events.Event{
+				ID:             e.idGenerator(),
+				Type:           events.EventV912ExecutionBlockedPolicyDrift,
+				Timestamp:      now,
+				CircleID:       req.Envelope.ActorCircleID,
+				IntersectionID: req.Envelope.IntersectionID,
+				SubjectID:      req.Envelope.EnvelopeID,
+				SubjectType:    "envelope",
+				TraceID:        req.TraceID,
+				Metadata: map[string]string{
+					"attempt_id":    attemptID,
+					"expected_hash": req.Envelope.PolicySnapshotHash,
+					"current_hash":  string(currentHash),
+				},
+			})
+
+			result.Success = false
+			result.Status = SettlementBlocked
+			result.BlockedReason = fmt.Sprintf("policy drift: expected hash %s, current hash %s",
+				req.Envelope.PolicySnapshotHash[:16]+"...", string(currentHash)[:16]+"...")
+			result.ValidationDetails = append(result.ValidationDetails, ValidationCheckResult{
+				Check:   "policy_snapshot_verified",
+				Passed:  false,
+				Details: "policy configuration changed between approval and execution",
+			})
+			return result, nil
+		}
+
+		// Emit policy snapshot verified event
+		e.emitEvent(result, events.Event{
+			ID:             e.idGenerator(),
+			Type:           events.EventV912PolicySnapshotVerified,
+			Timestamp:      now,
+			CircleID:       req.Envelope.ActorCircleID,
+			IntersectionID: req.Envelope.IntersectionID,
+			SubjectID:      req.Envelope.EnvelopeID,
+			SubjectType:    "envelope",
+			TraceID:        req.TraceID,
+			Metadata: map[string]string{
+				"attempt_id":       attemptID,
+				"snapshot_hash":    req.Envelope.PolicySnapshotHash,
+				"snapshot_version": currentSnapshot.Version,
+			},
+		})
+
+		result.ValidationDetails = append(result.ValidationDetails, ValidationCheckResult{
+			Check:   "policy_snapshot_verified",
+			Passed:  true,
+			Details: fmt.Sprintf("policy hash matches: %s...", req.Envelope.PolicySnapshotHash[:16]),
+		})
+	}
 
 	// Step 3: Start attempt in ledger (blocks replays and in-flight duplicates)
 	attemptRecord, err := e.attemptLedger.StartAttempt(attempts.StartAttemptRequest{
@@ -1378,4 +1522,55 @@ func (e *V96Executor) emitCapsAuditEvents(result *V96ExecuteResult, req V96Execu
 			Metadata:       metadata,
 		})
 	}
+}
+
+// computeCurrentPolicySnapshot computes the current policy snapshot from configured sources.
+// v9.12: This is used to verify that policy hasn't drifted between approval and execution.
+func (e *V96Executor) computeCurrentPolicySnapshot() (PolicySnapshot, PolicySnapshotHash) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	input := PolicySnapshotInput{
+		ProviderDescriptor: &ProviderRegistryAdapter{
+			AllowedFunc: e.providerRegistry.AllowedProviderIDs,
+			BlockedFunc: e.providerRegistry.BlockedProviderIDs,
+		},
+		PayeeDescriptor: &PayeeRegistryAdapter{
+			AllowedFunc: e.payeeRegistry.AllowedPayeeIDs,
+			BlockedFunc: e.payeeRegistry.BlockedPayeeIDs,
+		},
+		CapsDescriptor: e.buildCapsDescriptor(),
+	}
+
+	return ComputePolicySnapshot(input)
+}
+
+// buildCapsDescriptor creates a caps policy descriptor from the caps gate.
+func (e *V96Executor) buildCapsDescriptor() CapsPolicyDescriptor {
+	if e.capsGate == nil {
+		// No caps gate configured - return disabled policy
+		return &CapsGatePolicyAdapter{
+			GetPolicyFunc: func() (enabled bool, circleCaps, intersectionCaps, payeeCaps map[string]int64, maxAttemptsCircle, maxAttemptsIntersection int) {
+				return false, nil, nil, nil, 0, 0
+			},
+		}
+	}
+
+	policy := e.capsGate.GetPolicy()
+	return &CapsGatePolicyAdapter{
+		GetPolicyFunc: func() (enabled bool, circleCaps, intersectionCaps, payeeCaps map[string]int64, maxAttemptsCircle, maxAttemptsIntersection int) {
+			return policy.Enabled,
+				policy.PerCircleDailyCapCents,
+				policy.PerIntersectionDailyCapCents,
+				policy.PerPayeeDailyCapCents,
+				policy.MaxAttemptsPerDayCircle,
+				policy.MaxAttemptsPerDayIntersection
+		},
+	}
+}
+
+// ComputePolicySnapshotForEnvelope computes and returns the current policy snapshot hash.
+// v9.12: Use this when creating envelopes to bind them to current policy.
+func (e *V96Executor) ComputePolicySnapshotForEnvelope() (PolicySnapshot, PolicySnapshotHash) {
+	return e.computeCurrentPolicySnapshot()
 }

@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"quantumlife/internal/connectors/finance/write/payees"
+	"quantumlife/internal/connectors/finance/write/registry"
 	"quantumlife/internal/finance/execution"
 	"quantumlife/internal/finance/execution/attempts"
 	"quantumlife/pkg/events"
@@ -60,11 +62,16 @@ func setupTestExecutor() (
 		emitter,
 	)
 
+	// v9.12: Set registries for policy snapshot computation
+	executor.SetProviderRegistry(registry.NewDefaultRegistry())
+	executor.SetPayeeRegistry(payees.NewDefaultRegistry())
+
 	return executor, presentationStore, revocationChecker, attemptLedger, idGen, emitter
 }
 
 // createTestEnvelope creates a test envelope with bundle.
-func createTestEnvelope(idGen func() string, amountCents int64, currency string) (*execution.ExecutionEnvelope, *execution.ApprovalBundle) {
+// v9.12.1: Now takes executor to compute PolicySnapshotHash.
+func createTestEnvelope(executor *execution.V96Executor, idGen func() string, amountCents int64, currency string) (*execution.ExecutionEnvelope, *execution.ApprovalBundle) {
 	now := time.Now()
 	builder := execution.NewEnvelopeBuilder(idGen)
 
@@ -93,6 +100,10 @@ func createTestEnvelope(idGen func() string, amountCents int64, currency string)
 		TraceID:                  idGen(),
 	}, now)
 	envelope.SealHash = execution.ComputeSealHash(envelope)
+
+	// v9.12.1: Compute and bind policy snapshot hash
+	_, hash := executor.ComputePolicySnapshotForEnvelope()
+	envelope.PolicySnapshotHash = string(hash)
 
 	bundle, _ := execution.BuildApprovalBundle(
 		envelope,
@@ -332,7 +343,7 @@ func TestLedgerTerminalReplay(t *testing.T) {
 func TestExecutorReplayBlocked(t *testing.T) {
 	t.Run("second invocation with same attempt ID is blocked", func(t *testing.T) {
 		executor, presentationStore, _, _, idGen, _ := setupTestExecutor()
-		envelope, bundle := createTestEnvelope(idGen, 100, "GBP")
+		envelope, bundle := createTestEnvelope(executor, idGen, 100, "GBP")
 		traceID := idGen()
 
 		approvals, hashes := createTestApprovalsWithPresentation(
@@ -385,7 +396,7 @@ func TestExecutorReplayBlocked(t *testing.T) {
 func TestExecutorInflightBlocked(t *testing.T) {
 	t.Run("concurrent attempt for same envelope is blocked", func(t *testing.T) {
 		executor, presentationStore, _, _, idGen, _ := setupTestExecutor()
-		envelope, bundle := createTestEnvelope(idGen, 100, "GBP")
+		envelope, bundle := createTestEnvelope(executor, idGen, 100, "GBP")
 		traceID := idGen()
 
 		approvals, hashes := createTestApprovalsWithPresentation(
@@ -462,7 +473,7 @@ func TestExecutorInflightBlocked(t *testing.T) {
 func TestMockConnectorMoneyMovedFalse(t *testing.T) {
 	t.Run("mock connector always reports MoneyMoved=false", func(t *testing.T) {
 		executor, presentationStore, _, _, idGen, _ := setupTestExecutor()
-		envelope, bundle := createTestEnvelope(idGen, 100, "GBP")
+		envelope, bundle := createTestEnvelope(executor, idGen, 100, "GBP")
 		traceID := idGen()
 
 		approvals, hashes := createTestApprovalsWithPresentation(
@@ -633,7 +644,7 @@ func TestIdempotencyKeyConflict(t *testing.T) {
 func TestAuditEventsContainRequiredFields(t *testing.T) {
 	t.Run("v9.6 events have proper metadata", func(t *testing.T) {
 		executor, presentationStore, _, _, idGen, _ := setupTestExecutor()
-		envelope, bundle := createTestEnvelope(idGen, 100, "GBP")
+		envelope, bundle := createTestEnvelope(executor, idGen, 100, "GBP")
 		traceID := idGen()
 
 		approvals, hashes := createTestApprovalsWithPresentation(
@@ -702,7 +713,7 @@ func TestAuditEventsContainRequiredFields(t *testing.T) {
 func TestSingleAttemptFinalization(t *testing.T) {
 	t.Run("only one finalization event per attempt", func(t *testing.T) {
 		executor, presentationStore, _, _, idGen, _ := setupTestExecutor()
-		envelope, bundle := createTestEnvelope(idGen, 100, "GBP")
+		envelope, bundle := createTestEnvelope(executor, idGen, 100, "GBP")
 		traceID := idGen()
 
 		approvals, hashes := createTestApprovalsWithPresentation(
@@ -750,7 +761,7 @@ func TestSingleAttemptFinalization(t *testing.T) {
 func TestRevocationDuringPauseWithLedger(t *testing.T) {
 	t.Run("revocation updates ledger to revoked status", func(t *testing.T) {
 		executor, presentationStore, revocationChecker, ledger, idGen, _ := setupTestExecutor()
-		envelope, bundle := createTestEnvelope(idGen, 100, "GBP")
+		envelope, bundle := createTestEnvelope(executor, idGen, 100, "GBP")
 		traceID := idGen()
 
 		approvals, hashes := createTestApprovalsWithPresentation(
@@ -817,7 +828,7 @@ func TestRevocationDuringPauseWithLedger(t *testing.T) {
 func TestProviderReceivesIdempotencyKey(t *testing.T) {
 	t.Run("idempotency key is attached to provider call", func(t *testing.T) {
 		executor, presentationStore, _, _, idGen, _ := setupTestExecutor()
-		envelope, bundle := createTestEnvelope(idGen, 100, "GBP")
+		envelope, bundle := createTestEnvelope(executor, idGen, 100, "GBP")
 		traceID := idGen()
 
 		approvals, hashes := createTestApprovalsWithPresentation(
@@ -870,7 +881,7 @@ func TestCapEnforcementWithIdempotency(t *testing.T) {
 	t.Run("cap exceeded is blocked and recorded in ledger", func(t *testing.T) {
 		executor, presentationStore, _, ledger, idGen, _ := setupTestExecutor()
 		// Create envelope with amount > cap (using higher envelope cap to allow creation)
-		envelope, bundle := createTestEnvelopeWithCap(idGen, 150, "GBP", 200)
+		envelope, bundle := createTestEnvelopeWithCap(executor, idGen, 150, "GBP", 200)
 		traceID := idGen()
 
 		approvals, hashes := createTestApprovalsWithPresentation(
@@ -922,7 +933,8 @@ func TestCapEnforcementWithIdempotency(t *testing.T) {
 }
 
 // createTestEnvelopeWithCap creates a test envelope with custom cap.
-func createTestEnvelopeWithCap(idGen func() string, amountCents int64, currency string, cap int64) (*execution.ExecutionEnvelope, *execution.ApprovalBundle) {
+// v9.12.1: Now takes executor to compute PolicySnapshotHash.
+func createTestEnvelopeWithCap(executor *execution.V96Executor, idGen func() string, amountCents int64, currency string, cap int64) (*execution.ExecutionEnvelope, *execution.ApprovalBundle) {
 	now := time.Now()
 	builder := execution.NewEnvelopeBuilder(idGen)
 
@@ -951,6 +963,10 @@ func createTestEnvelopeWithCap(idGen func() string, amountCents int64, currency 
 		TraceID:                  idGen(),
 	}, now)
 	envelope.SealHash = execution.ComputeSealHash(envelope)
+
+	// v9.12.1: Compute and bind policy snapshot hash
+	_, hash := executor.ComputePolicySnapshotForEnvelope()
+	envelope.PolicySnapshotHash = string(hash)
 
 	bundle, _ := execution.BuildApprovalBundle(
 		envelope,

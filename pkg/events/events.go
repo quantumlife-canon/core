@@ -500,6 +500,37 @@ const (
 	// Every rate-limit check emits either "checked" (passed) or "blocked" event.
 	EventV911RateLimitChecked EventType = "v9.ratelimit.checked"
 	EventV911RateLimitBlocked EventType = "v9.ratelimit.blocked"
+
+	// v9.12 Policy Snapshot Hash Binding events
+	// CRITICAL: These events audit policy snapshot computation, binding, and verification.
+	// Policy drift between approval and execution is prevented by hash verification.
+
+	// EventV912PolicySnapshotComputed is emitted when a policy snapshot hash is computed.
+	EventV912PolicySnapshotComputed EventType = "v9.policy.snapshot.computed"
+
+	// EventV912PolicySnapshotBound is emitted when policy snapshot is bound to envelope/bundle.
+	EventV912PolicySnapshotBound EventType = "v9.policy.snapshot.bound"
+
+	// EventV912PolicySnapshotVerified is emitted when execution-time verification passes.
+	EventV912PolicySnapshotVerified EventType = "v9.policy.snapshot.verified"
+
+	// EventV912PolicySnapshotMismatch is emitted when execution-time verification fails.
+	// CRITICAL: This indicates policy drift - execution MUST be blocked.
+	EventV912PolicySnapshotMismatch EventType = "v9.policy.snapshot.mismatch"
+
+	// EventV912ExecutionBlockedPolicyDrift is emitted when execution is blocked due to policy drift.
+	EventV912ExecutionBlockedPolicyDrift EventType = "v9.execution.blocked.policy_drift"
+
+	// v9.12.1 Policy Snapshot Hash Hardening events
+	// CRITICAL: These events enforce that PolicySnapshotHash is REQUIRED, not optional.
+	// Empty hash is a hard block to prevent legacy envelopes from executing.
+
+	// EventV912PolicySnapshotMissing is emitted when envelope lacks PolicySnapshotHash.
+	// CRITICAL: Execution MUST be blocked when this event is emitted.
+	EventV912PolicySnapshotMissing EventType = "v9.policy.snapshot.missing"
+
+	// EventV912ExecutionBlockedMissingHash is emitted when execution is blocked due to missing hash.
+	EventV912ExecutionBlockedMissingHash EventType = "v9.execution.blocked.missing_hash"
 )
 
 // Event represents a system event for audit and observability.

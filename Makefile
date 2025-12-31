@@ -36,6 +36,7 @@ help:
 	@echo "  make check-single-trace-final - Check for single trace finalization (v9.8)"
 	@echo "  make check-write-provider-reg - Check write provider registry (v9.9)"
 	@echo "  make check-free-text-recipient- Check free-text recipient elimination (v9.10)"
+	@echo "  make check-policy-snapshot    - Check policy snapshot enforcement (v9.12.1)"
 	@echo ""
 
 # Build
@@ -109,8 +110,12 @@ check-free-text-recipient:
 	@echo "Checking free-text recipient elimination (v9.10)..."
 	@./scripts/guardrails/forbidden_free_text_recipient.sh --check
 
+check-policy-snapshot:
+	@echo "Checking policy snapshot enforcement (v9.12.1)..."
+	@./scripts/guardrails/policy_snapshot_enforced.sh --check
+
 # All guardrails
-guardrails: check-terms check-imports check-deps check-time-now check-background-async check-no-auto-retry check-single-trace-final check-write-provider-reg check-free-text-recipient
+guardrails: check-terms check-imports check-deps check-time-now check-background-async check-no-auto-retry check-single-trace-final check-write-provider-reg check-free-text-recipient check-policy-snapshot
 	@echo ""
 	@echo "All guardrails passed."
 
@@ -134,6 +139,7 @@ ci: fmt-check vet build test guardrails
 	@echo "  ✓ Single trace finalization (v9.8)"
 	@echo "  ✓ Write provider registry (v9.9)"
 	@echo "  ✓ Free-text recipient elimination (v9.10)"
+	@echo "  ✓ Policy snapshot enforcement (v9.12.1)"
 
 # Clean
 clean:

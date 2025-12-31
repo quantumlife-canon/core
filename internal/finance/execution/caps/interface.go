@@ -119,6 +119,10 @@ type Gate interface {
 	// OnAttemptFinalized is called exactly once when the attempt reaches
 	// a terminal state. Increments spend counters if money moved.
 	OnAttemptFinalized(ctx context.Context, c Context, finalized Finalized) error
+
+	// GetPolicy returns the current caps policy.
+	// v9.12: Used for policy snapshot computation.
+	GetPolicy() Policy
 }
 
 // Result contains the outcome of a caps check.

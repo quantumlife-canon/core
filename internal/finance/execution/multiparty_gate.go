@@ -9,6 +9,7 @@
 // 3) Neutrality - no coercive language in approval requests
 // 4) Expiry - approvals are verified at execution time
 // 5) Single-use - approvals cannot be reused
+// 6) v9.12: PolicySnapshotHash consistency between bundle and envelope
 //
 // Subordinate to:
 // - docs/QUANTUMLIFE_CANON_V1.md
@@ -248,6 +249,45 @@ func (g *MultiPartyGate) Verify(ctx context.Context, req MultiPartyGateRequest) 
 			"symmetric":   "true",
 		},
 	})
+
+	// Step 1.5 (v9.12): Verify PolicySnapshotHash consistency between bundle and envelope
+	// CRITICAL: The bundle's PolicySnapshotHash must match the envelope's PolicySnapshotHash.
+	// This ensures approvers approved the SAME policy configuration bound to the envelope.
+	if req.Bundle.PolicySnapshotHash != "" && req.Envelope.PolicySnapshotHash != "" {
+		if req.Bundle.PolicySnapshotHash != req.Envelope.PolicySnapshotHash {
+			result.Passed = false
+			result.BlockedReason = "policy snapshot mismatch: bundle and envelope have different policy bindings"
+			g.emitEvent(result, events.Event{
+				ID:             g.idGenerator(),
+				Type:           events.EventV912PolicySnapshotMismatch,
+				Timestamp:      now,
+				CircleID:       req.Envelope.ActorCircleID,
+				IntersectionID: req.Envelope.IntersectionID,
+				SubjectID:      req.Envelope.EnvelopeID,
+				SubjectType:    "envelope",
+				Metadata: map[string]string{
+					"bundle_policy_hash":   req.Bundle.PolicySnapshotHash,
+					"envelope_policy_hash": req.Envelope.PolicySnapshotHash,
+					"reason":               "bundle/envelope policy snapshot mismatch",
+				},
+			})
+			return result, nil
+		}
+
+		g.emitEvent(result, events.Event{
+			ID:             g.idGenerator(),
+			Type:           events.EventV912PolicySnapshotVerified,
+			Timestamp:      now,
+			CircleID:       req.Envelope.ActorCircleID,
+			IntersectionID: req.Envelope.IntersectionID,
+			SubjectID:      req.Envelope.EnvelopeID,
+			SubjectType:    "envelope",
+			Metadata: map[string]string{
+				"policy_snapshot_hash": req.Bundle.PolicySnapshotHash,
+				"verification_type":    "bundle_envelope_match",
+			},
+		})
+	}
 
 	// Step 2: Verify each approval
 	validApprovals := make([]MultiPartyApprovalArtifact, 0)

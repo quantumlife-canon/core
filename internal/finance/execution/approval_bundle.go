@@ -88,6 +88,10 @@ type ApprovalBundle struct {
 	// CreatedAt is when this bundle was created.
 	CreatedAt time.Time `json:"created_at"`
 
+	// PolicySnapshotHash is the v9.12 policy snapshot hash.
+	// CRITICAL: All approvers must approve the same policy configuration.
+	PolicySnapshotHash string `json:"policy_snapshot_hash"`
+
 	// ContentHash is computed from all fields for symmetry verification.
 	// This is NOT included in the hash computation itself.
 	ContentHash string `json:"-"`
@@ -134,6 +138,7 @@ func (b *ApprovalBundle) canonicalJSON() string {
 			escapeJSON(b.NeutralityAttestation.Reason),
 			b.NeutralityAttestation.Verified),
 		fmt.Sprintf(`"payee_id":"%s"`, b.PayeeID),
+		fmt.Sprintf(`"policy_snapshot_hash":"%s"`, b.PolicySnapshotHash), // v9.12
 		fmt.Sprintf(`"revocation_waived":%t`, b.RevocationWaived),
 		fmt.Sprintf(`"revocation_window_end":"%s"`, b.RevocationWindowEnd.UTC().Format(time.RFC3339Nano)),
 		fmt.Sprintf(`"revocation_window_start":"%s"`, b.RevocationWindowStart.UTC().Format(time.RFC3339Nano)),
