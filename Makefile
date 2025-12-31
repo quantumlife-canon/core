@@ -30,6 +30,7 @@ help:
 	@echo "  make check-terms    - Check for forbidden terms"
 	@echo "  make check-imports  - Check for forbidden imports"
 	@echo "  make check-deps     - Check dependency policy"
+	@echo "  make check-time-now - Check for forbidden time.Now() (v9.6.2)"
 	@echo ""
 
 # Build
@@ -79,8 +80,12 @@ check-deps:
 	@echo "Checking dependency policy..."
 	@./scripts/guardrails/dependency_policy.sh
 
+check-time-now:
+	@echo "Checking for forbidden time.Now() usage (v9.6.2)..."
+	@./scripts/guardrails/forbidden_time_now.sh --check
+
 # All guardrails
-guardrails: check-terms check-imports check-deps
+guardrails: check-terms check-imports check-deps check-time-now
 	@echo ""
 	@echo "All guardrails passed."
 
@@ -98,6 +103,7 @@ ci: fmt-check vet build test guardrails
 	@echo "  ✓ No forbidden terms"
 	@echo "  ✓ No forbidden imports"
 	@echo "  ✓ Dependency policy"
+	@echo "  ✓ No forbidden time.Now() (v9.6.2)"
 
 # Clean
 clean:

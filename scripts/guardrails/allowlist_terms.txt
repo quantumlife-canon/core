@@ -60,3 +60,5 @@ internal/connectors/finance/write/*.go
 internal/connectors/finance/write/providers/truelayer/*.go
 # Mock connector uses "user-initiated abort" which is acceptable audit language
 internal/demo_v9_execute/mock_connector.go
+# v9.6 demo uses "test-user" as a test fixture identifier in revocation test
+internal/demo_v96_idempotency/demo_test.go
