@@ -676,8 +676,66 @@ quantumlife/
 
 ---
 
-## 7. Document History
+## 7. Architecture Anchor
+
+This section provides navigation to detailed architectural documentation.
+
+### Visual Diagrams
+
+See [docs/diagrams/](diagrams/) for Mermaid-based architectural diagrams:
+
+| Diagram | Description |
+|---------|-------------|
+| [ARCH_BLOCK_L0.md](diagrams/ARCH_BLOCK_L0.md) | Level 0 system block diagram with guardrail boundaries |
+| [CLOSED_LOOP_LIFECYCLE.md](diagrams/CLOSED_LOOP_LIFECYCLE.md) | Complete lifecycle: Sense→Normalize→...→Learn |
+| [TRUST_BOUNDARIES.md](diagrams/TRUST_BOUNDARIES.md) | Security trust zones and data flow |
+| [CONTROL_DATA_PLANE.md](diagrams/CONTROL_DATA_PLANE.md) | Control plane vs Data plane separation |
+
+### Security & Cryptography
+
+| Document | Description |
+|----------|-------------|
+| [POST_QUANTUM_CRYPTO_V1.md](POST_QUANTUM_CRYPTO_V1.md) | Post-quantum cryptography strategy and migration roadmap |
+| [ADR-0017](ADR/ADR-0017-crypto-agility-and-pqc-roadmap.md) | Crypto agility and PQC decision record |
+| [pkg/crypto/agility.go](../pkg/crypto/agility.go) | Algorithm-agile crypto implementation (Ed25519, stdlib only) |
+
+### Intelligence Layer
+
+| Document | Description |
+|----------|-------------|
+| [INTELLIGENCE_LAYER_V1.md](INTELLIGENCE_LAYER_V1.md) | RAG, Vector DB, and MCP integration design |
+| [ADR-0018](ADR/ADR-0018-intelligence-layer-rag-vector-mcp.md) | Intelligence layer decision record |
+| [pkg/domain/memory/](../pkg/domain/memory/) | Memory retrieval interfaces (no implementation yet) |
+
+### Canon Guardrails (v9+)
+
+The Execute phase is governed by Canon v9+ guardrails:
+
+| Guardrail | Version | Document |
+|-----------|---------|----------|
+| Idempotency + Replay Defense | v9.6 | [internal/finance/execution/](../internal/finance/execution/) |
+| No Background Execution | v9.7 | [scripts/guardrails/forbidden_background_async.sh](../scripts/guardrails/forbidden_background_async.sh) |
+| No Auto-Retry | v9.8 | [scripts/guardrails/forbidden_auto_retry.sh](../scripts/guardrails/forbidden_auto_retry.sh) |
+| Provider Registry Lock | v9.9 | [internal/finance/execution/](../internal/finance/execution/) |
+| Payee Registry Lock | v9.10 | [internal/finance/execution/](../internal/finance/execution/) |
+| Caps & Rate Limits | v9.11 | [internal/finance/execution/](../internal/finance/execution/) |
+| Policy Snapshot Binding | v9.12 | Part of executor implementation |
+| View Freshness Binding | v9.13 | Part of executor implementation |
+
+### Key Interfaces
+
+| Interface | Location | Purpose |
+|-----------|----------|---------|
+| `Signer` / `Verifier` | [pkg/crypto/interface.go](../pkg/crypto/interface.go) | Cryptographic signing |
+| `SignatureRecord` | [pkg/crypto/agility.go](../pkg/crypto/agility.go) | Algorithm-agile signatures |
+| `Retriever` | [pkg/domain/memory/interfaces.go](../pkg/domain/memory/interfaces.go) | Memory retrieval for RAG |
+| `EmbeddingProvider` | [pkg/domain/memory/interfaces.go](../pkg/domain/memory/interfaces.go) | Vector embeddings |
+
+---
+
+## 8. Document History
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0 | 2025-01-01 | Core Team | Initial version |
+| 1.1 | 2025-01-15 | Core Team | Added Architecture Anchor section |
