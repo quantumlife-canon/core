@@ -494,6 +494,12 @@ const (
 	// Caps enforcement blocking events
 	EventV911ExecutionBlockedDailyCap     EventType = "v9.execution.blocked.daily_cap"
 	EventV911ExecutionBlockedAttemptLimit EventType = "v9.execution.blocked.attempt_limit"
+
+	// v9.11.1 Rate-limit specific events
+	// CRITICAL: These events provide granular audit trail for rate-limit checks.
+	// Every rate-limit check emits either "checked" (passed) or "blocked" event.
+	EventV911RateLimitChecked EventType = "v9.ratelimit.checked"
+	EventV911RateLimitBlocked EventType = "v9.ratelimit.blocked"
 )
 
 // Event represents a system event for audit and observability.

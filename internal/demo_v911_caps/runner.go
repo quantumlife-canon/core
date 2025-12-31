@@ -83,6 +83,7 @@ func (r *Runner) runAttemptLimitScenario() (Result, error) {
 	result := Result{
 		Scenario:    "S1: Attempt Limit Blocking",
 		Description: "After 3 attempts, 4th is blocked by rate limit",
+		Events:      make([]events.Event, 0),
 	}
 
 	policy := caps.Policy{
@@ -91,7 +92,7 @@ func (r *Runner) runAttemptLimitScenario() (Result, error) {
 	}
 
 	connector := newMockConnector(false)
-	executor, _, capturedEvents := createExecutor(policy, connector, r.clock)
+	executor, _, _ := createExecutor(policy, connector, r.clock)
 	ctx := context.Background()
 	now := r.clock.Now()
 
@@ -113,6 +114,9 @@ func (r *Runner) runAttemptLimitScenario() (Result, error) {
 		if err != nil {
 			return result, err
 		}
+
+		// Collect audit events from execution result
+		result.Events = append(result.Events, execResult.AuditEvents...)
 
 		if !execResult.Success {
 			result.Details = append(result.Details, fmt.Sprintf("Attempt %d: UNEXPECTED BLOCK - %s", i, execResult.BlockedReason))
@@ -139,6 +143,9 @@ func (r *Runner) runAttemptLimitScenario() (Result, error) {
 		return result, err
 	}
 
+	// Collect audit events from execution result
+	result.Events = append(result.Events, execResult.AuditEvents...)
+
 	if execResult.Success {
 		result.Details = append(result.Details, "Attempt 4: UNEXPECTED SUCCESS (should be blocked)")
 		result.Success = false
@@ -147,7 +154,6 @@ func (r *Runner) runAttemptLimitScenario() (Result, error) {
 		result.Success = true
 	}
 
-	result.Events = capturedEvents
 	return result, nil
 }
 
@@ -156,6 +162,7 @@ func (r *Runner) runCircleCapScenario() (Result, error) {
 	result := Result{
 		Scenario:    "S2: Circle Daily Cap Blocking",
 		Description: "Cap of 100 cents; 50+60=110 exceeds cap",
+		Events:      make([]events.Event, 0),
 	}
 
 	policy := caps.Policy{
@@ -167,7 +174,7 @@ func (r *Runner) runCircleCapScenario() (Result, error) {
 
 	// Use connector that reports money moved (to test spend caps)
 	connector := newMockConnector(true)
-	executor, _, capturedEvents := createExecutor(policy, connector, r.clock)
+	executor, _, _ := createExecutor(policy, connector, r.clock)
 	ctx := context.Background()
 	now := r.clock.Now()
 
@@ -188,6 +195,9 @@ func (r *Runner) runCircleCapScenario() (Result, error) {
 	if err != nil {
 		return result, err
 	}
+
+	// Collect audit events from execution result
+	result.Events = append(result.Events, execResult1.AuditEvents...)
 
 	if execResult1.Success {
 		result.Details = append(result.Details, "Payment 1 (50 cents): OK")
@@ -213,6 +223,9 @@ func (r *Runner) runCircleCapScenario() (Result, error) {
 		return result, err
 	}
 
+	// Collect audit events from execution result
+	result.Events = append(result.Events, execResult2.AuditEvents...)
+
 	if execResult2.Success {
 		result.Details = append(result.Details, "Payment 2 (60 cents): UNEXPECTED SUCCESS (should exceed cap)")
 		result.Success = false
@@ -221,7 +234,6 @@ func (r *Runner) runCircleCapScenario() (Result, error) {
 		result.Success = true
 	}
 
-	result.Events = capturedEvents
 	return result, nil
 }
 
@@ -230,6 +242,7 @@ func (r *Runner) runSimulatedNoSpendScenario() (Result, error) {
 	result := Result{
 		Scenario:    "S3: Simulated Payments Don't Count Spend",
 		Description: "Three 50-cent simulated payments all succeed (cap=100) because no money moves",
+		Events:      make([]events.Event, 0),
 	}
 
 	policy := caps.Policy{
@@ -241,7 +254,7 @@ func (r *Runner) runSimulatedNoSpendScenario() (Result, error) {
 
 	// Use connector that returns simulated (no money moves)
 	connector := newMockConnector(false)
-	executor, capsGate, capturedEvents := createExecutor(policy, connector, r.clock)
+	executor, capsGate, _ := createExecutor(policy, connector, r.clock)
 	ctx := context.Background()
 	now := r.clock.Now()
 
@@ -266,6 +279,9 @@ func (r *Runner) runSimulatedNoSpendScenario() (Result, error) {
 			return result, err
 		}
 
+		// Collect audit events from execution result
+		result.Events = append(result.Events, execResult.AuditEvents...)
+
 		if execResult.Success {
 			result.Details = append(result.Details, fmt.Sprintf("Simulated payment %d (50 cents): OK", i))
 		} else {
@@ -283,7 +299,6 @@ func (r *Runner) runSimulatedNoSpendScenario() (Result, error) {
 	result.Details = append(result.Details, fmt.Sprintf("Attempt counter: %d (expected: 3)", counters.Attempts))
 
 	result.Success = allSucceeded && counters.MoneyMovedCents == 0 && counters.Attempts == 3
-	result.Events = capturedEvents
 	return result, nil
 }
 
@@ -292,6 +307,7 @@ func (r *Runner) runIntersectionLimitScenario() (Result, error) {
 	result := Result{
 		Scenario:    "S4: Intersection Attempt Limit",
 		Description: "Intersection limit of 2; 3rd blocked, different intersection succeeds",
+		Events:      make([]events.Event, 0),
 	}
 
 	policy := caps.Policy{
@@ -300,7 +316,7 @@ func (r *Runner) runIntersectionLimitScenario() (Result, error) {
 	}
 
 	connector := newMockConnector(false)
-	executor, _, capturedEvents := createExecutor(policy, connector, r.clock)
+	executor, _, _ := createExecutor(policy, connector, r.clock)
 	ctx := context.Background()
 	now := r.clock.Now()
 
@@ -322,6 +338,9 @@ func (r *Runner) runIntersectionLimitScenario() (Result, error) {
 		if err != nil {
 			return result, err
 		}
+
+		// Collect audit events from execution result
+		result.Events = append(result.Events, execResult.AuditEvents...)
 
 		if execResult.Success {
 			result.Details = append(result.Details, fmt.Sprintf("Intersection-1 attempt %d: OK", i))
@@ -347,6 +366,9 @@ func (r *Runner) runIntersectionLimitScenario() (Result, error) {
 	if err != nil {
 		return result, err
 	}
+
+	// Collect audit events from execution result
+	result.Events = append(result.Events, execResult3.AuditEvents...)
 
 	if execResult3.Success {
 		result.Details = append(result.Details, "Intersection-1 attempt 3: UNEXPECTED SUCCESS")
@@ -374,6 +396,9 @@ func (r *Runner) runIntersectionLimitScenario() (Result, error) {
 		return result, err
 	}
 
+	// Collect audit events from execution result
+	result.Events = append(result.Events, execResult4.AuditEvents...)
+
 	if execResult4.Success {
 		result.Details = append(result.Details, "Intersection-2 attempt 1: OK (own limit)")
 	} else {
@@ -381,7 +406,6 @@ func (r *Runner) runIntersectionLimitScenario() (Result, error) {
 		result.Success = false
 	}
 
-	result.Events = capturedEvents
 	return result, nil
 }
 
@@ -412,7 +436,9 @@ func PrintResult(result Result) {
 			events.EventV911CapsChecked,
 			events.EventV911CapsBlocked,
 			events.EventV911CapsAttemptCounted,
-			events.EventV911CapsSpendCounted:
+			events.EventV911CapsSpendCounted,
+			events.EventV911RateLimitChecked,
+			events.EventV911RateLimitBlocked:
 			v911Events++
 		}
 	}

@@ -735,6 +735,9 @@ func (e *V96Executor) Execute(ctx context.Context, req V96ExecuteRequest) (*V96E
 				SettlementBlocked, now, "caps_check", err.Error())
 		}
 
+		// v9.11.1: Emit per-scope audit events for caps and rate-limit checks
+		e.emitCapsAuditEvents(result, req, capsResult, attemptID, now)
+
 		if !capsResult.Allowed {
 			// Build neutral reason from caps result
 			reason := "daily limits reached"
@@ -742,47 +745,9 @@ func (e *V96Executor) Execute(ctx context.Context, req V96ExecuteRequest) (*V96E
 				reason = capsResult.Reasons[0]
 			}
 
-			// Emit caps blocked event
-			e.emitEvent(result, events.Event{
-				ID:             e.idGenerator(),
-				Type:           events.EventV911CapsBlocked,
-				Timestamp:      now,
-				CircleID:       req.Envelope.ActorCircleID,
-				IntersectionID: req.Envelope.IntersectionID,
-				SubjectID:      req.Envelope.EnvelopeID,
-				SubjectType:    "envelope",
-				TraceID:        req.TraceID,
-				Metadata: map[string]string{
-					"attempt_id":         attemptID,
-					"reason":             reason,
-					"remaining_cents":    fmt.Sprintf("%d", capsResult.RemainingCents),
-					"remaining_attempts": fmt.Sprintf("%d", capsResult.RemainingAttempts),
-					"requested_cents":    fmt.Sprintf("%d", req.Envelope.ActionSpec.AmountCents),
-					"currency":           req.Envelope.ActionSpec.Currency,
-				},
-			})
-
 			return e.finalizeBlocked(result, req, attemptID, reason,
 				SettlementBlocked, now, "caps_check", reason)
 		}
-
-		// Emit caps checked (passed) event
-		e.emitEvent(result, events.Event{
-			ID:             e.idGenerator(),
-			Type:           events.EventV911CapsChecked,
-			Timestamp:      now,
-			CircleID:       req.Envelope.ActorCircleID,
-			IntersectionID: req.Envelope.IntersectionID,
-			SubjectID:      req.Envelope.EnvelopeID,
-			SubjectType:    "envelope",
-			TraceID:        req.TraceID,
-			Metadata: map[string]string{
-				"attempt_id":         attemptID,
-				"allowed":            "true",
-				"remaining_cents":    fmt.Sprintf("%d", capsResult.RemainingCents),
-				"remaining_attempts": fmt.Sprintf("%d", capsResult.RemainingAttempts),
-			},
-		})
 
 		// Record attempt started (increments attempt counters)
 		if err := e.capsGate.OnAttemptStarted(ctx, capsCtx); err != nil {
@@ -1350,4 +1315,67 @@ func (e *V96Executor) emitAttemptFinalized(result *V96ExecuteResult, envelope *E
 			"money_moved": fmt.Sprintf("%t", result.MoneyMoved),
 		},
 	})
+}
+
+// emitCapsAuditEvents emits per-scope audit events for caps and rate-limit checks.
+// v9.11.1: Every scope check produces an audit event with full metadata.
+func (e *V96Executor) emitCapsAuditEvents(result *V96ExecuteResult, req V96ExecuteRequest, capsResult *caps.Result, attemptID string, now time.Time) {
+	for _, check := range capsResult.ScopeChecks {
+		var eventType events.EventType
+		var decision string
+
+		if check.CheckType == caps.CheckTypeCap {
+			// Spend cap check
+			if check.Allowed {
+				eventType = events.EventV911CapsChecked
+				decision = "allowed"
+			} else {
+				eventType = events.EventV911CapsBlocked
+				decision = "blocked"
+			}
+		} else {
+			// Rate limit check
+			if check.Allowed {
+				eventType = events.EventV911RateLimitChecked
+				decision = "allowed"
+			} else {
+				eventType = events.EventV911RateLimitBlocked
+				decision = "blocked"
+			}
+		}
+
+		metadata := map[string]string{
+			"envelope_id":     req.Envelope.EnvelopeID,
+			"attempt_id":      attemptID,
+			"day_key":         capsResult.DayKey,
+			"scope_type":      string(check.ScopeType),
+			"scope_id":        check.ScopeID,
+			"current_value":   fmt.Sprintf("%d", check.CurrentValue),
+			"limit_value":     fmt.Sprintf("%d", check.LimitValue),
+			"requested_value": fmt.Sprintf("%d", check.RequestedValue),
+			"decision":        decision,
+		}
+
+		// Add currency for cap checks
+		if check.Currency != "" {
+			metadata["currency"] = check.Currency
+		}
+
+		// Add reason for blocked checks
+		if check.Reason != "" {
+			metadata["reason"] = check.Reason
+		}
+
+		e.emitEvent(result, events.Event{
+			ID:             e.idGenerator(),
+			Type:           eventType,
+			Timestamp:      now,
+			CircleID:       req.Envelope.ActorCircleID,
+			IntersectionID: req.Envelope.IntersectionID,
+			SubjectID:      req.Envelope.EnvelopeID,
+			SubjectType:    "envelope",
+			TraceID:        req.TraceID,
+			Metadata:       metadata,
+		})
+	}
 }

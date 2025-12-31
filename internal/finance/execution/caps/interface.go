@@ -137,7 +137,52 @@ type Result struct {
 	// RemainingAttempts is the remaining attempts for the primary scope.
 	// Optional; may be 0 if not applicable.
 	RemainingAttempts int
+
+	// ScopeChecks contains detailed results for each scope checked.
+	// v9.11.1: Used by executor for granular audit events.
+	ScopeChecks []ScopeCheckResult
+
+	// DayKey is the UTC day key used for caps evaluation.
+	// v9.11.1: Included in audit events for reproducibility.
+	DayKey string
 }
+
+// ScopeCheckResult contains the result of a single scope check.
+// Used for detailed per-scope audit events.
+type ScopeCheckResult struct {
+	// ScopeType is the type of scope checked.
+	ScopeType ScopeType
+
+	// ScopeID is the identifier of the scope.
+	ScopeID string
+
+	// CheckType is "cap" for spend caps or "ratelimit" for attempt limits.
+	CheckType string
+
+	// Currency is the currency for cap checks (empty for rate limits).
+	Currency string
+
+	// CurrentValue is the current spend cents or current attempts.
+	CurrentValue int64
+
+	// LimitValue is the cap cents or max attempts.
+	LimitValue int64
+
+	// RequestedValue is the amount requested (for caps) or 1 (for attempts).
+	RequestedValue int64
+
+	// Allowed is true if this specific check passed.
+	Allowed bool
+
+	// Reason is a neutral explanation for blocking (empty if allowed).
+	Reason string
+}
+
+// CheckType constants for ScopeCheckResult.
+const (
+	CheckTypeCap       = "cap"
+	CheckTypeRateLimit = "ratelimit"
+)
 
 // Finalized describes the terminal state of an execution attempt.
 type Finalized struct {

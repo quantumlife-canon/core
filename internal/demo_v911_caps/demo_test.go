@@ -219,16 +219,16 @@ func TestAttemptLimitBlocks(t *testing.T) {
 			t.Errorf("expected blocked status, got %s", result.Status)
 		}
 
-		// Verify caps blocked event was emitted
-		capsBlocked := false
+		// Verify rate limit blocked event was emitted (v9.11.1: rate limits emit separate events)
+		rateLimitBlocked := false
 		for _, e := range result.AuditEvents {
-			if e.Type == events.EventV911CapsBlocked {
-				capsBlocked = true
+			if e.Type == events.EventV911RateLimitBlocked {
+				rateLimitBlocked = true
 				break
 			}
 		}
-		if !capsBlocked {
-			t.Error("expected caps blocked event")
+		if !rateLimitBlocked {
+			t.Error("expected rate limit blocked event")
 		}
 	})
 }
@@ -644,6 +644,270 @@ func TestPayeeDailyCapBlocks(t *testing.T) {
 			t.Errorf("payment to different payee should succeed: %s", result.BlockedReason)
 		}
 	})
+}
+
+// Test: v9.11.1 Rate limit audit events are emitted
+func TestV911RateLimitAuditEvents(t *testing.T) {
+	policy := caps.Policy{
+		Enabled:                 true,
+		MaxAttemptsPerDayCircle: 2,
+	}
+
+	connector := NewMockWriteConnector()
+	executor, _, _ := createTestExecutor(policy, connector)
+	ctx := context.Background()
+	now := testClock().Now()
+
+	// First attempt - should emit rate limit checked (passed)
+	t.Run("rate limit checked event on pass", func(t *testing.T) {
+		envelope := createTestEnvelope("env-1", "circle-rl", "", 10, "GBP")
+
+		result, err := executor.Execute(ctx, execution.V96ExecuteRequest{
+			Envelope:        envelope,
+			PayeeID:         "sandbox-utility",
+			ExplicitApprove: true,
+			TraceID:         "trace-1",
+			AttemptID:       "attempt-1",
+			Now:             now,
+			Clock:           testClock(),
+			Policy:          &execution.MultiPartyPolicy{Mode: "single"},
+		})
+
+		if err != nil {
+			t.Fatalf("execution failed: %v", err)
+		}
+
+		if !result.Success {
+			t.Errorf("first attempt should succeed: %s", result.BlockedReason)
+		}
+
+		// Check for rate limit checked event
+		foundRateLimitChecked := false
+		for _, e := range result.AuditEvents {
+			if e.Type == events.EventV911RateLimitChecked {
+				foundRateLimitChecked = true
+				// Verify metadata
+				if e.Metadata["scope_type"] != "circle" {
+					t.Errorf("expected scope_type=circle, got %s", e.Metadata["scope_type"])
+				}
+				if e.Metadata["decision"] != "allowed" {
+					t.Errorf("expected decision=allowed, got %s", e.Metadata["decision"])
+				}
+				if e.Metadata["day_key"] == "" {
+					t.Error("expected day_key to be set")
+				}
+				if e.Metadata["limit_value"] != "2" {
+					t.Errorf("expected limit_value=2, got %s", e.Metadata["limit_value"])
+				}
+				break
+			}
+		}
+		if !foundRateLimitChecked {
+			t.Error("missing v9.ratelimit.checked event")
+		}
+	})
+
+	// Execute second attempt to use up the limit
+	envelope2 := createTestEnvelope("env-2", "circle-rl", "", 10, "GBP")
+	_, _ = executor.Execute(ctx, execution.V96ExecuteRequest{
+		Envelope:        envelope2,
+		PayeeID:         "sandbox-utility",
+		ExplicitApprove: true,
+		TraceID:         "trace-2",
+		AttemptID:       "attempt-2",
+		Now:             now,
+		Clock:           testClock(),
+		Policy:          &execution.MultiPartyPolicy{Mode: "single"},
+	})
+
+	// Third attempt - should emit rate limit blocked
+	t.Run("rate limit blocked event on block", func(t *testing.T) {
+		envelope := createTestEnvelope("env-3", "circle-rl", "", 10, "GBP")
+
+		result, err := executor.Execute(ctx, execution.V96ExecuteRequest{
+			Envelope:        envelope,
+			PayeeID:         "sandbox-utility",
+			ExplicitApprove: true,
+			TraceID:         "trace-3",
+			AttemptID:       "attempt-3",
+			Now:             now,
+			Clock:           testClock(),
+			Policy:          &execution.MultiPartyPolicy{Mode: "single"},
+		})
+
+		if err != nil {
+			t.Fatalf("execution failed: %v", err)
+		}
+
+		if result.Success {
+			t.Error("third attempt should be blocked")
+		}
+
+		// Check for rate limit blocked event
+		foundRateLimitBlocked := false
+		for _, e := range result.AuditEvents {
+			if e.Type == events.EventV911RateLimitBlocked {
+				foundRateLimitBlocked = true
+				// Verify metadata
+				if e.Metadata["scope_type"] != "circle" {
+					t.Errorf("expected scope_type=circle, got %s", e.Metadata["scope_type"])
+				}
+				if e.Metadata["decision"] != "blocked" {
+					t.Errorf("expected decision=blocked, got %s", e.Metadata["decision"])
+				}
+				if e.Metadata["reason"] == "" {
+					t.Error("expected reason to be set for blocked event")
+				}
+				if e.Metadata["current_value"] != "2" {
+					t.Errorf("expected current_value=2, got %s", e.Metadata["current_value"])
+				}
+				break
+			}
+		}
+		if !foundRateLimitBlocked {
+			t.Error("missing v9.ratelimit.blocked event")
+		}
+	})
+}
+
+// Test: v9.11.1 Caps audit events include required metadata
+func TestV911CapsEventMetadata(t *testing.T) {
+	policy := caps.Policy{
+		Enabled: true,
+		PerCircleDailyCapCents: map[string]int64{
+			"GBP": 100,
+		},
+	}
+
+	// Use connector that reports money moved
+	connector := NewMockWriteConnectorWithMoneyMoved()
+	executor, _, _ := createTestExecutor(policy, connector)
+	ctx := context.Background()
+	now := testClock().Now()
+
+	envelope := createTestEnvelope("env-meta-1", "circle-meta", "", 50, "GBP")
+
+	result, err := executor.Execute(ctx, execution.V96ExecuteRequest{
+		Envelope:        envelope,
+		PayeeID:         "sandbox-utility",
+		ExplicitApprove: true,
+		TraceID:         "trace-meta",
+		AttemptID:       "attempt-meta",
+		Now:             now,
+		Clock:           testClock(),
+		Policy:          &execution.MultiPartyPolicy{Mode: "single"},
+	})
+
+	if err != nil {
+		t.Fatalf("execution failed: %v", err)
+	}
+
+	// Find caps checked event and verify all required metadata
+	for _, e := range result.AuditEvents {
+		if e.Type == events.EventV911CapsChecked {
+			// Required fields per v9.11.1 spec
+			requiredFields := []string{
+				"envelope_id",
+				"attempt_id",
+				"day_key",
+				"scope_type",
+				"scope_id",
+				"current_value",
+				"limit_value",
+				"requested_value",
+				"decision",
+				"currency",
+			}
+
+			for _, field := range requiredFields {
+				if e.Metadata[field] == "" {
+					t.Errorf("missing required metadata field: %s", field)
+				}
+			}
+
+			// Verify specific values
+			if e.Metadata["envelope_id"] != "env-meta-1" {
+				t.Errorf("expected envelope_id=env-meta-1, got %s", e.Metadata["envelope_id"])
+			}
+			if e.Metadata["attempt_id"] != "attempt-meta" {
+				t.Errorf("expected attempt_id=attempt-meta, got %s", e.Metadata["attempt_id"])
+			}
+			if e.Metadata["currency"] != "GBP" {
+				t.Errorf("expected currency=GBP, got %s", e.Metadata["currency"])
+			}
+			if e.Metadata["limit_value"] != "100" {
+				t.Errorf("expected limit_value=100, got %s", e.Metadata["limit_value"])
+			}
+			if e.Metadata["requested_value"] != "50" {
+				t.Errorf("expected requested_value=50, got %s", e.Metadata["requested_value"])
+			}
+			break
+		}
+	}
+}
+
+// Test: No duplicate trace finalization with v9.11.1 events
+func TestNoExtraFinalizationWithV911Events(t *testing.T) {
+	policy := caps.Policy{
+		Enabled:                 true,
+		MaxAttemptsPerDayCircle: 5,
+		PerCircleDailyCapCents: map[string]int64{
+			"GBP": 1000,
+		},
+	}
+
+	connector := NewMockWriteConnector()
+	executor, _, _ := createTestExecutor(policy, connector)
+	ctx := context.Background()
+	now := testClock().Now()
+
+	envelope := createTestEnvelope("env-fin", "circle-fin", "", 50, "GBP")
+
+	result, err := executor.Execute(ctx, execution.V96ExecuteRequest{
+		Envelope:        envelope,
+		PayeeID:         "sandbox-utility",
+		ExplicitApprove: true,
+		TraceID:         "trace-fin",
+		AttemptID:       "attempt-fin",
+		Now:             now,
+		Clock:           testClock(),
+		Policy:          &execution.MultiPartyPolicy{Mode: "single"},
+	})
+
+	if err != nil {
+		t.Fatalf("execution failed: %v", err)
+	}
+
+	// Count trace finalization events
+	finalizedCount := 0
+	for _, e := range result.AuditEvents {
+		if e.Type == events.EventV96AttemptFinalized {
+			finalizedCount++
+		}
+	}
+
+	if finalizedCount != 1 {
+		t.Errorf("expected exactly 1 trace finalization, got %d", finalizedCount)
+	}
+
+	// Also count v9.11 events - should have multiple
+	v911Count := 0
+	for _, e := range result.AuditEvents {
+		switch e.Type {
+		case events.EventV911CapsPolicyApplied,
+			events.EventV911CapsChecked,
+			events.EventV911CapsBlocked,
+			events.EventV911CapsAttemptCounted,
+			events.EventV911CapsSpendCounted,
+			events.EventV911RateLimitChecked,
+			events.EventV911RateLimitBlocked:
+			v911Count++
+		}
+	}
+
+	if v911Count == 0 {
+		t.Error("expected at least one v9.11 audit event")
+	}
 }
 
 // Verify interface compliance
