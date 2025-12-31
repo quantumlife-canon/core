@@ -17,9 +17,11 @@ func NewScopeMapper() *ScopeMapper {
 }
 
 // QuantumLife to Google scope mapping (v6: includes write scopes).
+// Phase 1: Added email:read for Gmail API read-only access.
 var googleScopeMap = map[string]string{
 	"calendar:read":  "https://www.googleapis.com/auth/calendar.readonly",
 	"calendar:write": "https://www.googleapis.com/auth/calendar.events",
+	"email:read":     "https://www.googleapis.com/auth/gmail.readonly",
 }
 
 // QuantumLife to Microsoft scope mapping (v6: includes write scopes).
@@ -226,6 +228,7 @@ func (m *ScopeMapper) mapFromTrueLayer(providerScopes []string) []string {
 var reverseGoogleScopeMap = map[string]string{
 	"https://www.googleapis.com/auth/calendar.readonly": "calendar:read",
 	"https://www.googleapis.com/auth/calendar.events":   "calendar:write",
+	"https://www.googleapis.com/auth/gmail.readonly":    "email:read",
 }
 
 var reverseMicrosoftScopeMap = map[string]string{

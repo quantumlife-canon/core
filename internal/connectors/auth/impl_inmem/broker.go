@@ -681,6 +681,59 @@ func (b *Broker) StoreTokenDirectly(ctx context.Context, circleID string, provid
 	return b.store.Store(ctx, circleID, provider, refreshToken, scopes, time.Time{})
 }
 
+// MintReadOnlyAccessToken mints an access token for read-only operations.
+// This is a simpler path than MintAccessToken for ingestion pipelines.
+// CRITICAL: Only read scopes are allowed. Write scopes are rejected.
+//
+// Parameters:
+//   - circleID: The circle that owns the token
+//   - provider: The OAuth provider
+//   - requiredScopes: QuantumLife scopes needed (e.g., "calendar:read", "email:read")
+//
+// Returns an AccessToken with the actual provider token.
+func (b *Broker) MintReadOnlyAccessToken(ctx context.Context, circleID string, provider auth.ProviderID, requiredScopes []string) (auth.AccessToken, error) {
+	// Validate that only read scopes are requested
+	if err := b.scopeMapper.ValidateReadOnlyScopes(requiredScopes); err != nil {
+		return auth.AccessToken{}, err
+	}
+
+	// Get stored refresh token
+	refreshToken, storedToken, err := b.store.Get(ctx, circleID, provider)
+	if err != nil {
+		return auth.AccessToken{}, err
+	}
+
+	// Verify stored scopes cover the required scopes
+	storedSet := make(map[string]bool)
+	for _, s := range storedToken.Scopes {
+		storedSet[s] = true
+	}
+	for _, s := range requiredScopes {
+		if !storedSet[s] {
+			return auth.AccessToken{}, fmt.Errorf("%w: %s not in stored scopes", auth.ErrScopeNotGranted, s)
+		}
+	}
+
+	// Map scopes to provider format
+	providerScopes, err := b.scopeMapper.MapToProvider(provider, requiredScopes)
+	if err != nil {
+		return auth.AccessToken{}, err
+	}
+
+	// Refresh the access token
+	accessToken, expiresIn, err := b.refreshAccessToken(ctx, provider, refreshToken)
+	if err != nil {
+		return auth.AccessToken{}, err
+	}
+
+	return auth.AccessToken{
+		Token:          accessToken,
+		Expiry:         b.clockFunc().Add(time.Duration(expiresIn) * time.Second),
+		Provider:       provider,
+		ProviderScopes: providerScopes,
+	}, nil
+}
+
 // GetStore returns the token store (for testing).
 func (b *Broker) GetStore() *TokenStore {
 	return b.store

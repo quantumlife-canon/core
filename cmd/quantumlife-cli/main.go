@@ -141,6 +141,8 @@ func handleAuth(args []string) {
 	switch subCmd {
 	case "exchange":
 		handleAuthExchange(args[1:])
+	case "status":
+		handleAuthStatus(args[1:])
 	case "google", "microsoft", "truelayer", "plaid":
 		handleAuthStart(subCmd, args[1:])
 	case "help", "-h", "--help":
@@ -156,6 +158,7 @@ func printAuthUsage() {
 	fmt.Println("Usage:")
 	fmt.Println("  quantumlife-cli auth <provider> [options]")
 	fmt.Println("  quantumlife-cli auth exchange [options]")
+	fmt.Println("  quantumlife-cli auth status [options]")
 	fmt.Println()
 	fmt.Println("Start OAuth/Link flow:")
 	fmt.Println("  quantumlife-cli auth <google|microsoft|truelayer|plaid> --circle <circle-id> --redirect <uri>")
@@ -365,6 +368,129 @@ func handleAuthExchange(args []string) {
 	fmt.Println()
 	fmt.Println("You can now run the demo:")
 	fmt.Printf("  quantumlife-cli demo family --provider %s --circleA %s --circleB <other-circle>\n", *provider, *circleID)
+}
+
+// handleAuthStatus handles the auth status command.
+func handleAuthStatus(args []string) {
+	fs := flag.NewFlagSet("auth status", flag.ExitOnError)
+	circleID := fs.String("circle", "", "Circle ID (optional, shows all if not specified)")
+	provider := fs.String("provider", "", "Provider (optional, shows all if not specified)")
+
+	if err := fs.Parse(args); err != nil {
+		os.Exit(1)
+	}
+
+	// Load config
+	config := auth.LoadConfigFromEnv()
+
+	// Check if persistence is enabled
+	if config.TokenEncryptionKey == "" {
+		fmt.Println("Token Status")
+		fmt.Println("============")
+		fmt.Println()
+		fmt.Println("Warning: TOKEN_ENC_KEY not set. Token persistence is disabled.")
+		fmt.Println("Tokens are not persisted across CLI sessions.")
+		fmt.Println()
+		fmt.Println("To enable token persistence, set TOKEN_ENC_KEY environment variable:")
+		fmt.Println("  export TOKEN_ENC_KEY=$(openssl rand -hex 32)")
+		return
+	}
+
+	// Create broker with persistence to read stored tokens
+	broker, err := authImpl.NewBrokerWithPersistence(config, nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading token store: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Load CLI state for stored handles
+	cliState, err := state.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading CLI state: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("Token Status")
+	fmt.Println("============")
+	fmt.Println()
+
+	if broker.IsPersistenceEnabled() {
+		fmt.Println("Persistence: ENABLED")
+	} else {
+		fmt.Println("Persistence: DISABLED")
+	}
+	fmt.Println()
+
+	// Show configured providers
+	fmt.Println("Configured Providers:")
+	providers := []struct {
+		id   auth.ProviderID
+		name string
+	}{
+		{auth.ProviderGoogle, "Google"},
+		{auth.ProviderMicrosoft, "Microsoft"},
+		{auth.ProviderTrueLayer, "TrueLayer"},
+		{auth.ProviderPlaid, "Plaid"},
+	}
+	for _, p := range providers {
+		if config.IsProviderConfigured(p.id) {
+			fmt.Printf("  ✓ %s\n", p.name)
+		} else {
+			fmt.Printf("  ✗ %s (not configured)\n", p.name)
+		}
+	}
+	fmt.Println()
+
+	// Get all stored tokens
+	allHandles := cliState.GetAllTokenHandles()
+	if len(allHandles) == 0 {
+		fmt.Println("No stored tokens found.")
+		fmt.Println()
+		fmt.Println("To authorize a provider, run:")
+		fmt.Println("  quantumlife-cli auth google --circle <circle-id> --redirect <uri>")
+		return
+	}
+
+	fmt.Println("Stored Tokens:")
+	fmt.Println()
+
+	for key, handleID := range allHandles {
+		// Parse key format: "circleID:provider"
+		parts := strings.SplitN(key, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		tokenCircleID := parts[0]
+		tokenProvider := parts[1]
+
+		// Filter if circle or provider specified
+		if *circleID != "" && tokenCircleID != *circleID {
+			continue
+		}
+		if *provider != "" && tokenProvider != *provider {
+			continue
+		}
+
+		// Try to get handle details from broker
+		providerID := auth.ProviderID(tokenProvider)
+		handle, found := broker.GetTokenHandle(tokenCircleID, providerID)
+
+		fmt.Printf("  Circle:   %s\n", tokenCircleID)
+		fmt.Printf("  Provider: %s\n", tokenProvider)
+		fmt.Printf("  Handle:   %s\n", handleID)
+
+		if found {
+			fmt.Printf("  Scopes:   %s\n", strings.Join(handle.Scopes, ", "))
+			fmt.Printf("  Created:  %s\n", handle.CreatedAt.Format(time.RFC3339))
+			if !handle.ExpiresAt.IsZero() {
+				fmt.Printf("  Expires:  %s\n", handle.ExpiresAt.Format(time.RFC3339))
+			}
+			fmt.Printf("  Status:   ✓ Valid\n")
+		} else {
+			fmt.Printf("  Status:   ⚠ Handle not found in broker store\n")
+		}
+		fmt.Println()
+	}
 }
 
 // handleDemo handles the demo command and subcommands.

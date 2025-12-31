@@ -7,6 +7,7 @@
 // Usage:
 //
 //	go run ./cmd/quantumlife-ingest
+//	go run ./cmd/quantumlife-ingest --mode=real --circle=my-circle
 //	# or
 //	make ingest-once
 //
@@ -14,10 +15,14 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"time"
 
+	"quantumlife/internal/cli/state"
+	"quantumlife/internal/connectors/auth"
+	authImpl "quantumlife/internal/connectors/auth/impl_inmem"
 	"quantumlife/internal/ingestion"
 	"quantumlife/internal/integrations/finance_read"
 	"quantumlife/internal/integrations/gcal_read"
@@ -29,6 +34,11 @@ import (
 )
 
 func main() {
+	// Parse command-line flags
+	mode := flag.String("mode", "mock", "Adapter mode: mock or real")
+	circleID := flag.String("circle", "", "Circle ID for real mode (required if mode=real)")
+	flag.Parse()
+
 	fmt.Println("QuantumLife Ingestion Runner")
 	fmt.Println("============================")
 	fmt.Println()
@@ -66,10 +76,75 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Failed to store finance circle: %v\n", err)
 	}
 
-	// Create mock adapters with sample data
-	gmailAdapter := createMockGmailAdapter(clk, workCircle.ID(), familyCircle.ID())
-	gcalAdapter := createMockCalendarAdapter(clk, workCircle.ID(), familyCircle.ID())
-	financeAdapter := createMockFinanceAdapter(clk, financeCircle.ID())
+	// Create adapters based on mode
+	var gmailAdapter ingestion.EmailAdapter
+	var gcalAdapter ingestion.CalendarAdapter
+	var financeAdapter ingestion.FinanceAdapter
+
+	if *mode == "real" {
+		if *circleID == "" {
+			fmt.Fprintln(os.Stderr, "Error: --circle is required for real mode")
+			os.Exit(1)
+		}
+
+		fmt.Printf("Mode: REAL (using stored OAuth tokens for circle '%s')\n", *circleID)
+		fmt.Println()
+
+		// Check for stored tokens
+		cliState, err := state.Load()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error loading CLI state: %v\n", err)
+			os.Exit(1)
+		}
+
+		config := auth.LoadConfigFromEnv()
+		if config.TokenEncryptionKey == "" {
+			fmt.Fprintln(os.Stderr, "Error: TOKEN_ENC_KEY not set. Cannot use real mode.")
+			fmt.Fprintln(os.Stderr, "Run 'quantumlife-cli auth status' to check configuration.")
+			os.Exit(1)
+		}
+
+		broker, err := authImpl.NewBrokerWithPersistence(config, nil)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating broker: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Check for Google token
+		if handleID, ok := cliState.GetTokenHandle(*circleID, "google"); ok {
+			fmt.Printf("Using stored Google token: %s\n", handleID)
+
+			// Create real Gmail adapter
+			gmailAdapter = gmail_read.NewRealAdapter(broker, clk, *circleID)
+			fmt.Println("  ✓ Gmail adapter: REAL")
+
+			// Create real GCal adapter
+			gcalAdapter = gcal_read.NewRealAdapter(broker, clk, *circleID)
+			fmt.Println("  ✓ Calendar adapter: REAL")
+		} else {
+			fmt.Printf("No Google token found for circle '%s'. Using mock adapters.\n", *circleID)
+			fmt.Println("  To authorize Google, run:")
+			fmt.Printf("    quantumlife-cli auth google --circle %s --redirect <uri> --scopes calendar:read,email:read\n", *circleID)
+			fmt.Println()
+
+			// Fall back to mock
+			gmailAdapter = gmail_read.NewMockAdapter(clk)
+			gcalAdapter = gcal_read.NewMockAdapter(clk)
+		}
+
+		// Finance adapters are mock for now (TrueLayer/Plaid integration is more complex)
+		financeAdapter = createMockFinanceAdapter(clk, financeCircle.ID())
+		fmt.Println("  ⚠ Finance adapter: MOCK (real finance integration not yet available)")
+		fmt.Println()
+	} else {
+		fmt.Println("Mode: MOCK (using sample data)")
+		fmt.Println()
+
+		// Create mock adapters with sample data
+		gmailAdapter = createMockGmailAdapter(clk, workCircle.ID(), familyCircle.ID())
+		gcalAdapter = createMockCalendarAdapter(clk, workCircle.ID(), familyCircle.ID())
+		financeAdapter = createMockFinanceAdapter(clk, financeCircle.ID())
+	}
 
 	// Create runner
 	runner := ingestion.NewRunner(clk, eventStore, viewStore, identityRepo)

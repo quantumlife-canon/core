@@ -275,6 +275,21 @@ func (s *State) GetFilePath() string {
 	return s.filePath
 }
 
+// GetAllTokenHandles returns all token handles as a map of "circleID:provider" -> handleID.
+func (s *State) GetAllTokenHandles() map[string]string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make(map[string]string)
+	for circleID, circleState := range s.Circles {
+		for provider, providerState := range circleState.Providers {
+			key := circleID + ":" + provider
+			result[key] = providerState.HandleID
+		}
+	}
+	return result
+}
+
 // Clear removes all state.
 func (s *State) Clear() {
 	s.mu.Lock()
