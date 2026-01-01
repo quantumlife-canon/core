@@ -124,3 +124,18 @@ internal/connectors/calendar/write/providers/google/*.go
 internal/connectors/calendar/write/providers/mock/*.go
 internal/calendar/execution/*.go
 internal/demo_phase5_calendar_execution/*.go
+
+# Phase 6: The Quiet Loop (Web)
+# The loop engine uses "account" for email account context in mock data.
+internal/loop/engine.go
+
+# Phase 7: Email Execution Boundary (ADR-0023)
+# These files interface with Gmail API which uses "users" terminology
+# (e.g., /users/me/messages/send) and use "account" for email account
+# context. QuantumLife core uses "circle" for identity - these are
+# email provider adapters that must match external API specifications.
+internal/connectors/email/write/*.go
+internal/connectors/email/write/providers/google/*.go
+internal/connectors/email/write/providers/mock/*.go
+internal/email/execution/*.go
+internal/demo_phase7_email_execution/*.go
