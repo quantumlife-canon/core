@@ -1024,6 +1024,20 @@ const (
 	Phase18_1InterestRegistered EventType = "phase18_1.interest.registered"
 	Phase18_1InterestDuplicate  EventType = "phase18_1.interest.duplicate"
 	Phase18_1InterestInvalid    EventType = "phase18_1.interest.invalid"
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	// Phase 18.2: Today, quietly - Recognition + Suppression + Preference
+	// Reference: Phase 18.2 specification
+	// ═══════════════════════════════════════════════════════════════════════════
+
+	// Page rendered event - emitted when /today is rendered
+	Phase18_2TodayRendered EventType = "phase18_2.today.rendered"
+
+	// Preference recorded event - emitted when user submits preference
+	Phase18_2PreferenceRecorded EventType = "phase18_2.preference.recorded"
+
+	// Suppression demonstrated event - emitted when suppressed insight is shown
+	Phase18_2SuppressionDemonstrated EventType = "phase18_2.suppression.demonstrated"
 )
 
 // Event represents a system event for audit and observability.

@@ -37,6 +37,7 @@ import (
 	"quantumlife/internal/interruptions"
 	"quantumlife/internal/loop"
 	"quantumlife/internal/obligations"
+	"quantumlife/internal/todayquietly"
 	"quantumlife/pkg/clock"
 	"quantumlife/pkg/domain/draft"
 	domainevents "quantumlife/pkg/domain/events"
@@ -62,8 +63,10 @@ type Server struct {
 	execRouter        *execrouter.Router
 	execExecutor      *execexecutor.Executor
 	multiCircleConfig *config.MultiCircleConfig
-	identityRepo      *identity.InMemoryRepository // Phase 13.1: Identity graph
-	interestStore     *interest.Store              // Phase 18.1: Interest capture
+	identityRepo      *identity.InMemoryRepository  // Phase 13.1: Identity graph
+	interestStore     *interest.Store               // Phase 18.1: Interest capture
+	todayEngine       *todayquietly.Engine          // Phase 18.2: Today, quietly
+	preferenceStore   *todayquietly.PreferenceStore // Phase 18.2: Preference capture
 }
 
 // eventLogger logs events.
@@ -99,7 +102,7 @@ type templateData struct {
 	Person        *personInfo
 	IdentityStats *identityStats
 	// Phase 14: Policy UI
-	PolicySet      *policy.PolicySet
+	PolicySet *policy.PolicySet
 	// Phase 18: Circle detail
 	CircleDetail   *loop.CircleResult
 	CirclePolicies []circlePolicyInfo
@@ -107,6 +110,10 @@ type templateData struct {
 	// Phase 18.1: Interest capture
 	InterestSubmitted bool
 	InterestMessage   string
+	// Phase 18.2: Today, quietly
+	TodayPage           *todayquietly.TodayQuietlyPage
+	PreferenceSubmitted bool
+	PreferenceMessage   string
 }
 
 // personInfo contains person data for display. Phase 13.1.
@@ -307,6 +314,12 @@ func main() {
 		interest.WithClock(clk.Now),
 	)
 
+	// Create today quietly engine and store (Phase 18.2)
+	todayEngine := todayquietly.NewEngine(clk.Now)
+	preferenceStore := todayquietly.NewPreferenceStore(
+		todayquietly.WithStoreClock(clk.Now),
+	)
+
 	// Create server
 	server := &Server{
 		engine:            engine,
@@ -316,8 +329,10 @@ func main() {
 		execRouter:        execRouter,
 		execExecutor:      execExecutor,
 		multiCircleConfig: multiCfg,
-		identityRepo:      identityRepo,  // Phase 13.1
-		interestStore:     interestStore, // Phase 18.1
+		identityRepo:      identityRepo,    // Phase 13.1
+		interestStore:     interestStore,   // Phase 18.1
+		todayEngine:       todayEngine,     // Phase 18.2
+		preferenceStore:   preferenceStore, // Phase 18.2
 	}
 
 	// Set up routes
@@ -328,7 +343,9 @@ func main() {
 
 	// Phase 18: Public routes
 	mux.HandleFunc("/", server.handleLanding)
-	mux.HandleFunc("/interest", server.handleInterest) // Phase 18.1: Interest capture
+	mux.HandleFunc("/interest", server.handleInterest)           // Phase 18.1: Interest capture
+	mux.HandleFunc("/today", server.handleToday)                 // Phase 18.2: Today, quietly
+	mux.HandleFunc("/today/preference", server.handlePreference) // Phase 18.2: Preference capture
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18: App routes (authenticated)
@@ -537,6 +554,90 @@ func (s *Server) handleInterest(w http.ResponseWriter, r *http.Request) {
 		InterestMessage:   "Noted. We'll be in touch when this is real.",
 	}
 	s.render(w, "moment", data)
+}
+
+// handleToday serves the "Today, quietly." page.
+// Phase 18.2: Recognition + Suppression + Preference
+func (s *Server) handleToday(w http.ResponseWriter, r *http.Request) {
+	// Build projection input from current state
+	// For now, use default input (can be wired to loop results later)
+	input := todayquietly.DefaultInput()
+
+	// Generate page deterministically
+	page := s.todayEngine.Generate(input)
+
+	// Emit rendered event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase18_2TodayRendered,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"page_hash": page.PageHash,
+		},
+	})
+
+	// Emit suppression demonstrated event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase18_2SuppressionDemonstrated,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"suppressed_title": page.SuppressedInsight.Title,
+		},
+	})
+
+	data := templateData{
+		Title:       "Today, quietly.",
+		CurrentTime: s.clk.Now().Format("2006-01-02 15:04"),
+		TodayPage:   &page,
+	}
+
+	s.render(w, "today", data)
+}
+
+// handlePreference handles POST /today/preference for preference capture.
+// Phase 18.2: Preference capture with confirmation.
+func (s *Server) handlePreference(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	mode := strings.TrimSpace(r.FormValue("mode"))
+	if mode != "quiet" && mode != "show_all" {
+		// Invalid mode, redirect back
+		http.Redirect(w, r, "/today", http.StatusFound)
+		return
+	}
+
+	// Record preference
+	isNew, err := s.preferenceStore.Record(mode, "web")
+	if err != nil {
+		log.Printf("Preference recording error: %v", err)
+	}
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase18_2PreferenceRecorded,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"mode":   mode,
+			"is_new": fmt.Sprintf("%t", isNew),
+			"source": "web",
+		},
+	})
+
+	// Generate page for confirmation
+	input := todayquietly.DefaultInput()
+	page := s.todayEngine.Generate(input)
+
+	data := templateData{
+		Title:               "Today, quietly.",
+		CurrentTime:         s.clk.Now().Format("2006-01-02 15:04"),
+		TodayPage:           &page,
+		PreferenceSubmitted: true,
+		PreferenceMessage:   todayquietly.ConfirmationMessage(mode),
+	}
+
+	s.render(w, "today", data)
 }
 
 // handleDemo serves the deterministic demo page.
@@ -1453,11 +1554,84 @@ const templates = `
         </form>
         {{end}}
     </section>
+
+    {{/* Subtle link to Today, quietly */}}
+    <footer class="moment-footer">
+        <a href="/today" class="moment-subtle-link">See what today looks like</a>
+    </footer>
+</div>
+{{end}}
+
+{{/* ================================================================
+     Phase 18.2: Today, quietly - Recognition + Suppression + Preference
+     ================================================================ */}}
+{{define "today"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "today-content"}}
+<div class="today-quietly">
+    {{/* Header */}}
+    <header class="today-header">
+        <h1 class="today-title">{{.TodayPage.Title}}</h1>
+        <p class="today-subtitle">{{.TodayPage.Subtitle}}</p>
+    </header>
+
+    {{/* Preference confirmation (if submitted) */}}
+    {{if .PreferenceSubmitted}}
+    <div class="today-confirmation">
+        <p class="today-confirmation-text">{{.PreferenceMessage}}</p>
+    </div>
+    {{end}}
+
+    {{/* Recognition sentence */}}
+    <section class="today-section today-recognition">
+        <p class="today-recognition-text">{{.TodayPage.Recognition}}</p>
+    </section>
+
+    {{/* Three quiet observations */}}
+    <section class="today-section today-observations">
+        <ul class="today-observations-list">
+            {{range .TodayPage.Observations}}
+            <li class="today-observation">{{.Text}}</li>
+            {{end}}
+        </ul>
+    </section>
+
+    {{/* Suppressed insight */}}
+    <section class="today-section today-suppressed">
+        <div class="today-suppressed-divider"></div>
+        <p class="today-suppressed-title">{{.TodayPage.SuppressedInsight.Title}}</p>
+        <p class="today-suppressed-reason">{{.TodayPage.SuppressedInsight.Reason}}</p>
+    </section>
+
+    {{/* Permission pivot (preference form) */}}
+    {{if not .PreferenceSubmitted}}
+    <section class="today-section today-permission">
+        <p class="today-permission-prompt">{{.TodayPage.PermissionPivot.Prompt}}</p>
+        <form action="/today/preference" method="POST" class="today-preference-form">
+            {{range .TodayPage.PermissionPivot.Choices}}
+            <label class="today-preference-option">
+                <input type="radio" name="mode" value="{{.Mode}}" {{if .IsDefault}}checked{{end}}>
+                <span class="today-preference-label">{{.Label}}</span>
+            </label>
+            {{end}}
+            <button type="submit" class="today-preference-button">Save preference</button>
+        </form>
+    </section>
+    {{end}}
+
+    {{/* Subtle link back to landing */}}
+    <footer class="today-footer">
+        <a href="/" class="today-back-link">Back to home</a>
+    </footer>
 </div>
 {{end}}
 
 {{define "page-content"}}
-{{if eq .Title "The Moment"}}
+{{if eq .Title "Today, quietly."}}
+    {{template "today-content" .}}
+{{else if eq .Title "The Moment"}}
     {{template "moment-content" .}}
 {{else if eq .Title "Nothing Needs You"}}
     {{template "landing-content" .}}
