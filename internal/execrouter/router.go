@@ -107,6 +107,10 @@ func (r *Router) buildIntent(d *draft.Draft, now time.Time) (*execintent.Executi
 		// Commerce drafts become email sends
 		return r.buildCommerceEmailIntent(base, d)
 
+	case draft.DraftTypePayment:
+		// Finance payment drafts route to finance execution boundary
+		return r.buildFinanceIntent(base, d)
+
 	default:
 		return nil, fmt.Errorf("unsupported draft type for execution: %s", d.DraftType)
 	}
@@ -191,6 +195,43 @@ func (r *Router) buildCommerceEmailIntent(base *execintent.ExecutionIntent, d *d
 	if base.EmailTo == "" {
 		return nil, fmt.Errorf("commerce draft has unknown vendor contact - cannot execute email")
 	}
+
+	return base, nil
+}
+
+// buildFinanceIntent builds a finance payment intent from a payment draft.
+// CRITICAL: All finance payments flow through the Finance Execution Boundary.
+// Phase 17b: Routes to V96Executor.
+func (r *Router) buildFinanceIntent(base *execintent.ExecutionIntent, d *draft.Draft) (*execintent.ExecutionIntent, error) {
+	content, ok := d.PaymentContent()
+	if !ok {
+		return nil, fmt.Errorf("expected PaymentDraftContent for payment draft")
+	}
+
+	base.Action = execintent.ActionFinancePayment
+
+	// CRITICAL: PayeeID must be non-empty (pre-defined payee, not free-text)
+	if content.PayeeID == "" {
+		return nil, fmt.Errorf("payment draft missing PayeeID (pre-defined payees only)")
+	}
+	base.FinancePayeeID = content.PayeeID
+
+	// Validate amount
+	if content.AmountCents <= 0 {
+		return nil, fmt.Errorf("payment draft has invalid AmountCents: %d", content.AmountCents)
+	}
+	base.FinanceAmountCents = content.AmountCents
+
+	// Currency defaults to GBP if not specified
+	if content.Currency == "" {
+		base.FinanceCurrency = "GBP"
+	} else {
+		base.FinanceCurrency = content.Currency
+	}
+
+	base.FinanceDescription = content.Description
+	base.FinanceEnvelopeID = content.EnvelopeID
+	base.FinanceActionHash = content.ActionHash
 
 	return base, nil
 }

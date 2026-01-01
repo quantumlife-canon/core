@@ -54,6 +54,12 @@ const (
 	RecordTypeNotifyEnvelope         = "NOTIFY_ENVELOPE"
 	RecordTypeNotifyBadge            = "NOTIFY_BADGE"
 	RecordTypeNotifyDigest           = "NOTIFY_DIGEST"
+
+	// Finance execution record types (Phase 17b)
+	RecordTypeFinanceEnvelope       = "FINANCE_ENVELOPE"
+	RecordTypeFinanceEnvelopeStatus = "FINANCE_ENVELOPE_STATUS"
+	RecordTypeFinanceAttempt        = "FINANCE_ATTEMPT"
+	RecordTypeFinanceAttemptStatus  = "FINANCE_ATTEMPT_STATUS"
 )
 
 // Common errors

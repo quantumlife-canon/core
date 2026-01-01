@@ -262,9 +262,20 @@ func main() {
 
 	// Create Phase 10 execution routing components
 	execRouter := execrouter.NewRouter(clk, emitter)
+
+	// Create finance executor adapter (Phase 17b)
+	// Uses mock connector by default - NO real money moves
+	financeExecutor := execexecutor.NewFinanceExecutorAdapter(
+		clk,
+		emitter,
+		func() string { return fmt.Sprintf("fin-%d", clk.Now().UnixNano()) },
+		execexecutor.DefaultFinanceExecutorAdapterConfig(),
+	)
+
 	execExecutor := execexecutor.NewExecutor(clk, emitter).
 		WithEmailExecutor(emailExecutor).
-		WithCalendarExecutor(calExecutor)
+		WithCalendarExecutor(calExecutor).
+		WithFinanceExecutor(financeExecutor)
 
 	// Parse templates
 	tmpl := template.Must(template.New("").Funcs(template.FuncMap{

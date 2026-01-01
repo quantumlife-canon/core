@@ -30,6 +30,11 @@ const (
 
 	// ActionCalendarRespond represents responding to a calendar event.
 	ActionCalendarRespond ActionClass = "calendar_respond"
+
+	// ActionFinancePayment represents executing a financial payment.
+	// CRITICAL: All finance actions flow through the Finance Execution Boundary.
+	// Phase 17b: Routes to V96Executor.
+	ActionFinancePayment ActionClass = "finance_payment"
 )
 
 // IntentID is a deterministic identifier for an execution intent.
@@ -59,6 +64,15 @@ type ExecutionIntent struct {
 	// Calendar fields (populated for ActionCalendarRespond)
 	CalendarEventID  string
 	CalendarResponse string // "accepted", "declined", "tentative"
+
+	// Finance fields (populated for ActionFinancePayment)
+	// CRITICAL: PayeeID must be a pre-defined payee, NOT free-text.
+	FinancePayeeID     string // Pre-defined payee identifier
+	FinanceAmountCents int64  // Amount in minor units (pence/cents)
+	FinanceCurrency    string // ISO currency code (e.g., "GBP")
+	FinanceDescription string // Payment reference/description
+	FinanceEnvelopeID  string // Linked execution envelope ID (set after envelope creation)
+	FinanceActionHash  string // Deterministic action hash for approval binding
 
 	// Snapshot hashes for execution safety
 	PolicySnapshotHash string
@@ -91,6 +105,14 @@ func (i *ExecutionIntent) CanonicalString() string {
 	// Calendar fields
 	b.WriteString(fmt.Sprintf("calendar_event:%s|", normalizeForCanonical(i.CalendarEventID)))
 	b.WriteString(fmt.Sprintf("calendar_response:%s|", normalizeForCanonical(i.CalendarResponse)))
+
+	// Finance fields
+	b.WriteString(fmt.Sprintf("finance_payee:%s|", normalizeForCanonical(i.FinancePayeeID)))
+	b.WriteString(fmt.Sprintf("finance_amount:%d|", i.FinanceAmountCents))
+	b.WriteString(fmt.Sprintf("finance_currency:%s|", normalizeForCanonical(i.FinanceCurrency)))
+	b.WriteString(fmt.Sprintf("finance_desc:%s|", normalizeForCanonical(i.FinanceDescription)))
+	b.WriteString(fmt.Sprintf("finance_envelope:%s|", normalizeForCanonical(i.FinanceEnvelopeID)))
+	b.WriteString(fmt.Sprintf("finance_action_hash:%s|", normalizeForCanonical(i.FinanceActionHash)))
 
 	// Hashes
 	b.WriteString(fmt.Sprintf("policy_hash:%s|", i.PolicySnapshotHash))
@@ -147,6 +169,17 @@ func (i *ExecutionIntent) Validate() error {
 		}
 		if i.CalendarResponse == "" {
 			return fmt.Errorf("calendar action requires Response")
+		}
+	case ActionFinancePayment:
+		// CRITICAL: Finance payments require pre-defined payee, not free-text.
+		if i.FinancePayeeID == "" {
+			return fmt.Errorf("finance action requires PayeeID (pre-defined payee)")
+		}
+		if i.FinanceAmountCents <= 0 {
+			return fmt.Errorf("finance action requires AmountCents > 0")
+		}
+		if i.FinanceCurrency == "" {
+			return fmt.Errorf("finance action requires Currency")
 		}
 	default:
 		return fmt.Errorf("unsupported action: %s", i.Action)

@@ -52,6 +52,17 @@ type ExecutionOutcome struct {
 
 	// EnvelopeID is the ID of the envelope that was executed.
 	EnvelopeID string
+
+	// Phase 17b Finance fields
+	// Simulated indicates if the execution was simulated (mock provider).
+	Simulated bool
+
+	// MoneyMoved indicates if real money moved.
+	// CRITICAL: Mock provider always returns false.
+	MoneyMoved bool
+
+	// ProviderUsed is the provider identifier used for execution.
+	ProviderUsed string
 }
 
 // EmailExecutor is the interface for email boundary execution.
@@ -64,13 +75,99 @@ type CalendarExecutor interface {
 	Execute(ctx context.Context, envelope *calexec.Envelope) calexec.ExecuteResult
 }
 
+// FinanceExecuteRequest contains parameters for finance execution.
+// This maps intent fields to finance boundary requirements.
+type FinanceExecuteRequest struct {
+	// Intent is the source execution intent.
+	IntentID execintent.IntentID
+
+	// DraftID is the source draft.
+	DraftID draft.DraftID
+
+	// CircleID is the owning circle.
+	CircleID string
+
+	// PayeeID is the pre-defined payee identifier.
+	PayeeID string
+
+	// AmountCents is the payment amount in minor units.
+	AmountCents int64
+
+	// Currency is the currency code.
+	Currency string
+
+	// Description is the payment reference.
+	Description string
+
+	// PolicySnapshotHash is v9.12.1 binding.
+	PolicySnapshotHash string
+
+	// ViewSnapshotHash is v9.13 binding.
+	ViewSnapshotHash string
+
+	// TraceID is the execution trace.
+	TraceID string
+
+	// Now is the current time.
+	Now time.Time
+}
+
+// FinanceExecuteResult contains the result of finance execution.
+type FinanceExecuteResult struct {
+	// Success indicates if execution succeeded.
+	Success bool
+
+	// Blocked indicates if execution was blocked.
+	Blocked bool
+
+	// BlockedReason explains why execution was blocked.
+	BlockedReason string
+
+	// Error contains any execution error.
+	Error string
+
+	// EnvelopeID is the finance envelope ID.
+	EnvelopeID string
+
+	// ProviderResponseID is the provider's reference.
+	ProviderResponseID string
+
+	// ProviderUsed indicates which provider was used (mock/truelayer).
+	ProviderUsed string
+
+	// Simulated indicates if this was a simulated execution (mock).
+	// CRITICAL: When Simulated=true, NO real money was moved.
+	Simulated bool
+
+	// MoneyMoved indicates if real money was transferred.
+	// CRITICAL: MoneyMoved=false for mock executions.
+	MoneyMoved bool
+
+	// ExecutedAt is when execution completed.
+	ExecutedAt time.Time
+
+	// IdempotencyKeyPrefix is the first 16 chars of idempotency key.
+	IdempotencyKeyPrefix string
+}
+
+// FinanceExecutor is the interface for finance boundary execution.
+// CRITICAL: This is the ONLY path for financial writes.
+// Phase 17b: Wraps V96Executor from internal/finance/execution.
+type FinanceExecutor interface {
+	// ExecuteFromIntent executes a finance payment from an execution intent.
+	// Returns FinanceExecuteResult with Simulated=true for mock provider.
+	ExecuteFromIntent(ctx context.Context, req FinanceExecuteRequest) FinanceExecuteResult
+}
+
 // Executor adapts ExecutionIntents to boundary executors.
 //
 // CRITICAL: Routes intents to the correct boundary executor.
 // CRITICAL: Does not perform any external writes itself.
+// Phase 17b: Adds finance executor for ActionFinancePayment routing.
 type Executor struct {
 	emailExecutor    EmailExecutor
 	calendarExecutor CalendarExecutor
+	financeExecutor  FinanceExecutor
 	clock            clock.Clock
 	emitter          events.Emitter
 }
@@ -92,6 +189,13 @@ func (e *Executor) WithEmailExecutor(exec EmailExecutor) *Executor {
 // WithCalendarExecutor sets the calendar boundary executor.
 func (e *Executor) WithCalendarExecutor(exec CalendarExecutor) *Executor {
 	e.calendarExecutor = exec
+	return e
+}
+
+// WithFinanceExecutor sets the finance boundary executor.
+// Phase 17b: Routes ActionFinancePayment to finance execution boundary.
+func (e *Executor) WithFinanceExecutor(exec FinanceExecutor) *Executor {
+	e.financeExecutor = exec
 	return e
 }
 
@@ -125,6 +229,10 @@ func (e *Executor) ExecuteIntent(ctx context.Context, intent *execintent.Executi
 
 	case execintent.ActionCalendarRespond:
 		return e.executeCalendar(ctx, intent, traceID, now)
+
+	case execintent.ActionFinancePayment:
+		// Phase 17b: Route finance payments to finance execution boundary
+		return e.executeFinance(ctx, intent, traceID, now)
 
 	default:
 		e.emitEvent(events.Phase10ExecutionBlocked, intent, fmt.Sprintf("unknown action: %s", intent.Action))
@@ -221,6 +329,98 @@ func (e *Executor) executeCalendar(ctx context.Context, intent *execintent.Execu
 	}
 
 	return outcome
+}
+
+// executeFinance routes a finance intent to the finance boundary executor.
+// Phase 17b: All finance payments flow through Finance Execution Boundary.
+func (e *Executor) executeFinance(ctx context.Context, intent *execintent.ExecutionIntent, traceID string, now time.Time) ExecutionOutcome {
+	// Check executor is configured
+	if e.financeExecutor == nil {
+		e.emitEvent(events.Phase10ExecutionBlocked, intent, "finance executor not configured")
+		return ExecutionOutcome{
+			IntentID:      intent.IntentID,
+			Success:       false,
+			Blocked:       true,
+			BlockedReason: "finance executor not configured",
+			ExecutedAt:    now,
+		}
+	}
+
+	// Emit routing event
+	e.emitEvent(events.Phase10ExecutionRouted, intent, "finance")
+
+	// Build finance execution request from intent
+	req := FinanceExecuteRequest{
+		IntentID:           intent.IntentID,
+		DraftID:            intent.DraftID,
+		CircleID:           intent.CircleID,
+		PayeeID:            intent.FinancePayeeID,
+		AmountCents:        intent.FinanceAmountCents,
+		Currency:           intent.FinanceCurrency,
+		Description:        intent.FinanceDescription,
+		PolicySnapshotHash: intent.PolicySnapshotHash,
+		ViewSnapshotHash:   intent.ViewSnapshotHash,
+		TraceID:            traceID,
+		Now:                now,
+	}
+
+	// Execute via finance boundary executor
+	result := e.financeExecutor.ExecuteFromIntent(ctx, req)
+
+	// Map result to outcome
+	outcome := e.mapFinanceResult(intent, result, now)
+
+	// Emit appropriate event
+	if outcome.Success {
+		e.emitEvent(events.Phase10ExecutionSucceeded, intent, fmt.Sprintf("provider=%s,simulated=%t", result.ProviderUsed, result.Simulated))
+	} else if outcome.Blocked {
+		e.emitEvent(events.Phase10ExecutionBlocked, intent, outcome.BlockedReason)
+	} else {
+		e.emitEvent(events.Phase10ExecutionFailed, intent, outcome.Error)
+	}
+
+	return outcome
+}
+
+// mapFinanceResult maps a finance execution result to an ExecutionOutcome.
+func (e *Executor) mapFinanceResult(intent *execintent.ExecutionIntent, result FinanceExecuteResult, now time.Time) ExecutionOutcome {
+	if result.Success {
+		return ExecutionOutcome{
+			IntentID:           intent.IntentID,
+			Success:            true,
+			ProviderResponseID: result.ProviderResponseID,
+			ExecutedAt:         result.ExecutedAt,
+			EnvelopeID:         result.EnvelopeID,
+			Simulated:          result.Simulated,
+			MoneyMoved:         result.MoneyMoved,
+			ProviderUsed:       result.ProviderUsed,
+		}
+	}
+
+	if result.Blocked {
+		return ExecutionOutcome{
+			IntentID:      intent.IntentID,
+			Success:       false,
+			Blocked:       true,
+			BlockedReason: result.BlockedReason,
+			ExecutedAt:    result.ExecutedAt,
+			EnvelopeID:    result.EnvelopeID,
+			Simulated:     result.Simulated,
+			MoneyMoved:    result.MoneyMoved,
+			ProviderUsed:  result.ProviderUsed,
+		}
+	}
+
+	return ExecutionOutcome{
+		IntentID:     intent.IntentID,
+		Success:      false,
+		Error:        result.Error,
+		ExecutedAt:   result.ExecutedAt,
+		EnvelopeID:   result.EnvelopeID,
+		Simulated:    result.Simulated,
+		MoneyMoved:   result.MoneyMoved,
+		ProviderUsed: result.ProviderUsed,
+	}
 }
 
 // buildEmailEnvelope creates an email envelope from an execution intent.

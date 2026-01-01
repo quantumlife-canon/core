@@ -199,6 +199,74 @@ else
   echo -e "${GREEN}PASS: ActionFinancePayment defined (count: $FINANCE_ACTION)${NC}"
 fi
 
+# Check 12 (Phase 17b): ActionFinancePayment in execintent
+echo ""
+echo "Check 12 (Phase 17b): ActionFinancePayment in execintent..."
+
+if [ -f "pkg/domain/execintent/types.go" ]; then
+  EXECINTENT_FINANCE=$(grep -c "ActionFinancePayment\|finance_payment\|FinancePayeeID" pkg/domain/execintent/types.go 2>/dev/null || echo "0")
+  if [ "$EXECINTENT_FINANCE" -lt 3 ]; then
+    echo -e "${RED}VIOLATION: execintent missing ActionFinancePayment (found: $EXECINTENT_FINANCE)${NC}"
+    VIOLATIONS=$((VIOLATIONS + 1))
+  else
+    echo -e "${GREEN}PASS: execintent has ActionFinancePayment (count: $EXECINTENT_FINANCE)${NC}"
+  fi
+else
+  echo -e "${RED}VIOLATION: execintent types missing (pkg/domain/execintent/types.go)${NC}"
+  VIOLATIONS=$((VIOLATIONS + 1))
+fi
+
+# Check 13 (Phase 17b): ExecRouter routes DraftTypePayment
+echo ""
+echo "Check 13 (Phase 17b): ExecRouter routes DraftTypePayment..."
+
+if [ -f "internal/execrouter/router.go" ]; then
+  ROUTER_PAYMENT=$(grep -c "DraftTypePayment\|buildFinanceIntent\|ActionFinancePayment" internal/execrouter/router.go 2>/dev/null || echo "0")
+  if [ "$ROUTER_PAYMENT" -lt 3 ]; then
+    echo -e "${RED}VIOLATION: ExecRouter missing DraftTypePayment routing (found: $ROUTER_PAYMENT)${NC}"
+    VIOLATIONS=$((VIOLATIONS + 1))
+  else
+    echo -e "${GREEN}PASS: ExecRouter routes DraftTypePayment (count: $ROUTER_PAYMENT)${NC}"
+  fi
+else
+  echo -e "${RED}VIOLATION: ExecRouter missing (internal/execrouter/router.go)${NC}"
+  VIOLATIONS=$((VIOLATIONS + 1))
+fi
+
+# Check 14 (Phase 17b): FinanceExecutorAdapter exists
+echo ""
+echo "Check 14 (Phase 17b): FinanceExecutorAdapter exists..."
+
+if [ -f "internal/execexecutor/finance_adapter.go" ]; then
+  ADAPTER=$(grep -c "FinanceExecutorAdapter\|ExecuteFromIntent\|v96Executor" internal/execexecutor/finance_adapter.go 2>/dev/null || echo "0")
+  if [ "$ADAPTER" -lt 5 ]; then
+    echo -e "${RED}VIOLATION: FinanceExecutorAdapter incomplete (found: $ADAPTER)${NC}"
+    VIOLATIONS=$((VIOLATIONS + 1))
+  else
+    echo -e "${GREEN}PASS: FinanceExecutorAdapter exists (count: $ADAPTER)${NC}"
+  fi
+else
+  echo -e "${RED}VIOLATION: FinanceExecutorAdapter missing (internal/execexecutor/finance_adapter.go)${NC}"
+  VIOLATIONS=$((VIOLATIONS + 1))
+fi
+
+# Check 15 (Phase 17b): Finance persistence record types
+echo ""
+echo "Check 15 (Phase 17b): Finance persistence record types..."
+
+if [ -f "pkg/domain/storelog/log.go" ]; then
+  FINANCE_RECORDS=$(grep -c "FINANCE_ENVELOPE\|FINANCE_ATTEMPT" pkg/domain/storelog/log.go 2>/dev/null || echo "0")
+  if [ "$FINANCE_RECORDS" -lt 2 ]; then
+    echo -e "${RED}VIOLATION: Finance persistence record types missing (found: $FINANCE_RECORDS)${NC}"
+    VIOLATIONS=$((VIOLATIONS + 1))
+  else
+    echo -e "${GREEN}PASS: Finance persistence record types exist (count: $FINANCE_RECORDS)${NC}"
+  fi
+else
+  echo -e "${RED}VIOLATION: Storelog missing (pkg/domain/storelog/log.go)${NC}"
+  VIOLATIONS=$((VIOLATIONS + 1))
+fi
+
 # Summary
 echo ""
 echo "=== Summary ==="
