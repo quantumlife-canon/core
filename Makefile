@@ -7,7 +7,7 @@
 #
 # Guardrails enforce Canon invariants at build time.
 
-.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 demo-phase9 demo-phase10 demo-phase11 web web-mock web-stop web-status
+.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 demo-phase9 demo-phase10 demo-phase11 demo-phase12 web web-mock web-stop web-status
 
 # Default target
 all: ci
@@ -38,6 +38,7 @@ help:
 	@echo "  make demo-phase9  - Run Phase 9 commerce action drafts demo"
 	@echo "  make demo-phase10 - Run Phase 10 execution routing demo"
 	@echo "  make demo-phase11 - Run Phase 11 multi-circle demo"
+	@echo "  make demo-phase12 - Run Phase 12 persistence and replay demo"
 	@echo ""
 	@echo "Web Server:"
 	@echo "  make web          - Run web server on :8080 (real mode)"
@@ -60,6 +61,7 @@ help:
 	@echo "  make check-commerce-drafts    - Check commerce drafts boundary (Phase 9)"
 	@echo "  make check-execute-routing    - Check execute routing boundary (Phase 10)"
 	@echo "  make check-multicircle        - Check multi-circle constraints (Phase 11)"
+	@echo "  make check-persistence-replay - Check persistence and replay constraints (Phase 12)"
 	@echo ""
 
 # Build
@@ -152,6 +154,10 @@ check-execute-routing:
 check-multicircle:
 	@echo "Checking multi-circle constraints (Phase 11)..."
 	@./scripts/guardrails/multicircle_enforced.sh
+
+check-persistence-replay:
+	@echo "Checking persistence and replay constraints (Phase 12)..."
+	@./scripts/guardrails/persistence_replay_enforced.sh
 
 # All guardrails
 guardrails: check-terms check-imports check-deps check-time-now check-background-async check-no-auto-retry check-single-trace-final check-write-provider-reg check-free-text-recipient check-policy-snapshot
@@ -265,6 +271,12 @@ demo-phase10:
 demo-phase11:
 	@echo "Running Phase 11 Demo: Multi-Circle..."
 	go test -v ./internal/demo_phase11_multicircle/...
+
+# Phase 12 Demo: Persistence + Deterministic Replay
+# Reference: docs/ADR/ADR-0027-phase12-persistence-replay.md
+demo-phase12:
+	@echo "Running Phase 12 Demo: Persistence & Replay..."
+	go test -v ./internal/demo_phase12_persistence_replay/...
 
 # =============================================================================
 # Web Server Targets

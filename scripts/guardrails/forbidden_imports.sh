@@ -94,7 +94,7 @@ fi
 
 echo ""
 echo "Checking Rule 2: internal/* must not import other internal/* packages..."
-echo "(Exceptions: impl_inmem subdirectories, demo packages, and loop orchestrator are wiring layers)"
+echo "(Exceptions: impl_inmem, demo, loop, and persist are wiring layers)"
 echo ""
 
 INTERNAL_DIR="${REPO_ROOT}/internal"
@@ -110,13 +110,14 @@ if [[ -d "$INTERNAL_DIR" ]]; then
     while IFS= read -r -d '' file; do
         relative_path="${file#${REPO_ROOT}/}"
 
-        # Skip wiring layers (implementation packages, demo, and loop orchestrator)
+        # Skip wiring layers (implementation packages, demo, loop orchestrator, and persist)
         # These are allowed to import across internal packages for wiring
         if [[ "$relative_path" == *"/impl_inmem/"* ]] || \
            [[ "$relative_path" == *"/impl_"* ]] || \
            [[ "$relative_path" == "internal/demo/"* ]] || \
            [[ "$relative_path" == internal/demo_* ]] || \
-           [[ "$relative_path" == "internal/loop/"* ]]; then
+           [[ "$relative_path" == "internal/loop/"* ]] || \
+           [[ "$relative_path" == "internal/persist/"* ]]; then
             continue
         fi
 
