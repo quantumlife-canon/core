@@ -745,6 +745,57 @@ const (
 	Phase11ConfigError             EventType = "phase11.config.error"
 	Phase11AdapterRegistered       EventType = "phase11.adapter.registered"
 	Phase11AdapterMissing          EventType = "phase11.adapter.missing"
+
+	// Phase 14: Circle Policies + Preference Learning events
+	// CRITICAL: All policy changes are persisted to storelog.
+	// CRITICAL: All learning is deterministic and auditable.
+	// CRITICAL: No background learning. All feedback processing is synchronous.
+	//
+	// Reference: docs/ADR/ADR-0030-phase14-policy-learning.md
+
+	// Policy lifecycle events
+	Phase14PolicyUpdated       EventType = "phase14.policy.updated"
+	Phase14PolicyCircleUpdated EventType = "phase14.policy.circle.updated"
+	Phase14PolicyTriggerAdded  EventType = "phase14.policy.trigger.added"
+	Phase14PolicyLoaded        EventType = "phase14.policy.loaded"
+	Phase14PolicyValidated     EventType = "phase14.policy.validated"
+
+	// Suppression lifecycle events
+	Phase14SuppressRuleAdded   EventType = "phase14.suppress.rule.added"
+	Phase14SuppressRuleRemoved EventType = "phase14.suppress.rule.removed"
+	Phase14SuppressPruned      EventType = "phase14.suppress.pruned"
+	Phase14SuppressRuleMatched EventType = "phase14.suppress.rule.matched"
+	Phase14SuppressLoaded      EventType = "phase14.suppress.loaded"
+
+	// Explainability events
+	Phase14ExplainComputed  EventType = "phase14.explain.computed"
+	Phase14ExplainRequested EventType = "phase14.explain.requested"
+	Phase14ExplainDelivered EventType = "phase14.explain.delivered"
+
+	// Interruption suppression events
+	Phase14InterruptionSuppressed EventType = "phase14.interruption.suppressed"
+	Phase14InterruptionAllowed    EventType = "phase14.interruption.allowed"
+
+	// Preference learning events
+	Phase14LearningApplied          EventType = "phase14.learning.applied"
+	Phase14LearningDecisionRecorded EventType = "phase14.learning.decision.recorded"
+	Phase14LearningNoChange         EventType = "phase14.learning.no_change"
+	Phase14FeedbackProcessed        EventType = "phase14.feedback.processed"
+
+	// Threshold adjustment events
+	Phase14ThresholdIncreased  EventType = "phase14.threshold.increased"
+	Phase14ThresholdDecreased  EventType = "phase14.threshold.decreased"
+	Phase14TriggerBiasAdjusted EventType = "phase14.trigger.bias.adjusted"
+
+	// Quota events
+	Phase14QuotaChecked    EventType = "phase14.quota.checked"
+	Phase14QuotaExceeded   EventType = "phase14.quota.exceeded"
+	Phase14QuotaDowngraded EventType = "phase14.quota.downgraded"
+
+	// Hours policy events
+	Phase14HoursChecked EventType = "phase14.hours.checked"
+	Phase14HoursBlocked EventType = "phase14.hours.blocked"
+	Phase14HoursAllowed EventType = "phase14.hours.allowed"
 )
 
 // Event represents a system event for audit and observability.

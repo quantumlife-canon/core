@@ -33,6 +33,11 @@ const (
 	// Identity graph record types (Phase 13)
 	RecordTypeIdentityEntity = "IDENTITY_ENTITY_UPSERT"
 	RecordTypeIdentityEdge   = "IDENTITY_EDGE_UPSERT"
+
+	// Policy and suppression record types (Phase 14)
+	RecordTypePolicySet      = "POLICY_SET"
+	RecordTypeSuppressionAdd = "SUPPRESSION_ADD"
+	RecordTypeSuppressionRem = "SUPPRESSION_REM"
 )
 
 // Common errors

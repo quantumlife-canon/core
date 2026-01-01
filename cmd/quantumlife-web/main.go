@@ -42,6 +42,7 @@ import (
 	"quantumlife/pkg/domain/feedback"
 	"quantumlife/pkg/domain/identity"
 	"quantumlife/pkg/domain/obligation"
+	"quantumlife/pkg/domain/policy"
 	"quantumlife/pkg/events"
 )
 
@@ -95,6 +96,10 @@ type templateData struct {
 	People        []personInfo
 	Person        *personInfo
 	IdentityStats *identityStats
+	// Phase 14: Policy UI
+	PolicySet      *policy.PolicySet
+	CirclePolicies []circlePolicyInfo
+	CirclePolicy   *circlePolicyInfo
 }
 
 // personInfo contains person data for display. Phase 13.1.
@@ -115,6 +120,18 @@ type identityStats struct {
 	OrganizationCount int
 	HouseholdCount    int
 	EdgeCount         int
+}
+
+// circlePolicyInfo contains policy data for display. Phase 14.
+type circlePolicyInfo struct {
+	CircleID         string
+	RegretThreshold  int
+	NotifyThreshold  int
+	UrgentThreshold  int
+	DailyNotifyQuota int
+	DailyQueuedQuota int
+	HasHoursPolicy   bool
+	HoursInfo        string
 }
 
 // circleConfigInfo contains config info for display.
@@ -279,8 +296,10 @@ func main() {
 	mux.HandleFunc("/history", server.handleHistory)
 	mux.HandleFunc("/run/daily", server.handleRunDaily)
 	mux.HandleFunc("/feedback", server.handleFeedback)
-	mux.HandleFunc("/people", server.handlePeople)  // Phase 13.1
-	mux.HandleFunc("/people/", server.handlePerson) // Phase 13.1
+	mux.HandleFunc("/people", server.handlePeople)          // Phase 13.1
+	mux.HandleFunc("/people/", server.handlePerson)         // Phase 13.1
+	mux.HandleFunc("/policies", server.handlePolicies)      // Phase 14
+	mux.HandleFunc("/policies/", server.handlePolicyDetail) // Phase 14
 
 	// Create HTTP server with explicit configuration
 	httpServer := &http.Server{
@@ -805,6 +824,145 @@ func (s *Server) handlePerson(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "person", data)
 }
 
+// handlePolicies lists all circle policies. Phase 14.
+func (s *Server) handlePolicies(w http.ResponseWriter, r *http.Request) {
+	// Get default policy set for demo
+	now := s.clk.Now()
+	ps := policy.DefaultPolicySet(now)
+
+	var policies []circlePolicyInfo
+	for _, cp := range ps.Circles {
+		info := circlePolicyInfo{
+			CircleID:         cp.CircleID,
+			RegretThreshold:  cp.RegretThreshold,
+			NotifyThreshold:  cp.NotifyThreshold,
+			UrgentThreshold:  cp.UrgentThreshold,
+			DailyNotifyQuota: cp.DailyNotifyQuota,
+			DailyQueuedQuota: cp.DailyQueuedQuota,
+		}
+		if cp.Hours != nil {
+			info.HasHoursPolicy = true
+			info.HoursInfo = fmt.Sprintf("Weekdays: %d, %d:00-%d:00",
+				cp.Hours.AllowedWeekdays, cp.Hours.StartMinute/60, cp.Hours.EndMinute/60)
+		}
+		policies = append(policies, info)
+	}
+
+	// Sort for determinism
+	for i := 0; i < len(policies); i++ {
+		for j := i + 1; j < len(policies); j++ {
+			if policies[i].CircleID > policies[j].CircleID {
+				policies[i], policies[j] = policies[j], policies[i]
+			}
+		}
+	}
+
+	data := templateData{
+		Title:          "Policies",
+		CurrentTime:    s.clk.Now().Format("2006-01-02 15:04:05"),
+		PolicySet:      &ps,
+		CirclePolicies: policies,
+	}
+
+	s.render(w, "policies", data)
+}
+
+// handlePolicyDetail shows/edits a single circle policy. Phase 14.
+func (s *Server) handlePolicyDetail(w http.ResponseWriter, r *http.Request) {
+	circleID := strings.TrimPrefix(r.URL.Path, "/policies/")
+
+	// Check for edit action
+	if strings.HasSuffix(circleID, "/edit") {
+		circleID = strings.TrimSuffix(circleID, "/edit")
+		if r.Method == http.MethodPost {
+			s.handlePolicyEdit(w, r, circleID)
+			return
+		}
+	}
+
+	if circleID == "" {
+		http.Redirect(w, r, "/policies", http.StatusFound)
+		return
+	}
+
+	// Get default policy set for demo
+	now := s.clk.Now()
+	ps := policy.DefaultPolicySet(now)
+
+	cp := ps.GetCircle(circleID)
+	if cp == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	info := &circlePolicyInfo{
+		CircleID:         cp.CircleID,
+		RegretThreshold:  cp.RegretThreshold,
+		NotifyThreshold:  cp.NotifyThreshold,
+		UrgentThreshold:  cp.UrgentThreshold,
+		DailyNotifyQuota: cp.DailyNotifyQuota,
+		DailyQueuedQuota: cp.DailyQueuedQuota,
+	}
+	if cp.Hours != nil {
+		info.HasHoursPolicy = true
+		info.HoursInfo = fmt.Sprintf("Weekdays: %d, %d:00-%d:00",
+			cp.Hours.AllowedWeekdays, cp.Hours.StartMinute/60, cp.Hours.EndMinute/60)
+	}
+
+	data := templateData{
+		Title:        fmt.Sprintf("Policy: %s", circleID),
+		CurrentTime:  s.clk.Now().Format("2006-01-02 15:04:05"),
+		CirclePolicy: info,
+	}
+
+	s.render(w, "policy-detail", data)
+}
+
+// handlePolicyEdit handles POST to update a circle policy. Phase 14.
+func (s *Server) handlePolicyEdit(w http.ResponseWriter, r *http.Request, circleID string) {
+	// Parse form values
+	regretThreshold := parseIntOr(r.FormValue("regret_threshold"), 30)
+	notifyThreshold := parseIntOr(r.FormValue("notify_threshold"), 50)
+	urgentThreshold := parseIntOr(r.FormValue("urgent_threshold"), 75)
+	dailyNotifyQuota := parseIntOr(r.FormValue("daily_notify_quota"), 10)
+	dailyQueuedQuota := parseIntOr(r.FormValue("daily_queued_quota"), 50)
+
+	// Validate
+	if regretThreshold < 0 || regretThreshold > 100 ||
+		notifyThreshold < 0 || notifyThreshold > 100 ||
+		urgentThreshold < 0 || urgentThreshold > 100 {
+		http.Error(w, "thresholds must be 0-100", http.StatusBadRequest)
+		return
+	}
+	if urgentThreshold < notifyThreshold || notifyThreshold < regretThreshold {
+		http.Error(w, "thresholds must be monotonic: urgent >= notify >= regret", http.StatusBadRequest)
+		return
+	}
+
+	// For demo, just show the updated values (no actual persistence in web demo)
+	log.Printf("[Phase14] Policy update for %s: regret=%d, notify=%d, urgent=%d, daily_notify=%d, daily_queued=%d",
+		circleID, regretThreshold, notifyThreshold, urgentThreshold, dailyNotifyQuota, dailyQueuedQuota)
+
+	http.Redirect(w, r, "/policies/"+circleID, http.StatusFound)
+}
+
+// parseIntOr parses an int or returns the default.
+func parseIntOr(s string, def int) int {
+	if s == "" {
+		return def
+	}
+	var result int
+	for _, c := range s {
+		if c >= '0' && c <= '9' {
+			result = result*10 + int(c-'0')
+		}
+	}
+	if result == 0 && s != "0" {
+		return def
+	}
+	return result
+}
+
 // render executes a template.
 func (s *Server) render(w http.ResponseWriter, name string, data templateData) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -887,6 +1045,7 @@ const templates = `
                 <a href="/">Home</a>
                 <a href="/circles">Circles</a>
                 <a href="/people">People</a>
+                <a href="/policies">Policies</a>
                 <a href="/needs-you">Needs You</a>
                 <a href="/draft/">Drafts</a>
                 <a href="/history">History</a>
@@ -1124,5 +1283,76 @@ const templates = `
 
 {{define "person"}}
 {{template "base" .}}
+{{end}}
+
+{{define "policies"}}
+{{template "base" .}}
+{{end}}
+
+{{define "policies-content"}}
+<div class="card">
+    <h2>Circle Policies</h2>
+    <p class="meta">Policy Hash: {{if .PolicySet}}{{.PolicySet.Hash}}{{else}}N/A{{end}}</p>
+</div>
+{{range .CirclePolicies}}
+<div class="card">
+    <h3><a href="/policies/{{.CircleID}}">{{.CircleID}}</a></h3>
+    <table style="width:100%; margin-top:10px;">
+        <tr><td>Regret Threshold:</td><td>{{.RegretThreshold}}</td></tr>
+        <tr><td>Notify Threshold:</td><td>{{.NotifyThreshold}}</td></tr>
+        <tr><td>Urgent Threshold:</td><td>{{.UrgentThreshold}}</td></tr>
+        <tr><td>Daily Notify Quota:</td><td>{{.DailyNotifyQuota}}</td></tr>
+        <tr><td>Daily Queued Quota:</td><td>{{.DailyQueuedQuota}}</td></tr>
+        {{if .HasHoursPolicy}}<tr><td>Hours Policy:</td><td>{{.HoursInfo}}</td></tr>{{end}}
+    </table>
+</div>
+{{else}}
+<div class="card">
+    <p>No policies configured.</p>
+</div>
+{{end}}
+{{end}}
+
+{{define "policy-detail"}}
+{{template "base" .}}
+{{end}}
+
+{{define "policy-detail-content"}}
+{{if .CirclePolicy}}
+<div class="card">
+    <h2>Policy: {{.CirclePolicy.CircleID}}</h2>
+    <form method="POST" action="/policies/{{.CirclePolicy.CircleID}}/edit">
+        <div class="form-group">
+            <label>Regret Threshold (0-100)</label>
+            <input type="number" name="regret_threshold" value="{{.CirclePolicy.RegretThreshold}}" min="0" max="100">
+        </div>
+        <div class="form-group">
+            <label>Notify Threshold (0-100)</label>
+            <input type="number" name="notify_threshold" value="{{.CirclePolicy.NotifyThreshold}}" min="0" max="100">
+        </div>
+        <div class="form-group">
+            <label>Urgent Threshold (0-100)</label>
+            <input type="number" name="urgent_threshold" value="{{.CirclePolicy.UrgentThreshold}}" min="0" max="100">
+        </div>
+        <div class="form-group">
+            <label>Daily Notify Quota</label>
+            <input type="number" name="daily_notify_quota" value="{{.CirclePolicy.DailyNotifyQuota}}" min="0">
+        </div>
+        <div class="form-group">
+            <label>Daily Queued Quota</label>
+            <input type="number" name="daily_queued_quota" value="{{.CirclePolicy.DailyQueuedQuota}}" min="0">
+        </div>
+        {{if .CirclePolicy.HasHoursPolicy}}
+        <p class="meta">Hours: {{.CirclePolicy.HoursInfo}}</p>
+        {{end}}
+        <button type="submit" class="btn btn-primary">Update Policy</button>
+        <a href="/policies" class="btn btn-secondary">Back to Policies</a>
+    </form>
+</div>
+{{else}}
+<div class="card error">
+    <p>Policy not found.</p>
+</div>
+{{end}}
 {{end}}
 `

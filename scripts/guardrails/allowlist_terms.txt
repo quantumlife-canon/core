@@ -168,3 +168,10 @@ internal/demo_phase13_identity_graph/*.go
 # Also uses "role" for email participant roles (from, to, cc) which is standard
 # email terminology. QuantumLife core uses "circle" for identity.
 internal/demo_phase13_1_identity_routing_web/*.go
+
+# Phase 14: Circle Policies + Preference Learning (ADR-0030)
+# These files use "user" in comments about learning from explicit feedback signals.
+# "User marked as unnecessary" describes human-in-the-loop feedback, NOT identity.
+# QuantumLife core uses "circle" for identity - these describe the feedback workflow.
+pkg/domain/suppress/types.go
+internal/demo_phase14_policy_learning/*.go
