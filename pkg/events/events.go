@@ -599,6 +599,46 @@ const (
 	EventDraftRuleMatched   EventType = "draft.rule.matched"
 	EventDraftRuleSkipped   EventType = "draft.rule.skipped"
 	EventDraftNoRuleMatched EventType = "draft.no_rule.matched"
+
+	// Phase 5: Calendar Execution Boundary events
+	// CRITICAL: This is the FIRST real external write in QuantumLife.
+	// CRITICAL: Execution ONLY from approved drafts.
+	// CRITICAL: No auto-retries. No background execution.
+	// CRITICAL: Must be idempotent - same envelope executed twice returns same result.
+	//
+	// Reference: docs/ADR/ADR-0022-phase5-calendar-execution-boundary.md
+
+	// Envelope lifecycle events
+	Phase5CalendarEnvelopeCreated    EventType = "phase5.calendar.envelope.created"
+	Phase5CalendarEnvelopeValidated  EventType = "phase5.calendar.envelope.validated"
+	Phase5CalendarEnvelopeStoreError EventType = "phase5.calendar.envelope.store_error"
+
+	// Policy snapshot events
+	Phase5CalendarPolicySnapshotTaken    EventType = "phase5.calendar.policy.snapshot.taken"
+	Phase5CalendarPolicySnapshotVerified EventType = "phase5.calendar.policy.snapshot.verified"
+	Phase5CalendarPolicySnapshotMismatch EventType = "phase5.calendar.policy.snapshot.mismatch"
+
+	// View snapshot events
+	Phase5CalendarViewSnapshotTaken   EventType = "phase5.calendar.view.snapshot.taken"
+	Phase5CalendarViewSnapshotFresh   EventType = "phase5.calendar.view.snapshot.fresh"
+	Phase5CalendarViewSnapshotStale   EventType = "phase5.calendar.view.snapshot.stale"
+	Phase5CalendarViewSnapshotChanged EventType = "phase5.calendar.view.snapshot.changed"
+
+	// Execution lifecycle events
+	Phase5CalendarExecutionStarted    EventType = "phase5.calendar.execution.started"
+	Phase5CalendarExecutionSuccess    EventType = "phase5.calendar.execution.success"
+	Phase5CalendarExecutionFailed     EventType = "phase5.calendar.execution.failed"
+	Phase5CalendarExecutionBlocked    EventType = "phase5.calendar.execution.blocked"
+	Phase5CalendarExecutionIdempotent EventType = "phase5.calendar.execution.idempotent"
+
+	// Provider events
+	Phase5CalendarProviderCalled    EventType = "phase5.calendar.provider.called"
+	Phase5CalendarProviderSucceeded EventType = "phase5.calendar.provider.succeeded"
+	Phase5CalendarProviderFailed    EventType = "phase5.calendar.provider.failed"
+
+	// Safety events
+	Phase5CalendarSandboxEnforced EventType = "phase5.calendar.sandbox.enforced"
+	Phase5CalendarDryRunEnforced  EventType = "phase5.calendar.dryrun.enforced"
 )
 
 // Event represents a system event for audit and observability.
@@ -669,3 +709,18 @@ var (
 type eventError string
 
 func (e eventError) Error() string { return string(e) }
+
+// Emitter provides the interface for emitting events.
+type Emitter interface {
+	// Emit emits an event.
+	Emit(event Event)
+}
+
+// NoopEmitter is an emitter that does nothing.
+type NoopEmitter struct{}
+
+// Emit does nothing.
+func (n NoopEmitter) Emit(event Event) {}
+
+// Verify interface compliance.
+var _ Emitter = NoopEmitter{}

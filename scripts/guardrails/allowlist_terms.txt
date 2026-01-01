@@ -113,3 +113,14 @@ internal/drafts/email/*.go
 internal/drafts/calendar/*.go
 internal/drafts/review/*.go
 internal/demo_phase4_drafts/*.go
+
+# Phase 5: Calendar Execution Boundary (ADR-0022)
+# These files interface with Google Calendar API which uses "user" terminology
+# for attendee management and OAuth scopes. Also uses "user@example.com" in
+# test email addresses. QuantumLife core uses "circle" for identity - these are
+# calendar provider adapters that must match external API specifications.
+internal/connectors/calendar/write/*.go
+internal/connectors/calendar/write/providers/google/*.go
+internal/connectors/calendar/write/providers/mock/*.go
+internal/calendar/execution/*.go
+internal/demo_phase5_calendar_execution/*.go
