@@ -38,6 +38,13 @@ const (
 	RecordTypePolicySet      = "POLICY_SET"
 	RecordTypeSuppressionAdd = "SUPPRESSION_ADD"
 	RecordTypeSuppressionRem = "SUPPRESSION_REM"
+
+	// Intersection and approval record types (Phase 15)
+	RecordTypeIntersectionPolicy  = "INTERSECTION_POLICY"
+	RecordTypeApprovalStateCreate = "APPROVAL_STATE_CREATE"
+	RecordTypeApprovalStateRecord = "APPROVAL_STATE_RECORD"
+	RecordTypeApprovalTokenCreate = "APPROVAL_TOKEN_CREATE"
+	RecordTypeApprovalTokenRevoke = "APPROVAL_TOKEN_REVOKE"
 )
 
 // Common errors

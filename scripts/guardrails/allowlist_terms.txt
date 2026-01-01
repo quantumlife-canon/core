@@ -175,3 +175,15 @@ internal/demo_phase13_1_identity_routing_web/*.go
 # QuantumLife core uses "circle" for identity - these describe the feedback workflow.
 pkg/domain/suppress/types.go
 internal/demo_phase14_policy_learning/*.go
+
+# Phase 15: Household Approvals + Intersections (ADR-0031)
+# These files use "role" for MemberRole (owner, spouse, parent, child, guardian)
+# which is domain terminology for household member types in intersection policies.
+# "account" appears in a comment explaining RoleOwner is "primary account holder".
+# "user" is used in approvaltoken to describe "authorized user" of a token.
+# QuantumLife core uses "circle" for identity - these are approval domain components.
+pkg/domain/intersection/*.go
+pkg/domain/approvalflow/*.go
+pkg/domain/approvaltoken/*.go
+internal/persist/approval_ledger*.go
+internal/demo_phase15_household_approvals/*.go

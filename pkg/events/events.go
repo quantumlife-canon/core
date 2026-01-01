@@ -796,6 +796,65 @@ const (
 	Phase14HoursChecked EventType = "phase14.hours.checked"
 	Phase14HoursBlocked EventType = "phase14.hours.blocked"
 	Phase14HoursAllowed EventType = "phase14.hours.allowed"
+
+	// Phase 15: Household Approvals + Intersections (Deterministic, Web-first)
+	// CRITICAL: These events track multi-party approval lifecycle for household intersections.
+	// Approvals happen via web UI (mobile browser friendly) using signed tokens.
+	//
+	// Reference: docs/ADR/ADR-0031-phase15-household-approvals.md
+
+	// Intersection policy lifecycle events
+	Phase15IntersectionPolicyCreated EventType = "phase15.intersection.policy.created"
+	Phase15IntersectionPolicyUpdated EventType = "phase15.intersection.policy.updated"
+	Phase15IntersectionPolicyLoaded  EventType = "phase15.intersection.policy.loaded"
+	Phase15IntersectionMemberAdded   EventType = "phase15.intersection.member.added"
+	Phase15IntersectionMemberRemoved EventType = "phase15.intersection.member.removed"
+
+	// Approval state lifecycle events
+	Phase15ApprovalStateCreated   EventType = "phase15.approval.state.created"
+	Phase15ApprovalStateUpdated   EventType = "phase15.approval.state.updated"
+	Phase15ApprovalStateExpired   EventType = "phase15.approval.state.expired"
+	Phase15ApprovalStateCompleted EventType = "phase15.approval.state.completed"
+	Phase15ApprovalStateRejected  EventType = "phase15.approval.state.rejected"
+
+	// Approval record events
+	Phase15ApprovalRecorded     EventType = "phase15.approval.recorded"
+	Phase15ApprovalApproved     EventType = "phase15.approval.approved"
+	Phase15ApprovalRejected     EventType = "phase15.approval.rejected"
+	Phase15ApprovalFreshnessOK  EventType = "phase15.approval.freshness.ok"
+	Phase15ApprovalStale        EventType = "phase15.approval.stale"
+	Phase15ApprovalThresholdMet EventType = "phase15.approval.threshold.met"
+
+	// Approval token lifecycle events
+	Phase15TokenCreated   EventType = "phase15.token.created"
+	Phase15TokenSigned    EventType = "phase15.token.signed"
+	Phase15TokenVerified  EventType = "phase15.token.verified"
+	Phase15TokenExpired   EventType = "phase15.token.expired"
+	Phase15TokenRevoked   EventType = "phase15.token.revoked"
+	Phase15TokenInvalid   EventType = "phase15.token.invalid"
+	Phase15TokenUsed      EventType = "phase15.token.used"
+	Phase15TokenDuplicate EventType = "phase15.token.duplicate"
+
+	// Execution gating events
+	Phase15ExecutionBlockedApprovalsRequired EventType = "phase15.execution.blocked.approvals_required"
+	Phase15ExecutionBlockedApprovalsPending  EventType = "phase15.execution.blocked.approvals_pending"
+	Phase15ExecutionBlockedApprovalsExpired  EventType = "phase15.execution.blocked.approvals_expired"
+	Phase15ExecutionBlockedApprovalsRejected EventType = "phase15.execution.blocked.approvals_rejected"
+	Phase15ExecutionGatePassed               EventType = "phase15.execution.gate.passed"
+	Phase15ExecutionGateChecked              EventType = "phase15.execution.gate.checked"
+
+	// Web approval flow events
+	Phase15ApprovalPageRequested EventType = "phase15.approval.page.requested"
+	Phase15ApprovalPageRendered  EventType = "phase15.approval.page.rendered"
+	Phase15ApprovalFormSubmitted EventType = "phase15.approval.form.submitted"
+	Phase15ApprovalLinkGenerated EventType = "phase15.approval.link.generated"
+	Phase15ApprovalLinkClicked   EventType = "phase15.approval.link.clicked"
+
+	// Ledger events
+	Phase15LedgerAppend    EventType = "phase15.ledger.append"
+	Phase15LedgerReplay    EventType = "phase15.ledger.replay"
+	Phase15LedgerVerified  EventType = "phase15.ledger.verified"
+	Phase15LedgerCorrupted EventType = "phase15.ledger.corrupted"
 )
 
 // Event represents a system event for audit and observability.
