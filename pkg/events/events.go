@@ -1014,6 +1014,16 @@ const (
 	Phase17FinanceConfigProvider EventType = "phase17.finance.config.provider"
 	Phase17FinanceSandboxOnly    EventType = "phase17.finance.sandbox.only"
 	Phase17FinanceLiveBlocked    EventType = "phase17.finance.live.blocked"
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	// Phase 18.1: The Moment - Interest Registration
+	// Reference: Phase 18.1 specification
+	// ═══════════════════════════════════════════════════════════════════════════
+
+	// Interest events - email registration for early access
+	Phase18_1InterestRegistered EventType = "phase18_1.interest.registered"
+	Phase18_1InterestDuplicate  EventType = "phase18_1.interest.duplicate"
+	Phase18_1InterestInvalid    EventType = "phase18_1.interest.invalid"
 )
 
 // Event represents a system event for audit and observability.

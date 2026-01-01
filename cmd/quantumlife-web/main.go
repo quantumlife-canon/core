@@ -33,6 +33,7 @@ import (
 	emailexec "quantumlife/internal/email/execution"
 	"quantumlife/internal/execexecutor"
 	"quantumlife/internal/execrouter"
+	"quantumlife/internal/interest"
 	"quantumlife/internal/interruptions"
 	"quantumlife/internal/loop"
 	"quantumlife/internal/obligations"
@@ -62,6 +63,7 @@ type Server struct {
 	execExecutor      *execexecutor.Executor
 	multiCircleConfig *config.MultiCircleConfig
 	identityRepo      *identity.InMemoryRepository // Phase 13.1: Identity graph
+	interestStore     *interest.Store              // Phase 18.1: Interest capture
 }
 
 // eventLogger logs events.
@@ -102,6 +104,9 @@ type templateData struct {
 	CircleDetail   *loop.CircleResult
 	CirclePolicies []circlePolicyInfo
 	CirclePolicy   *circlePolicyInfo
+	// Phase 18.1: Interest capture
+	InterestSubmitted bool
+	InterestMessage   string
 }
 
 // personInfo contains person data for display. Phase 13.1.
@@ -297,6 +302,11 @@ func main() {
 		},
 	}).Parse(templates))
 
+	// Create interest store (Phase 18.1)
+	interestStore := interest.NewStore(
+		interest.WithClock(clk.Now),
+	)
+
 	// Create server
 	server := &Server{
 		engine:            engine,
@@ -306,7 +316,8 @@ func main() {
 		execRouter:        execRouter,
 		execExecutor:      execExecutor,
 		multiCircleConfig: multiCfg,
-		identityRepo:      identityRepo, // Phase 13.1
+		identityRepo:      identityRepo,  // Phase 13.1
+		interestStore:     interestStore, // Phase 18.1
 	}
 
 	// Set up routes
@@ -317,6 +328,7 @@ func main() {
 
 	// Phase 18: Public routes
 	mux.HandleFunc("/", server.handleLanding)
+	mux.HandleFunc("/interest", server.handleInterest) // Phase 18.1: Interest capture
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18: App routes (authenticated)
@@ -444,11 +456,87 @@ func (s *Server) handleLanding(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := templateData{
-		Title:       "Nothing Needs You",
+		Title:       "The Moment",
 		CurrentTime: s.clk.Now().Format("2006-01-02 15:04"),
 	}
 
-	s.render(w, "landing", data)
+	s.render(w, "moment", data)
+}
+
+// handleInterest handles POST /interest for email capture.
+// Phase 18.1: The Moment - a single interaction that earns permission.
+func (s *Server) handleInterest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	email := strings.TrimSpace(r.FormValue("email"))
+	if email == "" {
+		// Emit invalid event
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase18_1InterestInvalid,
+			Timestamp: s.clk.Now(),
+			Metadata:  map[string]string{"reason": "empty_email"},
+		})
+		// Render page with subtle error
+		data := templateData{
+			Title:             "The Moment",
+			CurrentTime:       s.clk.Now().Format("2006-01-02 15:04"),
+			InterestSubmitted: false,
+			InterestMessage:   "An email address is needed.",
+		}
+		s.render(w, "moment", data)
+		return
+	}
+
+	// Basic email validation
+	if !strings.Contains(email, "@") || !strings.Contains(email, ".") {
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase18_1InterestInvalid,
+			Timestamp: s.clk.Now(),
+			Metadata:  map[string]string{"reason": "invalid_format"},
+		})
+		data := templateData{
+			Title:             "The Moment",
+			CurrentTime:       s.clk.Now().Format("2006-01-02 15:04"),
+			InterestSubmitted: false,
+			InterestMessage:   "That doesn't look like an email address.",
+		}
+		s.render(w, "moment", data)
+		return
+	}
+
+	// Register interest
+	isNew, err := s.interestStore.Register(email, "web")
+	if err != nil {
+		log.Printf("Interest registration error: %v", err)
+	}
+
+	if isNew {
+		// Emit registered event
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase18_1InterestRegistered,
+			Timestamp: s.clk.Now(),
+			Metadata:  map[string]string{"source": "web"},
+		})
+	} else {
+		// Emit duplicate event
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase18_1InterestDuplicate,
+			Timestamp: s.clk.Now(),
+			Metadata:  map[string]string{"source": "web"},
+		})
+	}
+
+	// Same response whether new or duplicate - no information leakage
+	data := templateData{
+		Title:             "The Moment",
+		CurrentTime:       s.clk.Now().Format("2006-01-02 15:04"),
+		InterestSubmitted: true,
+		InterestMessage:   "Noted. We'll be in touch when this is real.",
+	}
+	s.render(w, "moment", data)
 }
 
 // handleDemo serves the deterministic demo page.
@@ -1297,8 +1385,81 @@ const templates = `
 </p>
 {{end}}
 
+{{/* ================================================================
+     Phase 18.1: The Moment - Emotional landing that earns trust
+     ================================================================ */}}
+{{define "moment"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "moment-content"}}
+<div class="moment">
+    {{/* ═══════════════════════════════════════════════════════════
+         Moment 1: Arrival
+         ═══════════════════════════════════════════════════════════ */}}
+    <section class="moment-section moment-arrival">
+        <h1 class="moment-headline">Nothing needs you.</h1>
+        <p class="moment-subtext">QuantumLife exists so you don't have to keep checking.</p>
+    </section>
+
+    {{/* ═══════════════════════════════════════════════════════════
+         Moment 2: Recognition
+         ═══════════════════════════════════════════════════════════ */}}
+    <section class="moment-section moment-recognition">
+        <p class="moment-para">
+            You already manage more than most systems understand.
+            Emails, family, money, work, health.
+            None of them agree on what matters now.
+        </p>
+        <p class="moment-emphasis">
+            QuantumLife doesn't add tasks.<br>
+            It removes unnecessary ones.
+        </p>
+    </section>
+
+    {{/* ═══════════════════════════════════════════════════════════
+         Moment 3: The Promise
+         ═══════════════════════════════════════════════════════════ */}}
+    <section class="moment-section moment-promise">
+        <ul class="moment-pillars">
+            <li><strong>Calm</strong> — nothing interrupts you without reason</li>
+            <li><strong>Certainty</strong> — every action is explainable</li>
+            <li><strong>Consent</strong> — nothing acts without you</li>
+        </ul>
+        <p class="moment-regret">
+            QuantumLife only surfaces what creates future regret if ignored.
+        </p>
+    </section>
+
+    {{/* ═══════════════════════════════════════════════════════════
+         Moment 4: Permission (The Only Interaction)
+         ═══════════════════════════════════════════════════════════ */}}
+    <section class="moment-section moment-permission">
+        {{if .InterestSubmitted}}
+        <p class="moment-confirmation">{{.InterestMessage}}</p>
+        {{else}}
+        <p class="moment-question">
+            Would you like a life where nothing needs you — unless it truly does?
+        </p>
+        <form action="/interest" method="POST" class="moment-form">
+            <label for="email" class="moment-label">Early access (no spam, no automation, no urgency)</label>
+            {{if .InterestMessage}}
+            <p class="moment-error">{{.InterestMessage}}</p>
+            {{end}}
+            <div class="moment-input-row">
+                <input type="email" id="email" name="email" class="moment-input" placeholder="you@example.com" required>
+                <button type="submit" class="moment-button">Notify me when this is real.</button>
+            </div>
+        </form>
+        {{end}}
+    </section>
+</div>
+{{end}}
+
 {{define "page-content"}}
-{{if eq .Title "Nothing Needs You"}}
+{{if eq .Title "The Moment"}}
+    {{template "moment-content" .}}
+{{else if eq .Title "Nothing Needs You"}}
     {{template "landing-content" .}}
 {{else if eq .Title "Demo"}}
     {{template "demo-content" .}}

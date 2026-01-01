@@ -607,4 +607,196 @@
     margin-left: calc(var(--container-padding) * -1);
     margin-right: calc(var(--container-padding) * -1);
   }
+
+  /* Moment responsive */
+  .moment-input-row {
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .moment-input {
+    width: 100%;
+  }
+
+  .moment-button {
+    width: 100%;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PHASE 18.1: THE MOMENT
+   A single emotional experience that earns trust before asking for anything.
+   ═══════════════════════════════════════════════════════════════ */
+
+.moment {
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: var(--space-16) var(--container-padding);
+}
+
+.moment-section {
+  margin-bottom: 6rem; /* Generous breathing room between conceptual shifts */
+}
+
+.moment-section:last-child {
+  margin-bottom: 0;
+}
+
+/* Moment 1: Arrival */
+.moment-arrival {
+  text-align: center;
+  padding: var(--space-16) 0;
+}
+
+.moment-headline {
+  font-size: var(--text-3xl);
+  font-weight: var(--font-semibold);
+  color: var(--color-text-primary);
+  margin-bottom: var(--space-6);
+  letter-spacing: -0.02em;
+}
+
+.moment-subtext {
+  font-size: var(--text-lg);
+  color: var(--color-text-secondary);
+  line-height: var(--leading-relaxed);
+}
+
+/* Moment 2: Recognition */
+.moment-recognition {
+  text-align: center;
+}
+
+.moment-para {
+  font-size: var(--text-base);
+  color: var(--color-text-secondary);
+  line-height: var(--leading-relaxed);
+  margin-bottom: var(--space-8);
+}
+
+.moment-emphasis {
+  font-size: var(--text-lg);
+  color: var(--color-text-primary);
+  line-height: var(--leading-relaxed);
+}
+
+/* Moment 3: The Promise */
+.moment-promise {
+  text-align: center;
+}
+
+.moment-pillars {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-12) 0 var(--space-8) 0; /* Breathing space above principles */
+}
+
+.moment-pillars li {
+  font-size: var(--text-base);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-4);
+  line-height: var(--leading-relaxed);
+}
+
+.moment-pillars li:last-child {
+  margin-bottom: 0;
+}
+
+.moment-pillars strong {
+  color: var(--color-text-primary);
+  font-weight: var(--font-medium);
+}
+
+.moment-regret {
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+  font-style: italic;
+}
+
+/* Moment 4: Permission */
+.moment-permission {
+  text-align: center;
+  padding-top: var(--space-8);
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.moment-question {
+  font-size: var(--text-lg);
+  color: var(--color-text-primary);
+  margin-bottom: var(--space-8);
+  line-height: var(--leading-relaxed);
+}
+
+.moment-form {
+  max-width: 28rem;
+  margin: 0 auto;
+}
+
+.moment-label {
+  display: block;
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+  margin-bottom: var(--space-4);
+}
+
+.moment-error {
+  font-size: var(--text-sm);
+  color: var(--color-error);
+  margin-bottom: var(--space-3);
+}
+
+.moment-input-row {
+  display: flex;
+  gap: var(--space-3);
+  align-items: stretch;
+}
+
+.moment-input {
+  flex: 1;
+  padding: var(--input-padding-y) var(--input-padding-x);
+  border: var(--input-border);
+  border-radius: var(--input-radius);
+  font-size: var(--text-base);
+  background: var(--color-surface);
+  transition: border-color var(--duration-fast) var(--easing-default);
+}
+
+.moment-input:focus {
+  outline: none;
+  border-color: var(--color-focus);
+}
+
+.moment-input::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+.moment-button {
+  padding: var(--button-padding-y) var(--button-padding-x);
+  background: var(--color-action-primary);
+  color: var(--color-action-primary-text);
+  border: none;
+  border-radius: var(--button-radius);
+  font-size: var(--button-font-size);
+  font-weight: var(--button-font-weight);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--duration-fast) var(--easing-default);
+}
+
+.moment-button:hover {
+  background: var(--color-action-primary-hover);
+}
+
+.moment-button:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.moment-confirmation {
+  font-size: var(--text-base);
+  color: var(--color-text-secondary);
+  padding: var(--space-6);
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-subtle);
 }
