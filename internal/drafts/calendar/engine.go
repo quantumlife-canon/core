@@ -105,6 +105,8 @@ func (e *Engine) Generate(ctx draft.GenerationContext) draft.GenerationResult {
 		SafetyNotes:        safetyNotes,
 		DeterministicHash:  hashContent(content.CanonicalString() + ctx.Now.UTC().Format(time.RFC3339)),
 		GenerationRuleID:   "calendar-response-basic",
+		PolicySnapshotHash: ctx.PolicySnapshotHash,
+		ViewSnapshotHash:   ctx.ViewSnapshotHash,
 	}
 
 	return draft.GenerationResult{

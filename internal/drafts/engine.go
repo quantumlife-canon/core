@@ -51,12 +51,32 @@ type ProcessResult struct {
 	Error error
 }
 
+// ProcessOptions contains optional parameters for draft processing.
+type ProcessOptions struct {
+	// PolicySnapshotHash binds the draft to a specific policy state.
+	PolicySnapshotHash string
+
+	// ViewSnapshotHash binds the draft to a specific view state.
+	ViewSnapshotHash string
+}
+
 // Process generates a draft from an obligation.
 func (e *Engine) Process(
 	circleID identity.EntityID,
 	intersectionID identity.EntityID,
 	obl *obligation.Obligation,
 	now time.Time,
+) ProcessResult {
+	return e.ProcessWithOptions(circleID, intersectionID, obl, now, ProcessOptions{})
+}
+
+// ProcessWithOptions generates a draft from an obligation with additional options.
+func (e *Engine) ProcessWithOptions(
+	circleID identity.EntityID,
+	intersectionID identity.EntityID,
+	obl *obligation.Obligation,
+	now time.Time,
+	opts ProcessOptions,
 ) ProcessResult {
 	// Check rate limit
 	if !e.quotaTracker.CanCreate(circleID, now) {
@@ -68,11 +88,13 @@ func (e *Engine) Process(
 
 	// Build generation context
 	ctx := draft.GenerationContext{
-		CircleID:       circleID,
-		IntersectionID: intersectionID,
-		Obligation:     obl,
-		Now:            now,
-		Policy:         e.policy,
+		CircleID:           circleID,
+		IntersectionID:     intersectionID,
+		Obligation:         obl,
+		Now:                now,
+		Policy:             e.policy,
+		PolicySnapshotHash: opts.PolicySnapshotHash,
+		ViewSnapshotHash:   opts.ViewSnapshotHash,
 	}
 
 	// Find a generator that can handle this obligation

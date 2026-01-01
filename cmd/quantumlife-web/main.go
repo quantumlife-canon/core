@@ -30,6 +30,8 @@ import (
 	"quantumlife/internal/drafts/email"
 	"quantumlife/internal/drafts/review"
 	emailexec "quantumlife/internal/email/execution"
+	"quantumlife/internal/execexecutor"
+	"quantumlife/internal/execrouter"
 	"quantumlife/internal/interruptions"
 	"quantumlife/internal/loop"
 	"quantumlife/internal/obligations"
@@ -53,6 +55,8 @@ type Server struct {
 	templates    *template.Template
 	eventEmitter *eventLogger
 	clk          clock.Clock
+	execRouter   *execrouter.Router
+	execExecutor *execexecutor.Executor
 }
 
 // eventLogger logs events.
@@ -79,6 +83,7 @@ type templateData struct {
 	EmailExecHist    []emailexec.Envelope
 	Message          string
 	Error            string
+	ExecOutcome      *execexecutor.ExecutionOutcome
 }
 
 // mockIdentityRepo implements IdentityRepository for obligations engine.
@@ -180,6 +185,12 @@ func main() {
 		EventEmitter:       emitter,
 	}
 
+	// Create Phase 10 execution routing components
+	execRouter := execrouter.NewRouter(clk, emitter)
+	execExecutor := execexecutor.NewExecutor(clk, emitter).
+		WithEmailExecutor(emailExecutor).
+		WithCalendarExecutor(calExecutor)
+
 	// Parse templates
 	tmpl := template.Must(template.New("").Funcs(template.FuncMap{
 		"formatTime": func(t time.Time) string {
@@ -193,6 +204,8 @@ func main() {
 		templates:    tmpl,
 		eventEmitter: emitter,
 		clk:          clk,
+		execRouter:   execRouter,
+		execExecutor: execExecutor,
 	}
 
 	// Set up routes
@@ -202,6 +215,7 @@ func main() {
 	mux.HandleFunc("/circle/", server.handleCircle)
 	mux.HandleFunc("/needs-you", server.handleNeedsYou)
 	mux.HandleFunc("/draft/", server.handleDraft)
+	mux.HandleFunc("/execute/", server.handleExecute)
 	mux.HandleFunc("/history", server.handleHistory)
 	mux.HandleFunc("/run/daily", server.handleRunDaily)
 	mux.HandleFunc("/feedback", server.handleFeedback)
@@ -504,6 +518,77 @@ func (s *Server) handleFeedback(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, r.FormValue("redirect"), http.StatusFound)
 }
 
+// handleExecute handles draft execution (Phase 10).
+// POST /execute/:draft_id - execute an approved draft
+func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract draft ID from URL
+	draftID := strings.TrimPrefix(r.URL.Path, "/execute/")
+	if draftID == "" {
+		http.Error(w, "draft ID required", http.StatusBadRequest)
+		return
+	}
+
+	// Get the draft
+	d, found := s.engine.GetDraft(draft.DraftID(draftID))
+	if !found {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Draft must be approved for execution
+	if d.Status != draft.StatusApproved {
+		data := templateData{
+			Title:       "Execution Blocked",
+			CurrentTime: s.clk.Now().Format("2006-01-02 15:04:05"),
+			Error:       fmt.Sprintf("Draft must be approved for execution. Current status: %s", d.Status),
+			Draft:       &d,
+		}
+		s.render(w, "exec-result", data)
+		return
+	}
+
+	// Build execution intent from draft
+	intent, err := s.execRouter.BuildIntentFromDraft(&d)
+	if err != nil {
+		data := templateData{
+			Title:       "Execution Failed",
+			CurrentTime: s.clk.Now().Format("2006-01-02 15:04:05"),
+			Error:       fmt.Sprintf("Failed to build execution intent: %v", err),
+			Draft:       &d,
+		}
+		s.render(w, "exec-result", data)
+		return
+	}
+
+	// Execute the intent
+	traceID := fmt.Sprintf("web-exec-%s-%d", draftID, s.clk.Now().UnixNano())
+	outcome := s.execExecutor.ExecuteIntent(context.Background(), intent, traceID)
+
+	// Render the result
+	data := templateData{
+		Title:       "Execution Result",
+		CurrentTime: s.clk.Now().Format("2006-01-02 15:04:05"),
+		Draft:       &d,
+		ExecOutcome: &outcome,
+	}
+
+	if outcome.Success {
+		data.Message = fmt.Sprintf("Execution succeeded! Intent ID: %s, Provider Response: %s",
+			outcome.IntentID, outcome.ProviderResponseID)
+	} else if outcome.Blocked {
+		data.Error = fmt.Sprintf("Execution blocked: %s", outcome.BlockedReason)
+	} else {
+		data.Error = fmt.Sprintf("Execution failed: %s", outcome.Error)
+	}
+
+	s.render(w, "exec-result", data)
+}
+
 // render executes a template.
 func (s *Server) render(w http.ResponseWriter, name string, data templateData) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -654,6 +739,24 @@ const templates = `
 {{end}}
 {{end}}
 
+{{if .ExecOutcome}}
+<div class="card">
+    <h2>Execution Outcome</h2>
+    {{if .ExecOutcome.Success}}
+    <p class="message">Execution succeeded!</p>
+    <div class="meta">
+        <p><strong>Intent ID:</strong> {{.ExecOutcome.IntentID}}</p>
+        <p><strong>Envelope ID:</strong> {{.ExecOutcome.EnvelopeID}}</p>
+        <p><strong>Provider Response:</strong> {{.ExecOutcome.ProviderResponseID}}</p>
+    </div>
+    {{else if .ExecOutcome.Blocked}}
+    <p class="error">Execution blocked: {{.ExecOutcome.BlockedReason}}</p>
+    {{else}}
+    <p class="error">Execution failed: {{.ExecOutcome.Error}}</p>
+    {{end}}
+</div>
+{{end}}
+
 {{if .Draft}}
 <div class="card">
     <h2>Draft: {{.Draft.DraftType}}</h2>
@@ -678,6 +781,17 @@ const templates = `
             <input type="hidden" name="reason" value="rejected via web">
             <button type="submit" class="btn btn-danger">Reject</button>
         </form>
+    </div>
+    {{end}}
+    {{if eq .Draft.Status "approved"}}
+    <div class="actions" style="margin-top: 20px;">
+        <form method="POST" action="/execute/{{.Draft.DraftID}}" style="display: inline;">
+            <button type="submit" class="btn btn-primary">Execute</button>
+        </form>
+        <p style="margin-top: 10px; color: #666; font-size: 14px;">
+            Policy Hash: {{.Draft.PolicySnapshotHash}}<br>
+            View Hash: {{.Draft.ViewSnapshotHash}}
+        </p>
     </div>
     {{end}}
 </div>
@@ -735,6 +849,10 @@ const templates = `
 {{end}}
 
 {{define "error"}}
+{{template "base" .}}
+{{end}}
+
+{{define "exec-result"}}
 {{template "base" .}}
 {{end}}
 `

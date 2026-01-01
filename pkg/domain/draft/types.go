@@ -102,6 +102,14 @@ type Draft struct {
 
 	// GenerationRuleID identifies which rule generated this draft.
 	GenerationRuleID string
+
+	// PolicySnapshotHash binds this draft to a specific policy state.
+	// Required for execution.
+	PolicySnapshotHash string
+
+	// ViewSnapshotHash binds this draft to a specific view state.
+	// Required for execution.
+	ViewSnapshotHash string
 }
 
 // DraftContent is the interface for type-specific draft content.
@@ -247,7 +255,7 @@ func (d *Draft) CanonicalString() string {
 		contentCanonical = d.Content.CanonicalString()
 	}
 
-	return fmt.Sprintf("draft|type:%s|circle:%s|intersection:%s|obligation:%s|events:%s|created:%s|expires:%s|status:%s|content:{%s}|safety:%s|rule:%s",
+	return fmt.Sprintf("draft|type:%s|circle:%s|intersection:%s|obligation:%s|events:%s|created:%s|expires:%s|status:%s|content:{%s}|safety:%s|rule:%s|policy_hash:%s|view_hash:%s",
 		d.DraftType,
 		d.CircleID,
 		d.IntersectionID,
@@ -259,6 +267,8 @@ func (d *Draft) CanonicalString() string {
 		contentCanonical,
 		strings.Join(safetyNotes, ";"),
 		d.GenerationRuleID,
+		d.PolicySnapshotHash,
+		d.ViewSnapshotHash,
 	)
 }
 

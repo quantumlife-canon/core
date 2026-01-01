@@ -24,6 +24,12 @@ type GenerationContext struct {
 
 	// Policy is the draft policy to use.
 	Policy DraftPolicy
+
+	// PolicySnapshotHash binds drafts to policy state (Phase 10).
+	PolicySnapshotHash string
+
+	// ViewSnapshotHash binds drafts to view state (Phase 10).
+	ViewSnapshotHash string
 }
 
 // GenerationResult contains the outcome of draft generation.

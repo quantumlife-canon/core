@@ -701,6 +701,39 @@ const (
 	// Safety events
 	EmailSandboxEnforced EventType = "email.sandbox.enforced"
 	EmailDryRunEnforced  EventType = "email.dryrun.enforced"
+
+	// Phase 10: Approved Draft → Execution Routing events
+	// CRITICAL: Execution ONLY via boundary executors (Phase 5 calendar, Phase 7 email).
+	// CRITICAL: No background execution. Execution occurs during user HTTP request.
+	// CRITICAL: Execution is idempotent and blocked if hashes missing/mismatch.
+	//
+	// Reference: Phase 10 - Approved Draft → Execution Routing
+
+	// Intent lifecycle events
+	Phase10IntentBuilt           EventType = "phase10.intent.built"
+	Phase10IntentValidated       EventType = "phase10.intent.validated"
+	Phase10IntentValidationError EventType = "phase10.intent.validation_error"
+
+	// Execution routing events
+	Phase10ExecutionRequested EventType = "phase10.intent.execution.requested"
+	Phase10ExecutionRouted    EventType = "phase10.intent.execution.routed"
+	Phase10ExecutionSucceeded EventType = "phase10.intent.execution.succeeded"
+	Phase10ExecutionBlocked   EventType = "phase10.intent.execution.blocked"
+	Phase10ExecutionFailed    EventType = "phase10.intent.execution.failed"
+
+	// Draft execution events (web layer)
+	Phase10DraftExecuteRequested EventType = "phase10.draft.execute.requested"
+	Phase10DraftExecuteCompleted EventType = "phase10.draft.execute.completed"
+	Phase10DraftExecuteBlocked   EventType = "phase10.draft.execute.blocked"
+	Phase10DraftExecuteFailed    EventType = "phase10.draft.execute.failed"
+
+	// Hash binding events
+	Phase10HashBindingMissing          EventType = "phase10.hash.binding.missing"
+	Phase10HashBindingVerified         EventType = "phase10.hash.binding.verified"
+	Phase10PolicyHashMissing           EventType = "phase10.policy_hash.missing"
+	Phase10ViewHashMissing             EventType = "phase10.view_hash.missing"
+	Phase10ExecutionBlockedNoHash      EventType = "phase10.execution.blocked.no_hash"
+	Phase10ExecutionBlockedNotApproved EventType = "phase10.execution.blocked.not_approved"
 )
 
 // Event represents a system event for audit and observability.

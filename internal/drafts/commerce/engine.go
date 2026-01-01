@@ -401,6 +401,8 @@ func (e *Engine) buildDraft(
 		SafetyNotes:        safetyNotes,
 		DeterministicHash:  hashContent(content.CanonicalString() + ctx.Now.UTC().Format(time.RFC3339)),
 		GenerationRuleID:   ruleID,
+		PolicySnapshotHash: ctx.PolicySnapshotHash,
+		ViewSnapshotHash:   ctx.ViewSnapshotHash,
 	}
 
 	return draft.GenerationResult{
