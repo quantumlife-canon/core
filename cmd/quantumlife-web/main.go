@@ -22,6 +22,7 @@ import (
 	"time"
 
 	calexec "quantumlife/internal/calendar/execution"
+	"quantumlife/internal/config"
 	mockcal "quantumlife/internal/connectors/calendar/write/providers/mock"
 	mockemail "quantumlife/internal/connectors/email/write/providers/mock"
 	"quantumlife/internal/drafts"
@@ -45,18 +46,20 @@ import (
 )
 
 var (
-	addr     = flag.String("addr", ":8080", "HTTP listen address")
-	mockData = flag.Bool("mock", true, "Use mock data")
+	addr       = flag.String("addr", ":8080", "HTTP listen address")
+	mockData   = flag.Bool("mock", true, "Use mock data")
+	configPath = flag.String("config", "configs/circles/default.qlconf", "Path to circle configuration file")
 )
 
 // Server handles HTTP requests.
 type Server struct {
-	engine       *loop.Engine
-	templates    *template.Template
-	eventEmitter *eventLogger
-	clk          clock.Clock
-	execRouter   *execrouter.Router
-	execExecutor *execexecutor.Executor
+	engine            *loop.Engine
+	templates         *template.Template
+	eventEmitter      *eventLogger
+	clk               clock.Clock
+	execRouter        *execrouter.Router
+	execExecutor      *execexecutor.Executor
+	multiCircleConfig *config.MultiCircleConfig
 }
 
 // eventLogger logs events.
@@ -84,6 +87,21 @@ type templateData struct {
 	Message          string
 	Error            string
 	ExecOutcome      *execexecutor.ExecutionOutcome
+	CircleConfigs    []circleConfigInfo
+	ConfigHash       string
+	ConfigPath       string
+}
+
+// circleConfigInfo contains config info for display.
+type circleConfigInfo struct {
+	ID                   string
+	Name                 string
+	EmailCount           int
+	CalendarCount        int
+	FinanceCount         int
+	EmailIntegrations    []string
+	CalendarIntegrations []string
+	FinanceIntegrations  []string
 }
 
 // mockIdentityRepo implements IdentityRepository for obligations engine.
@@ -102,6 +120,21 @@ func main() {
 
 	// Create clock (real time for production web server)
 	clk := clock.NewReal()
+
+	// Load multi-circle configuration (Phase 11)
+	var multiCfg *config.MultiCircleConfig
+	if *configPath != "" {
+		cfg, err := config.LoadFromFile(*configPath, clk.Now())
+		if err != nil {
+			log.Printf("Warning: failed to load config from %s: %v (using default)", *configPath, err)
+			multiCfg = config.DefaultConfig(clk.Now())
+		} else {
+			multiCfg = cfg
+			log.Printf("Loaded config from %s (hash: %s)", *configPath, cfg.Hash()[:16])
+		}
+	} else {
+		multiCfg = config.DefaultConfig(clk.Now())
+	}
 
 	// Create event logger
 	emitter := &eventLogger{}
@@ -200,12 +233,13 @@ func main() {
 
 	// Create server
 	server := &Server{
-		engine:       engine,
-		templates:    tmpl,
-		eventEmitter: emitter,
-		clk:          clk,
-		execRouter:   execRouter,
-		execExecutor: execExecutor,
+		engine:            engine,
+		templates:         tmpl,
+		eventEmitter:      emitter,
+		clk:               clk,
+		execRouter:        execRouter,
+		execExecutor:      execExecutor,
+		multiCircleConfig: multiCfg,
 	}
 
 	// Set up routes
@@ -338,10 +372,43 @@ func (s *Server) handleCircles(w http.ResponseWriter, r *http.Request) {
 		IncludeMockData: *mockData,
 	})
 
+	// Build circle config info (Phase 11)
+	var circleConfigs []circleConfigInfo
+	if s.multiCircleConfig != nil {
+		for _, circleID := range s.multiCircleConfig.CircleIDs() {
+			circle := s.multiCircleConfig.GetCircle(circleID)
+			if circle == nil {
+				continue
+			}
+			info := circleConfigInfo{
+				ID:            string(circle.ID),
+				Name:          circle.Name,
+				EmailCount:    len(circle.EmailIntegrations),
+				CalendarCount: len(circle.CalendarIntegrations),
+				FinanceCount:  len(circle.FinanceIntegrations),
+			}
+			for _, e := range circle.EmailIntegrations {
+				info.EmailIntegrations = append(info.EmailIntegrations, e.Provider+":"+e.Identifier)
+			}
+			for _, c := range circle.CalendarIntegrations {
+				info.CalendarIntegrations = append(info.CalendarIntegrations, c.Provider+":"+c.CalendarID)
+			}
+			for _, f := range circle.FinanceIntegrations {
+				info.FinanceIntegrations = append(info.FinanceIntegrations, f.Provider+":"+f.Identifier)
+			}
+			circleConfigs = append(circleConfigs, info)
+		}
+	}
+
 	data := templateData{
-		Title:       "Circles",
-		CurrentTime: s.clk.Now().Format("2006-01-02 15:04:05"),
-		Circles:     result.Circles,
+		Title:         "Circles",
+		CurrentTime:   s.clk.Now().Format("2006-01-02 15:04:05"),
+		Circles:       result.Circles,
+		CircleConfigs: circleConfigs,
+		ConfigPath:    *configPath,
+	}
+	if s.multiCircleConfig != nil {
+		data.ConfigHash = s.multiCircleConfig.Hash()[:16]
 	}
 
 	s.render(w, "circles", data)
@@ -475,22 +542,38 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleRunDaily triggers a daily loop run.
+// Supports optional circle parameter: POST /run/daily?circle=<id>
 func (s *Server) handleRunDaily(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	result := s.engine.Run(context.Background(), loop.RunOptions{
+	// Check for circle-specific run (Phase 11)
+	circleID := identity.EntityID(r.URL.Query().Get("circle"))
+
+	opts := loop.RunOptions{
 		IncludeMockData:       *mockData,
 		ExecuteApprovedDrafts: true,
-	})
+	}
+	if circleID != "" {
+		opts.CircleID = circleID
+	}
+
+	result := s.engine.Run(context.Background(), opts)
+
+	var message string
+	if circleID != "" {
+		message = fmt.Sprintf("Daily run completed for circle %s. RunID: %s, Duration: %v", circleID, result.RunID, result.CompletedAt.Sub(result.StartedAt))
+	} else {
+		message = fmt.Sprintf("Daily run completed (all circles). RunID: %s, Duration: %v", result.RunID, result.CompletedAt.Sub(result.StartedAt))
+	}
 
 	data := templateData{
 		Title:       "Run Complete",
 		CurrentTime: s.clk.Now().Format("2006-01-02 15:04:05"),
 		RunResult:   &result,
-		Message:     fmt.Sprintf("Daily run completed. RunID: %s, Duration: %v", result.RunID, result.CompletedAt.Sub(result.StartedAt)),
+		Message:     message,
 	}
 
 	s.render(w, "run-result", data)

@@ -1,0 +1,34 @@
+# QuantumLife Multi-Circle Configuration
+# Format: .qlconf (stdlib-only, no external deps)
+# Reference: docs/ADR/ADR-0026-phase11-multicircle-real-loop.md
+
+# Personal Circle - default for most personal activities
+[circle:personal]
+name = Personal
+email = google:me@gmail.com:email:read
+calendar = google:primary:calendar:read
+
+# Work Circle - professional activities
+[circle:work]
+name = Work
+email = google:work@company.com:email:read
+calendar = google:work:calendar:read
+
+# Family Circle - shared family activities
+[circle:family]
+name = Family
+calendar = google:family:calendar:read
+
+# Finance Circle - financial monitoring (read-only)
+[circle:finance]
+name = Finance
+# finance = plaid:checking:finance:read
+# finance = plaid:savings:finance:read
+
+# Routing Rules
+# These rules determine how events are routed to circles
+[routing]
+work_domains = company.com, corp.company.com
+personal_domains = gmail.com, yahoo.com, outlook.com
+family_members = spouse@gmail.com, child@gmail.com
+vip_senders = ceo@company.com, manager@company.com

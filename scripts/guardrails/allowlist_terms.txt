@@ -139,3 +139,15 @@ internal/connectors/email/write/providers/google/*.go
 internal/connectors/email/write/providers/mock/*.go
 internal/email/execution/*.go
 internal/demo_phase7_email_execution/*.go
+
+# Phase 11: Multi-Circle Real Data Quiet Loop (ADR-0026)
+# These files use "account" for email/calendar/finance account context
+# (e.g., email account, calendar account, bank account) NOT "user account".
+# The multi-circle configuration requires this terminology to describe
+# integrations with external providers. Also uses "user@example.com" in
+# test email addresses. QuantumLife core uses "circle" for identity -
+# these are configuration and routing components.
+internal/config/*.go
+internal/routing/*.go
+internal/loop/multi_circle.go
+internal/demo_phase11_multicircle/*.go

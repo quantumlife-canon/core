@@ -81,6 +81,10 @@ func (e *BaseEvent) CircleID() identity.EntityID      { return e.Circle }
 func (e *BaseEvent) EntityRefs() []identity.EntityRef { return e.Entities }
 func (e *BaseEvent) CanonicalString() string          { return e.Canonical }
 
+// SetCircleID sets the circle ID for this event.
+// Used during ingestion to assign events to circles based on routing rules.
+func (e *BaseEvent) SetCircleID(circleID identity.EntityID) { e.Circle = circleID }
+
 // generateEventID creates a deterministic event ID from type and canonical string.
 func generateEventID(eventType EventType, canonicalStr string) string {
 	hash := sha256.Sum256([]byte(canonicalStr))

@@ -734,6 +734,17 @@ const (
 	Phase10ViewHashMissing             EventType = "phase10.view_hash.missing"
 	Phase10ExecutionBlockedNoHash      EventType = "phase10.execution.blocked.no_hash"
 	Phase10ExecutionBlockedNotApproved EventType = "phase10.execution.blocked.not_approved"
+
+	// Phase 11: Multi-Circle Real Loop events
+	Phase11MultiCircleRunStarted   EventType = "phase11.multicircle.run.started"
+	Phase11MultiCircleRunCompleted EventType = "phase11.multicircle.run.completed"
+	Phase11IngestionStarted        EventType = "phase11.ingestion.started"
+	Phase11IngestionCompleted      EventType = "phase11.ingestion.completed"
+	Phase11CircleSynced            EventType = "phase11.circle.synced"
+	Phase11ConfigLoaded            EventType = "phase11.config.loaded"
+	Phase11ConfigError             EventType = "phase11.config.error"
+	Phase11AdapterRegistered       EventType = "phase11.adapter.registered"
+	Phase11AdapterMissing          EventType = "phase11.adapter.missing"
 )
 
 // Event represents a system event for audit and observability.
