@@ -53,8 +53,8 @@ type EnvelopeStore interface {
 
 // InMemoryEnvelopeStore is an in-memory envelope store for testing.
 type InMemoryEnvelopeStore struct {
-	envelopes   map[string]*execution.ExecutionEnvelope
-	byIntentID  map[string]string // intentID -> envelopeID
+	envelopes  map[string]*execution.ExecutionEnvelope
+	byIntentID map[string]string // intentID -> envelopeID
 }
 
 // NewInMemoryEnvelopeStore creates a new in-memory envelope store.

@@ -141,8 +141,8 @@ func (s *FinanceEnvelopeStore) Stats() FinanceEnvelopeStoreStats {
 	defer s.mu.RUnlock()
 
 	return FinanceEnvelopeStoreStats{
-		TotalEnvelopes:  len(s.envelopes),
-		IntentMappings:  len(s.byIntentID),
+		TotalEnvelopes: len(s.envelopes),
+		IntentMappings: len(s.byIntentID),
 	}
 }
 

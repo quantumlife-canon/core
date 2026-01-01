@@ -272,12 +272,12 @@ func TestDemoDataDeterminism(t *testing.T) {
 func TestVocabularyContractTerms(t *testing.T) {
 	// From PRODUCT_LANGUAGE_SYSTEM_V1.md - core terms
 	coreTerms := map[string][]string{
-		"Circle":     {"folder", "category", "workspace"},         // NEVER substitute with
-		"Needs You":  {"pending", "todo", "unread", "inbox"},      // NEVER substitute with
-		"Draft":      {"suggestion", "recommendation", "preview"}, // NEVER substitute with
-		"Handled":    {"done", "finished", "completed"},           // NEVER substitute with
-		"Approval":   {"permission", "consent", "allow"},          // Context-specific
-		"Policy":     {"preference", "setting", "rule"},           // Context-specific
+		"Circle":    {"folder", "category", "workspace"},         // NEVER substitute with
+		"Needs You": {"pending", "todo", "unread", "inbox"},      // NEVER substitute with
+		"Draft":     {"suggestion", "recommendation", "preview"}, // NEVER substitute with
+		"Handled":   {"done", "finished", "completed"},           // NEVER substitute with
+		"Approval":  {"permission", "consent", "allow"},          // Context-specific
+		"Policy":    {"preference", "setting", "rule"},           // Context-specific
 	}
 
 	// Validate that we have the core terms defined
