@@ -7,7 +7,7 @@
 #
 # Guardrails enforce Canon invariants at build time.
 
-.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 demo-phase9 demo-phase10 demo-phase11 demo-phase12 demo-phase13 demo-phase13-1 demo-phase14 demo-phase15 demo-phase16 demo-phase18 demo-phase18-2 demo-phase18-3 web web-mock web-demo web-app web-stop web-status check-today-quietly check-held
+.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 demo-phase9 demo-phase10 demo-phase11 demo-phase12 demo-phase13 demo-phase13-1 demo-phase14 demo-phase15 demo-phase16 demo-phase18 demo-phase18-2 demo-phase18-3 demo-phase18-4 web web-mock web-demo web-app web-stop web-status check-today-quietly check-held check-quiet-shift
 
 # Default target
 all: ci
@@ -47,6 +47,7 @@ help:
 	@echo "  make demo-phase18 - Run Phase 18 product language demo"
 	@echo "  make demo-phase18-2 - Run Phase 18.2 today quietly demo"
 	@echo "  make demo-phase18-3 - Run Phase 18.3 held projection demo"
+	@echo "  make demo-phase18-4 - Run Phase 18.4 quiet shift demo"
 	@echo ""
 	@echo "Web Server:"
 	@echo "  make web          - Run web server on :8080 (real mode)"
@@ -79,6 +80,7 @@ help:
 	@echo "  make check-notification-projection - Check notification projection constraints (Phase 16)"
 	@echo "  make check-today-quietly - Check today quietly constraints (Phase 18.2)"
 	@echo "  make check-held - Check held projection constraints (Phase 18.3)"
+	@echo "  make check-quiet-shift - Check quiet shift constraints (Phase 18.4)"
 	@echo ""
 
 # Build
@@ -207,6 +209,10 @@ check-today-quietly:
 check-held:
 	@echo "Checking held projection constraints (Phase 18.3)..."
 	@./scripts/guardrails/held_projection_enforced.sh
+
+check-quiet-shift:
+	@echo "Checking quiet shift constraints (Phase 18.4)..."
+	@./scripts/guardrails/quiet_shift_enforced.sh
 
 # All guardrails
 guardrails: check-terms check-imports check-deps check-time-now check-background-async check-no-auto-retry check-single-trace-final check-write-provider-reg check-free-text-recipient check-policy-snapshot check-finance-execution
@@ -375,6 +381,12 @@ demo-phase18-2:
 demo-phase18-3:
 	@echo "Running Phase 18.3 Demo: Held, not shown..."
 	go test -v ./internal/demo_phase18_3_held/...
+
+# Phase 18.4 Demo: Quiet Shift
+# Reference: docs/ADR/ADR-0036-phase18-4-quiet-shift.md
+demo-phase18-4:
+	@echo "Running Phase 18.4 Demo: Quiet Shift..."
+	go test -v ./internal/demo_phase18_4_quiet_shift/...
 
 # =============================================================================
 # Web Server Targets

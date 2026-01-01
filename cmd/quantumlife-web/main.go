@@ -35,6 +35,7 @@ import (
 	"quantumlife/internal/execrouter"
 	"quantumlife/internal/held"
 	"quantumlife/internal/interest"
+	"quantumlife/internal/surface"
 	"quantumlife/internal/interruptions"
 	"quantumlife/internal/loop"
 	"quantumlife/internal/obligations"
@@ -70,6 +71,8 @@ type Server struct {
 	preferenceStore   *todayquietly.PreferenceStore // Phase 18.2: Preference capture
 	heldEngine        *held.Engine                  // Phase 18.3: Held, not shown
 	heldStore         *held.SummaryStore            // Phase 18.3: Summary store
+	surfaceEngine     *surface.Engine               // Phase 18.4: Quiet Shift
+	surfaceStore      *surface.ActionStore          // Phase 18.4: Action store
 }
 
 // eventLogger logs events.
@@ -119,6 +122,11 @@ type templateData struct {
 	PreferenceMessage string
 	// Phase 18.3: Held, not shown
 	HeldSummary *held.HeldSummary
+	// Phase 18.4: Quiet Shift
+	SurfaceCue         *surface.SurfaceCue
+	SurfacePage        *surface.SurfacePage
+	SurfaceActionDone  bool
+	SurfaceActionMessage string
 }
 
 // personInfo contains person data for display. Phase 13.1.
@@ -331,6 +339,12 @@ func main() {
 		held.WithStoreClock(clk.Now),
 	)
 
+	// Create surface engine and store (Phase 18.4)
+	surfaceEngine := surface.NewEngine(clk.Now)
+	surfaceStore := surface.NewActionStore(
+		surface.WithStoreClock(clk.Now),
+	)
+
 	// Create server
 	server := &Server{
 		engine:            engine,
@@ -346,6 +360,8 @@ func main() {
 		preferenceStore:   preferenceStore, // Phase 18.2
 		heldEngine:        heldEngine,      // Phase 18.3
 		heldStore:         heldStore,       // Phase 18.3
+		surfaceEngine:     surfaceEngine,   // Phase 18.4
+		surfaceStore:      surfaceStore,    // Phase 18.4
 	}
 
 	// Set up routes
@@ -360,6 +376,10 @@ func main() {
 	mux.HandleFunc("/today", server.handleToday)                 // Phase 18.2: Today, quietly
 	mux.HandleFunc("/today/preference", server.handlePreference) // Phase 18.2: Preference capture
 	mux.HandleFunc("/held", server.handleHeld)                   // Phase 18.3: Held, not shown
+	mux.HandleFunc("/surface", server.handleSurface)             // Phase 18.4: Quiet Shift
+	mux.HandleFunc("/surface/hold", server.handleSurfaceHold)    // Phase 18.4: Hold action
+	mux.HandleFunc("/surface/why", server.handleSurfaceWhy)      // Phase 18.4: Why action
+	mux.HandleFunc("/surface/prefer", server.handleSurfacePrefer) // Phase 18.4: Prefer show_all
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18: App routes (authenticated)
@@ -598,10 +618,43 @@ func (s *Server) handleToday(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 
+	// Phase 18.4: Build surface cue
+	// Get user preference from store (default to quiet)
+	pref := s.preferenceStore.LatestPreference()
+	if pref == "" {
+		pref = "quiet"
+	}
+
+	surfaceInput := surface.SurfaceInput{
+		HeldCategories: map[surface.Category]surface.MagnitudeBucket{
+			surface.CategoryMoney: surface.MagnitudeAFew,
+			surface.CategoryTime:  surface.MagnitudeAFew,
+			surface.CategoryWork:  surface.MagnitudeSeveral,
+		},
+		UserPreference:    pref,
+		SuppressedFinance: true,
+		SuppressedWork:    true,
+		Now:               s.clk.Now(),
+	}
+	surfaceCue := s.surfaceEngine.BuildCue(surfaceInput)
+
+	// Emit surface cue computed event
+	if surfaceCue.Available {
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase18_4SurfaceCueComputed,
+			Timestamp: s.clk.Now(),
+			Metadata: map[string]string{
+				"cue_hash":  surfaceCue.Hash,
+				"available": "true",
+			},
+		})
+	}
+
 	data := templateData{
 		Title:       "Today, quietly.",
 		CurrentTime: s.clk.Now().Format("2006-01-02 15:04"),
 		TodayPage:   &page,
+		SurfaceCue:  &surfaceCue,
 	}
 
 	s.render(w, "today", data)
@@ -695,6 +748,157 @@ func (s *Server) handleHeld(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.render(w, "held", data)
+}
+
+// handleSurface serves the surface page showing one abstract item.
+// Phase 18.4: Quiet Shift - view surfaced item.
+func (s *Server) handleSurface(w http.ResponseWriter, r *http.Request) {
+	// Get user preference
+	pref := s.preferenceStore.LatestPreference()
+	if pref == "" {
+		pref = "quiet"
+	}
+
+	// Build surface input
+	surfaceInput := surface.SurfaceInput{
+		HeldCategories: map[surface.Category]surface.MagnitudeBucket{
+			surface.CategoryMoney: surface.MagnitudeAFew,
+			surface.CategoryTime:  surface.MagnitudeAFew,
+			surface.CategoryWork:  surface.MagnitudeSeveral,
+		},
+		UserPreference:    pref,
+		SuppressedFinance: true,
+		SuppressedWork:    true,
+		Now:               s.clk.Now(),
+	}
+
+	// Check if ?why=1 query param is present
+	showExplain := r.URL.Query().Get("why") == "1"
+
+	// Generate surface page
+	surfacePage := s.surfaceEngine.BuildSurfacePage(surfaceInput, showExplain)
+
+	// Record view action
+	if err := s.surfaceStore.RecordViewed("", surfacePage.Item.ItemKeyHash); err != nil {
+		log.Printf("Surface store error: %v", err)
+	}
+
+	// Emit page rendered event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase18_4SurfacePageRendered,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"page_hash":     surfacePage.Hash,
+			"item_category": string(surfacePage.Item.Category),
+			"show_explain":  fmt.Sprintf("%t", showExplain),
+		},
+	})
+
+	// Emit viewed action event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase18_4SurfaceActionViewed,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"item_key_hash": surfacePage.Item.ItemKeyHash,
+		},
+	})
+
+	data := templateData{
+		Title:       "Something you could look at",
+		CurrentTime: s.clk.Now().Format("2006-01-02 15:04"),
+		SurfacePage: &surfacePage,
+	}
+
+	s.render(w, "surface", data)
+}
+
+// handleSurfaceHold handles POST /surface/hold - marks item as held.
+// Phase 18.4: Hold action.
+func (s *Server) handleSurfaceHold(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	itemKeyHash := r.FormValue("item_key_hash")
+
+	// Record hold action
+	if err := s.surfaceStore.RecordHeld("", itemKeyHash); err != nil {
+		log.Printf("Surface store error: %v", err)
+	}
+
+	// Emit held action event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase18_4SurfaceActionHeld,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"item_key_hash": itemKeyHash,
+		},
+	})
+
+	// Redirect to /today with confirmation
+	http.Redirect(w, r, "/today?held=1", http.StatusFound)
+}
+
+// handleSurfaceWhy handles POST /surface/why - shows explainability.
+// Phase 18.4: Why action (redirects to surface with ?why=1).
+func (s *Server) handleSurfaceWhy(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	itemKeyHash := r.FormValue("item_key_hash")
+
+	// Record why action
+	if err := s.surfaceStore.RecordWhy("", itemKeyHash); err != nil {
+		log.Printf("Surface store error: %v", err)
+	}
+
+	// Emit why action event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase18_4SurfaceActionWhy,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"item_key_hash": itemKeyHash,
+		},
+	})
+
+	// Redirect to /surface with ?why=1
+	http.Redirect(w, r, "/surface?why=1", http.StatusFound)
+}
+
+// handleSurfacePrefer handles POST /surface/prefer - sets preference to show_all.
+// Phase 18.4: Prefer show_all action.
+func (s *Server) handleSurfacePrefer(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	itemKeyHash := r.FormValue("item_key_hash")
+
+	// Record prefer action
+	if err := s.surfaceStore.RecordPreferShowAll("", itemKeyHash); err != nil {
+		log.Printf("Surface store error: %v", err)
+	}
+
+	// Update preference to show_all (reuse Phase 18.2 store)
+	if _, err := s.preferenceStore.Record("show_all", "surface"); err != nil {
+		log.Printf("Preference store error: %v", err)
+	}
+
+	// Emit prefer action event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase18_4SurfaceActionPreferShowAll,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"item_key_hash": itemKeyHash,
+		},
+	})
+
+	// Redirect to /today
+	http.Redirect(w, r, "/today", http.StatusFound)
 }
 
 // handleDemo serves the deterministic demo page.
@@ -1678,6 +1882,14 @@ const templates = `
     </section>
     {{end}}
 
+    {{/* Phase 18.4: Quiet Shift - Subtle availability cue */}}
+    {{if and .SurfaceCue .SurfaceCue.Available}}
+    <section class="quiet-shift">
+        <p class="quiet-shift-cue">{{.SurfaceCue.CueText}}</p>
+        <a href="/surface" class="quiet-shift-link">{{.SurfaceCue.LinkText}}</a>
+    </section>
+    {{end}}
+
     {{/* Subtle links */}}
     <footer class="today-footer">
         <a href="/held" class="today-subtle-link">What are you holding for me?</a>
@@ -1724,9 +1936,67 @@ const templates = `
 </div>
 {{end}}
 
+{{/* ================================================================
+     Phase 18.4: Quiet Shift - Subtle Availability
+     ================================================================ */}}
+{{define "surface"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "surface-content"}}
+<div class="surface">
+    <header class="surface-header">
+        <h1 class="surface-title">{{.SurfacePage.Title}}</h1>
+        <p class="surface-subtitle">{{.SurfacePage.Subtitle}}</p>
+    </header>
+
+    <section class="surface-item">
+        <div class="surface-item-category">{{.SurfacePage.Item.Category}}</div>
+        <p class="surface-item-reason">{{.SurfacePage.Item.ReasonSummary}}</p>
+        <p class="surface-item-horizon">Relevant: {{.SurfacePage.Item.Horizon}}</p>
+    </section>
+
+    {{if .SurfacePage.ShowExplain}}
+    <section class="surface-explain">
+        <h2 class="surface-explain-title">Why we noticed</h2>
+        <ul class="surface-explain-list">
+            {{range .SurfacePage.Item.Explain}}
+            <li class="surface-explain-item">{{.Text}}</li>
+            {{end}}
+        </ul>
+    </section>
+    {{end}}
+
+    <section class="surface-actions">
+        <form action="/surface/hold" method="POST" class="surface-action-form">
+            <input type="hidden" name="item_key_hash" value="{{.SurfacePage.Item.ItemKeyHash}}">
+            <button type="submit" class="surface-action-button surface-action-hold">Hold this for later</button>
+        </form>
+
+        {{if not .SurfacePage.ShowExplain}}
+        <form action="/surface/why" method="POST" class="surface-action-form">
+            <input type="hidden" name="item_key_hash" value="{{.SurfacePage.Item.ItemKeyHash}}">
+            <button type="submit" class="surface-action-button surface-action-why">Show me why</button>
+        </form>
+        {{end}}
+
+        <form action="/surface/prefer" method="POST" class="surface-action-form">
+            <input type="hidden" name="item_key_hash" value="{{.SurfacePage.Item.ItemKeyHash}}">
+            <button type="submit" class="surface-action-button surface-action-prefer">I want to see everything</button>
+        </form>
+    </section>
+
+    <footer class="surface-footer">
+        <a href="/today" class="surface-back-link">Back to today</a>
+    </footer>
+</div>
+{{end}}
+
 {{define "page-content"}}
 {{if eq .Title "Held"}}
     {{template "held-content" .}}
+{{else if eq .Title "Something you could look at"}}
+    {{template "surface-content" .}}
 {{else if eq .Title "Today, quietly."}}
     {{template "today-content" .}}
 {{else if eq .Title "The Moment"}}

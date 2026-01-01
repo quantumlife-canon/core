@@ -1050,6 +1050,24 @@ const (
 
 	// Held presented event - emitted when /held page is rendered
 	Phase18_3HeldPresented EventType = "phase18_3.held.presented"
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	// Phase 18.4: Quiet Shift - Subtle Availability
+	// Reference: docs/ADR/ADR-0036-phase18-4-quiet-shift.md
+	// ═══════════════════════════════════════════════════════════════════════════
+
+	// Surface cue computed event - emitted when availability cue is determined
+	// CRITICAL: Contains hash only, never raw data or identifiers
+	Phase18_4SurfaceCueComputed EventType = "phase18_4.surface.cue.computed"
+
+	// Surface page rendered event - emitted when /surface page is shown
+	Phase18_4SurfacePageRendered EventType = "phase18_4.surface.page.rendered"
+
+	// Surface action events - emitted when user interacts with surfaced item
+	Phase18_4SurfaceActionViewed       EventType = "phase18_4.surface.action.viewed"
+	Phase18_4SurfaceActionHeld         EventType = "phase18_4.surface.action.held"
+	Phase18_4SurfaceActionWhy          EventType = "phase18_4.surface.action.why"
+	Phase18_4SurfaceActionPreferShowAll EventType = "phase18_4.surface.action.prefer_show_all"
 )
 
 // Event represents a system event for audit and observability.

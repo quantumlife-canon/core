@@ -1113,3 +1113,187 @@
 .held-back-link:hover {
   color: var(--color-text-secondary);
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   PHASE 18.4: QUIET SHIFT - SUBTLE AVAILABILITY
+   Ambient layer for optional surfacing
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Quiet shift cue - extremely subtle, easy to ignore */
+.quiet-shift {
+  text-align: center;
+  margin: var(--space-12) 0;
+  padding: var(--space-4);
+}
+
+.quiet-shift-cue {
+  font-size: var(--text-xs);
+  color: var(--color-text-quaternary);
+  margin-bottom: var(--space-2);
+  line-height: var(--leading-relaxed);
+}
+
+.quiet-shift-link {
+  font-size: var(--text-xs);
+  color: var(--color-text-quaternary);
+  text-decoration: none;
+  border-bottom: 1px dotted var(--color-text-quaternary);
+  transition: color var(--duration-fast) var(--easing-default);
+}
+
+.quiet-shift-link:hover {
+  color: var(--color-text-tertiary);
+  border-bottom-style: solid;
+}
+
+/* Surface page - minimal, centered */
+.surface {
+  max-width: 32rem;
+  margin: 0 auto;
+  padding: var(--space-16) var(--container-padding);
+  min-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.surface-header {
+  text-align: center;
+  margin-bottom: var(--space-12);
+}
+
+.surface-title {
+  font-size: var(--text-xl);
+  font-weight: var(--font-medium);
+  color: var(--color-text-primary);
+  letter-spacing: -0.01em;
+  margin-bottom: var(--space-2);
+}
+
+.surface-subtitle {
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+}
+
+/* Surface item - abstract, no identifiers */
+.surface-item {
+  text-align: center;
+  margin-bottom: var(--space-12);
+  padding: var(--space-6);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+}
+
+.surface-item-category {
+  font-size: var(--text-xs);
+  color: var(--color-text-quaternary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: var(--space-3);
+}
+
+.surface-item-reason {
+  font-size: var(--text-base);
+  color: var(--color-text-secondary);
+  line-height: var(--leading-relaxed);
+  margin-bottom: var(--space-3);
+}
+
+.surface-item-horizon {
+  font-size: var(--text-xs);
+  color: var(--color-text-quaternary);
+}
+
+/* Explainability section */
+.surface-explain {
+  margin-bottom: var(--space-12);
+  padding: var(--space-4);
+  background: var(--color-bg-subtle);
+  border-radius: var(--radius-md);
+}
+
+.surface-explain-title {
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--color-text-tertiary);
+  margin-bottom: var(--space-3);
+  text-align: center;
+}
+
+.surface-explain-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.surface-explain-item {
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+  line-height: var(--leading-relaxed);
+  padding: var(--space-2) 0;
+  text-align: center;
+}
+
+/* Surface actions - understated buttons */
+.surface-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-bottom: var(--space-12);
+}
+
+.surface-action-form {
+  display: contents;
+}
+
+.surface-action-button {
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm);
+  font-family: inherit;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--easing-default);
+}
+
+.surface-action-button:hover {
+  background: var(--color-bg-subtle);
+  color: var(--color-text-primary);
+}
+
+.surface-action-hold {
+  /* Default styling */
+}
+
+.surface-action-why {
+  /* Slightly more subtle */
+  color: var(--color-text-tertiary);
+}
+
+.surface-action-prefer {
+  /* Most subtle */
+  border-style: dashed;
+  color: var(--color-text-tertiary);
+}
+
+/* Surface footer */
+.surface-footer {
+  text-align: center;
+  margin-top: auto;
+  padding-top: var(--space-8);
+}
+
+.surface-back-link {
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+  text-decoration: none;
+  transition: color var(--duration-fast) var(--easing-default);
+}
+
+.surface-back-link:hover {
+  color: var(--color-text-secondary);
+}
