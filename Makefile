@@ -7,7 +7,7 @@
 #
 # Guardrails enforce Canon invariants at build time.
 
-.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3
+.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4
 
 # Default target
 all: ci
@@ -30,6 +30,7 @@ help:
 	@echo "Demos:"
 	@echo "  make demo-phase2  - Run Phase 2 obligation extraction demo"
 	@echo "  make demo-phase3  - Run Phase 3 interruption engine demo"
+	@echo "  make demo-phase4  - Run Phase 4 drafts-only assistance demo"
 	@echo ""
 	@echo "Guardrail Checks:"
 	@echo "  make check-terms              - Check for forbidden terms"
@@ -183,3 +184,9 @@ demo-phase2:
 demo-phase3:
 	@echo "Running Phase 3 Demo: Interruption Engine..."
 	go run ./internal/demo_phase3_interruptions
+
+# Phase 4 Demo: Drafts-Only Assistance
+# Reference: docs/ADR/ADR-0021-phase4-drafts-only-assistance.md
+demo-phase4:
+	@echo "Running Phase 4 Demo: Drafts-Only Assistance..."
+	go run ./internal/demo_phase4_drafts/main.go

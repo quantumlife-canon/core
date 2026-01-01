@@ -102,3 +102,14 @@ pkg/domain/memory/*.go
 # Phase 3.1: Digest Rollup (ADR-0020)
 # Uses "Account low" as test data for financial balance scenarios.
 pkg/domain/digestrollup/*.go
+
+# Phase 4: Drafts-Only Assistance (ADR-0021)
+# These files use "user approval" to describe the human-in-the-loop requirement
+# for drafts. This is domain terminology for the review/approve workflow.
+# QuantumLife core uses "circle" for identity - these describe the control flow.
+pkg/domain/draft/*.go
+internal/drafts/*.go
+internal/drafts/email/*.go
+internal/drafts/calendar/*.go
+internal/drafts/review/*.go
+internal/demo_phase4_drafts/*.go

@@ -563,6 +563,42 @@ const (
 
 	// EventV913ViewSnapshotBound is emitted when view snapshot is bound to envelope at creation.
 	EventV913ViewSnapshotBound EventType = "v9.view.snapshot.bound"
+
+	// Phase 4: Drafts-Only Assistance events
+	// CRITICAL: Drafts are INTERNAL ONLY. NO external writes from draft events.
+	// CRITICAL: Drafts require explicit user approval before any execution.
+	// CRITICAL: These events provide audit trail for the propose → review → (approve|reject) cycle.
+	//
+	// Reference: docs/ADR/ADR-0021-phase4-drafts-only-assistance.md
+
+	// Draft lifecycle events
+	EventDraftGenerated EventType = "draft.generated"
+	EventDraftStored    EventType = "draft.stored"
+	EventDraftDedupe    EventType = "draft.dedupe"
+	EventDraftExpired   EventType = "draft.expired"
+
+	// Draft review events
+	EventDraftReviewStarted   EventType = "draft.review.started"
+	EventDraftReviewCompleted EventType = "draft.review.completed"
+
+	// Draft approval events
+	EventDraftApproved       EventType = "draft.approved"
+	EventDraftRejected       EventType = "draft.rejected"
+	EventDraftApprovalFailed EventType = "draft.approval.failed"
+
+	// Draft safety events
+	EventDraftSafetyCheckPassed EventType = "draft.safety.check.passed"
+	EventDraftSafetyCheckFailed EventType = "draft.safety.check.failed"
+	EventDraftSafetyWarning     EventType = "draft.safety.warning"
+
+	// Draft rate limit events
+	EventDraftRateLimitChecked EventType = "draft.ratelimit.checked"
+	EventDraftRateLimitBlocked EventType = "draft.ratelimit.blocked"
+
+	// Draft generation rule events
+	EventDraftRuleMatched   EventType = "draft.rule.matched"
+	EventDraftRuleSkipped   EventType = "draft.rule.skipped"
+	EventDraftNoRuleMatched EventType = "draft.no_rule.matched"
 )
 
 // Event represents a system event for audit and observability.
