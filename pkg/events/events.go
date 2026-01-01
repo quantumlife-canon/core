@@ -921,6 +921,99 @@ const (
 	Phase16NotifyDigestSuppressed EventType = "phase16.notify.digest.suppressed"
 	Phase16NotifyDigestSent       EventType = "phase16.notify.digest.sent"
 	Phase16NotifyDigestEmpty      EventType = "phase16.notify.digest.empty"
+
+	// ==========================================================================
+	// Phase 17: Finance Execution Boundary
+	// ==========================================================================
+	//
+	// CRITICAL: This is the ONLY path to external financial writes.
+	// CRITICAL: Execution ONLY from approved drafts with household approvals.
+	// CRITICAL: No auto-retries. No background execution.
+	// CRITICAL: Must be idempotent - same envelope cannot execute twice.
+	// CRITICAL: Hard-block on missing PolicySnapshotHash or ViewSnapshotHash.
+	//
+	// Reference: docs/ADR/ADR-0033-phase17-finance-execution-boundary.md
+
+	// Draft lifecycle events
+	Phase17FinanceDraftGenerated      EventType = "phase17.finance.draft.generated"
+	Phase17FinanceDraftRejectedPolicy EventType = "phase17.finance.draft.rejected_by_policy"
+	Phase17FinanceDraftStored         EventType = "phase17.finance.draft.stored"
+	Phase17FinanceDraftExpired        EventType = "phase17.finance.draft.expired"
+
+	// Envelope lifecycle events
+	Phase17FinanceEnvelopeCreated   EventType = "phase17.finance.envelope.created"
+	Phase17FinanceEnvelopeValidated EventType = "phase17.finance.envelope.validated"
+	Phase17FinanceEnvelopeSealed    EventType = "phase17.finance.envelope.sealed"
+	Phase17FinanceEnvelopeExpired   EventType = "phase17.finance.envelope.expired"
+	Phase17FinanceEnvelopeStored    EventType = "phase17.finance.envelope.stored"
+	Phase17FinanceEnvelopeRetrieved EventType = "phase17.finance.envelope.retrieved"
+
+	// Policy snapshot events
+	Phase17FinancePolicyVerified      EventType = "phase17.finance.policy.verified"
+	Phase17FinancePolicyBlockedDrift  EventType = "phase17.finance.policy.blocked_drift"
+	Phase17FinancePolicyBlockedNoHash EventType = "phase17.finance.policy.blocked_missing_hash"
+
+	// View snapshot events
+	Phase17FinanceViewVerified      EventType = "phase17.finance.view.verified"
+	Phase17FinanceViewBlockedStale  EventType = "phase17.finance.view.blocked_stale"
+	Phase17FinanceViewBlockedHash   EventType = "phase17.finance.view.blocked_mismatch"
+	Phase17FinanceViewBlockedNoHash EventType = "phase17.finance.view.blocked_missing_hash"
+	Phase17FinanceViewSnapshotTaken EventType = "phase17.finance.view.snapshot.taken"
+
+	// Approval events
+	Phase17FinanceApprovalRequired EventType = "phase17.finance.approval.required"
+	Phase17FinanceApprovalReceived EventType = "phase17.finance.approval.received"
+	Phase17FinanceApprovalComplete EventType = "phase17.finance.approval.complete"
+	Phase17FinanceApprovalExpired  EventType = "phase17.finance.approval.expired"
+	Phase17FinanceApprovalRejected EventType = "phase17.finance.approval.rejected"
+	Phase17FinanceApprovalPending  EventType = "phase17.finance.approval.pending"
+
+	// Execution lifecycle events
+	Phase17FinanceExecutionStarted   EventType = "phase17.finance.execution.started"
+	Phase17FinanceExecutionSucceeded EventType = "phase17.finance.execution.succeeded"
+	Phase17FinanceExecutionFailed    EventType = "phase17.finance.execution.failed"
+	Phase17FinanceExecutionBlocked   EventType = "phase17.finance.execution.blocked"
+	Phase17FinanceExecutionAborted   EventType = "phase17.finance.execution.aborted"
+
+	// Idempotency events
+	Phase17FinanceIdempotencyReplayBlocked EventType = "phase17.finance.idempotency.replay_blocked"
+	Phase17FinanceIdempotencyKeyDerived    EventType = "phase17.finance.idempotency.key_derived"
+
+	// Caps enforcement events
+	Phase17FinanceCapsChecked      EventType = "phase17.finance.caps.checked"
+	Phase17FinanceCapsBlocked      EventType = "phase17.finance.caps.blocked"
+	Phase17FinanceCapsAmountFailed EventType = "phase17.finance.caps.amount_failed"
+	Phase17FinanceCapsRateFailed   EventType = "phase17.finance.caps.rate_failed"
+
+	// Provider/payee registry events
+	Phase17FinanceProviderAllowed      EventType = "phase17.finance.provider.allowed"
+	Phase17FinanceProviderBlocked      EventType = "phase17.finance.provider.blocked"
+	Phase17FinancePayeeAllowed         EventType = "phase17.finance.payee.allowed"
+	Phase17FinancePayeeBlocked         EventType = "phase17.finance.payee.blocked"
+	Phase17FinancePayeeNotRegistered   EventType = "phase17.finance.payee.not_registered"
+	Phase17FinancePayeeProviderNoMatch EventType = "phase17.finance.payee.provider_mismatch"
+
+	// Adapter events
+	Phase17FinanceAdapterPrepared EventType = "phase17.finance.adapter.prepared"
+	Phase17FinanceAdapterInvoked  EventType = "phase17.finance.adapter.invoked"
+	Phase17FinanceAdapterBlocked  EventType = "phase17.finance.adapter.blocked"
+	Phase17FinanceAdapterFailed   EventType = "phase17.finance.adapter.failed"
+
+	// Settlement events
+	Phase17FinanceSettlementRecorded  EventType = "phase17.finance.settlement.recorded"
+	Phase17FinanceSettlementSimulated EventType = "phase17.finance.settlement.simulated"
+	Phase17FinanceSettlementBlocked   EventType = "phase17.finance.settlement.blocked"
+
+	// Store events
+	Phase17FinanceStoreAppend EventType = "phase17.finance.store.append"
+	Phase17FinanceStoreReplay EventType = "phase17.finance.store.replay"
+	Phase17FinanceStoreError  EventType = "phase17.finance.store.error"
+
+	// Config events
+	Phase17FinanceConfigMode     EventType = "phase17.finance.config.mode"
+	Phase17FinanceConfigProvider EventType = "phase17.finance.config.provider"
+	Phase17FinanceSandboxOnly    EventType = "phase17.finance.sandbox.only"
+	Phase17FinanceLiveBlocked    EventType = "phase17.finance.live.blocked"
 )
 
 // Event represents a system event for audit and observability.

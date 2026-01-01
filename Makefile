@@ -189,8 +189,12 @@ check-notification-projection:
 	@echo "Checking notification projection constraints (Phase 16)..."
 	@./scripts/guardrails/notification_projection_enforced.sh
 
+check-finance-execution:
+	@echo "Checking finance execution constraints (Phase 17)..."
+	@./scripts/guardrails/finance_execution_enforced.sh
+
 # All guardrails
-guardrails: check-terms check-imports check-deps check-time-now check-background-async check-no-auto-retry check-single-trace-final check-write-provider-reg check-free-text-recipient check-policy-snapshot
+guardrails: check-terms check-imports check-deps check-time-now check-background-async check-no-auto-retry check-single-trace-final check-write-provider-reg check-free-text-recipient check-policy-snapshot check-finance-execution
 	@echo ""
 	@echo "All guardrails passed."
 
@@ -215,6 +219,7 @@ ci: fmt-check vet build test guardrails
 	@echo "  ✓ Write provider registry (v9.9)"
 	@echo "  ✓ Free-text recipient elimination (v9.10)"
 	@echo "  ✓ Policy snapshot enforcement (v9.12.1)"
+	@echo "  ✓ Finance execution boundary (Phase 17)"
 
 # Clean
 clean:

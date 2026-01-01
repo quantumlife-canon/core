@@ -187,3 +187,10 @@ pkg/domain/approvalflow/*.go
 pkg/domain/approvaltoken/*.go
 internal/persist/approval_ledger*.go
 internal/demo_phase15_household_approvals/*.go
+
+# Phase 17: Finance Execution Boundary (ADR-0033)
+# These files use "role" for MemberRole (from intersection package) in approval
+# tests for household payment scenarios. Also uses "account" in "joint account"
+# to describe shared family finances. QuantumLife core uses "circle" for identity -
+# these are finance execution demo components testing household approvals.
+internal/demo_phase17_finance_execution/*.go
