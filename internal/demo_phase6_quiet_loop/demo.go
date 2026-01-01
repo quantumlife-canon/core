@@ -24,6 +24,7 @@ import (
 	mockcal "quantumlife/internal/connectors/calendar/write/providers/mock"
 	"quantumlife/internal/drafts"
 	"quantumlife/internal/drafts/calendar"
+	"quantumlife/internal/drafts/commerce"
 	"quantumlife/internal/drafts/email"
 	"quantumlife/internal/drafts/review"
 	"quantumlife/internal/interruptions"
@@ -110,7 +111,8 @@ func RunDemo() DemoResult {
 	draftPolicy := draft.DefaultDraftPolicy()
 	emailEngine := email.NewDefaultEngine()
 	calendarEngine := calendar.NewDefaultEngine()
-	draftEngine := drafts.NewEngine(draftStore, draftPolicy, emailEngine, calendarEngine)
+	commerceEngine := commerce.NewDefaultEngine()
+	draftEngine := drafts.NewEngine(draftStore, draftPolicy, emailEngine, calendarEngine, commerceEngine)
 
 	reviewService := review.NewService(draftStore)
 

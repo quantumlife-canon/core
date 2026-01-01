@@ -17,6 +17,7 @@ import (
 
 	"quantumlife/internal/drafts"
 	"quantumlife/internal/drafts/calendar"
+	"quantumlife/internal/drafts/commerce"
 	"quantumlife/internal/drafts/email"
 	"quantumlife/internal/drafts/review"
 	"quantumlife/pkg/domain/draft"
@@ -45,7 +46,8 @@ func RunDemo() DemoResult {
 	policy := draft.DefaultDraftPolicy()
 	emailEngine := email.NewDefaultEngine()
 	calendarEngine := calendar.NewDefaultEngine()
-	engine := drafts.NewEngine(store, policy, emailEngine, calendarEngine)
+	commerceEngine := commerce.NewDefaultEngine()
+	engine := drafts.NewEngine(store, policy, emailEngine, calendarEngine, commerceEngine)
 	reviewService := review.NewService(store)
 
 	out.WriteString("1. DRAFT GENERATION FROM OBLIGATIONS\n")

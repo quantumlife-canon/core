@@ -313,6 +313,23 @@ func (d *Draft) DedupKey() string {
 		typeSpecificKey = content.ThreadID
 	case CalendarDraftContent:
 		typeSpecificKey = content.EventID
+	case ShipmentFollowUpContent:
+		typeSpecificKey = content.TrackingID
+		if typeSpecificKey == "" {
+			typeSpecificKey = content.OrderID
+		}
+	case RefundFollowUpContent:
+		typeSpecificKey = content.OrderID
+	case InvoiceReminderContent:
+		typeSpecificKey = content.InvoiceID
+		if typeSpecificKey == "" {
+			typeSpecificKey = content.OrderID
+		}
+	case SubscriptionReviewContent:
+		typeSpecificKey = content.SubscriptionID
+		if typeSpecificKey == "" {
+			typeSpecificKey = content.Vendor
+		}
 	default:
 		typeSpecificKey = ""
 	}

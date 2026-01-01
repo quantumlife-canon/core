@@ -190,6 +190,7 @@ type Stats struct {
 	ExpiredDrafts  int
 	EmailDrafts    int
 	CalendarDrafts int
+	CommerceDrafts int
 }
 
 // GetStats returns current engine statistics.
@@ -217,6 +218,11 @@ func (e *Engine) GetStats() Stats {
 			stats.EmailDrafts++
 		case draft.DraftTypeCalendarResponse:
 			stats.CalendarDrafts++
+		}
+
+		// Count commerce drafts
+		if draft.IsCommerceDraft(d.DraftType) {
+			stats.CommerceDrafts++
 		}
 	}
 

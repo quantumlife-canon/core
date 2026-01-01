@@ -7,7 +7,7 @@
 #
 # Guardrails enforce Canon invariants at build time.
 
-.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 web web-mock web-stop web-status
+.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 demo-phase9 web web-mock web-stop web-status
 
 # Default target
 all: ci
@@ -35,6 +35,7 @@ help:
 	@echo "  make demo-phase6  - Run Phase 6 quiet loop demo"
 	@echo "  make demo-phase7  - Run Phase 7 email execution demo"
 	@echo "  make demo-phase8  - Run Phase 8 commerce mirror demo"
+	@echo "  make demo-phase9  - Run Phase 9 commerce action drafts demo"
 	@echo ""
 	@echo "Web Server:"
 	@echo "  make web          - Run web server on :8080 (real mode)"
@@ -54,6 +55,7 @@ help:
 	@echo "  make check-free-text-recipient- Check free-text recipient elimination (v9.10)"
 	@echo "  make check-policy-snapshot    - Check policy snapshot enforcement (v9.12.1)"
 	@echo "  make check-email-execution    - Check email execution boundary (Phase 7)"
+	@echo "  make check-commerce-drafts    - Check commerce drafts boundary (Phase 9)"
 	@echo ""
 
 # Build
@@ -134,6 +136,10 @@ check-policy-snapshot:
 check-email-execution:
 	@echo "Checking email execution boundary (Phase 7)..."
 	@./scripts/guardrails/email_execution_enforced.sh
+
+check-commerce-drafts:
+	@echo "Checking commerce drafts boundary (Phase 9)..."
+	@./scripts/guardrails/commerce_drafts_enforced.sh
 
 # All guardrails
 guardrails: check-terms check-imports check-deps check-time-now check-background-async check-no-auto-retry check-single-trace-final check-write-provider-reg check-free-text-recipient check-policy-snapshot
@@ -229,6 +235,12 @@ demo-phase7:
 demo-phase8:
 	@echo "Running Phase 8 Demo: Commerce Mirror..."
 	go test -v ./internal/demo_phase8_commerce_mirror/...
+
+# Phase 9 Demo: Commerce Action Drafts
+# Reference: docs/ADR/ADR-0025-phase9-commerce-action-drafts.md
+demo-phase9:
+	@echo "Running Phase 9 Demo: Commerce Action Drafts..."
+	go test -v ./internal/demo_phase9_commerce_drafts/...
 
 # =============================================================================
 # Web Server Targets

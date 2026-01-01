@@ -140,3 +140,66 @@ func DefaultCalendarRules() CalendarRules {
 		DefaultResponse:        CalendarResponseTentative,
 	}
 }
+
+// CommerceContext provides commerce-specific context for draft generation.
+type CommerceContext struct {
+	// Vendor is the canonical merchant name.
+	Vendor string
+
+	// VendorDomain is the vendor's email domain (e.g., "amazon.co.uk").
+	VendorDomain string
+
+	// OrderID is the order reference (may be empty).
+	OrderID string
+
+	// TrackingID is the shipment tracking number (may be empty).
+	TrackingID string
+
+	// InvoiceID is the invoice reference (may be empty).
+	InvoiceID string
+
+	// SubscriptionID is the subscription reference (may be empty).
+	SubscriptionID string
+
+	// AmountCents is the amount in minor currency units.
+	AmountCents int64
+
+	// Currency is the ISO 4217 currency code.
+	Currency string
+
+	// ShipmentStatus is the current shipment status.
+	ShipmentStatus string
+
+	// EventDate is the date the commerce event occurred.
+	EventDate time.Time
+
+	// DueDate is when payment/action is due (may be zero).
+	DueDate time.Time
+
+	// SourceMessageID is the email message ID that triggered this.
+	SourceMessageID string
+
+	// IsOverdue indicates if the obligation is past due.
+	IsOverdue bool
+}
+
+// CommerceRules defines deterministic rules for commerce draft generation.
+type CommerceRules struct {
+	// DefaultTTLHours is the TTL for commerce drafts.
+	DefaultTTLHours int
+
+	// MinRegretForDraft is the minimum regret score to generate a draft.
+	MinRegretForDraft float64
+
+	// IncludeAmountInSubject includes the amount in email subjects.
+	IncludeAmountInSubject bool
+}
+
+// DefaultCommerceRules returns sensible defaults for commerce drafts.
+func DefaultCommerceRules() CommerceRules {
+	return CommerceRules{
+		DefaultTTLHours:        72,
+		MinRegretForDraft:      0.0, // Generate for all commerce obligations
+		IncludeAmountInSubject: true,
+	}
+}

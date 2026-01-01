@@ -26,6 +26,7 @@ import (
 	mockemail "quantumlife/internal/connectors/email/write/providers/mock"
 	"quantumlife/internal/drafts"
 	"quantumlife/internal/drafts/calendar"
+	"quantumlife/internal/drafts/commerce"
 	"quantumlife/internal/drafts/email"
 	"quantumlife/internal/drafts/review"
 	emailexec "quantumlife/internal/email/execution"
@@ -136,7 +137,8 @@ func main() {
 	draftPolicy := draft.DefaultDraftPolicy()
 	emailEngine := email.NewDefaultEngine()
 	calendarEngine := calendar.NewDefaultEngine()
-	draftEngine := drafts.NewEngine(draftStore, draftPolicy, emailEngine, calendarEngine)
+	commerceEngine := commerce.NewDefaultEngine()
+	draftEngine := drafts.NewEngine(draftStore, draftPolicy, emailEngine, calendarEngine, commerceEngine)
 
 	// Create review service
 	reviewService := review.NewService(draftStore)
@@ -650,6 +652,49 @@ const templates = `
     <a href="/circle/{{.CircleID}}" class="btn btn-secondary" style="margin-top: 10px; font-size: 12px;">View</a>
 </div>
 {{end}}
+{{end}}
+
+{{if .Draft}}
+<div class="card">
+    <h2>Draft: {{.Draft.DraftType}}</h2>
+    <span class="status-badge status-{{.Draft.Status}}">{{.Draft.Status}}</span>
+    <div class="meta">
+        <p><strong>ID:</strong> {{.Draft.DraftID}}</p>
+        <p><strong>Circle:</strong> {{.Draft.CircleID}}</p>
+        <p><strong>Created:</strong> {{formatTime .Draft.CreatedAt}}</p>
+        <p><strong>Expires:</strong> {{formatTime .Draft.ExpiresAt}}</p>
+        {{if .Draft.SourceObligationID}}
+        <p><strong>From Obligation:</strong> {{.Draft.SourceObligationID}}</p>
+        {{end}}
+    </div>
+
+    {{if eq .Draft.Status "proposed"}}
+    <div class="actions" style="margin-top: 20px;">
+        <form method="POST" action="/draft/{{.Draft.DraftID}}/approve" style="display: inline;">
+            <input type="hidden" name="reason" value="approved via web">
+            <button type="submit" class="btn btn-success">Approve</button>
+        </form>
+        <form method="POST" action="/draft/{{.Draft.DraftID}}/reject" style="display: inline; margin-left: 10px;">
+            <input type="hidden" name="reason" value="rejected via web">
+            <button type="submit" class="btn btn-danger">Reject</button>
+        </form>
+    </div>
+    {{end}}
+</div>
+{{end}}
+
+{{if .PendingDrafts}}
+<div class="card">
+    <h2>Pending Drafts</h2>
+    {{range .PendingDrafts}}
+    <div class="draft-item">
+        <strong>{{.DraftType}}</strong>
+        <span class="status-badge status-proposed">Proposed</span>
+        <div class="meta">Circle: {{.CircleID}} | Created: {{formatTime .CreatedAt}}</div>
+        <a href="/draft/{{.DraftID}}" class="btn btn-primary" style="margin-top: 10px;">Review</a>
+    </div>
+    {{end}}
+</div>
 {{end}}
 
 <div class="card" style="margin-top: 20px;">
