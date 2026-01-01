@@ -45,6 +45,15 @@ const (
 	RecordTypeApprovalStateRecord = "APPROVAL_STATE_RECORD"
 	RecordTypeApprovalTokenCreate = "APPROVAL_TOKEN_CREATE"
 	RecordTypeApprovalTokenRevoke = "APPROVAL_TOKEN_REVOKE"
+
+	// Notification record types (Phase 16)
+	RecordTypeNotificationPlanned    = "NOTIFICATION_PLANNED"
+	RecordTypeNotificationDelivered  = "NOTIFICATION_DELIVERED"
+	RecordTypeNotificationSuppressed = "NOTIFICATION_SUPPRESSED"
+	RecordTypeNotificationExpired    = "NOTIFICATION_EXPIRED"
+	RecordTypeNotifyEnvelope         = "NOTIFY_ENVELOPE"
+	RecordTypeNotifyBadge            = "NOTIFY_BADGE"
+	RecordTypeNotifyDigest           = "NOTIFY_DIGEST"
 )
 
 // Common errors

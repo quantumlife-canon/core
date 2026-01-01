@@ -855,6 +855,72 @@ const (
 	Phase15LedgerReplay    EventType = "phase15.ledger.replay"
 	Phase15LedgerVerified  EventType = "phase15.ledger.verified"
 	Phase15LedgerCorrupted EventType = "phase15.ledger.corrupted"
+
+	// ==========================================================================
+	// Phase 16: Notification Projection
+	// ==========================================================================
+
+	// Notification plan events
+	Phase16NotifyPlanCreated      EventType = "phase16.notify.plan.created"
+	Phase16NotifyPlanComputed     EventType = "phase16.notify.plan.computed"
+	Phase16NotifyPlanSuppressed   EventType = "phase16.notify.plan.suppressed"
+	Phase16NotifyPlanEmpty        EventType = "phase16.notify.plan.empty"
+	Phase16NotifyPlanHashComputed EventType = "phase16.notify.plan.hash_computed"
+
+	// Notification lifecycle events
+	Phase16NotifyCreated    EventType = "phase16.notify.created"
+	Phase16NotifyPlanned    EventType = "phase16.notify.planned"
+	Phase16NotifyDowngraded EventType = "phase16.notify.downgraded"
+	Phase16NotifySuppressed EventType = "phase16.notify.suppressed"
+	Phase16NotifyExpired    EventType = "phase16.notify.expired"
+
+	// Envelope events
+	Phase16NotifyEnvelopeCreated  EventType = "phase16.notify.envelope.created"
+	Phase16NotifyEnvelopeVerified EventType = "phase16.notify.envelope.verified"
+	Phase16NotifyEnvelopeBlocked  EventType = "phase16.notify.envelope.blocked"
+	Phase16NotifyEnvelopeExecuted EventType = "phase16.notify.envelope.executed"
+
+	// Delivery events
+	Phase16NotifyDelivered EventType = "phase16.notify.delivered"
+	Phase16NotifyFailed    EventType = "phase16.notify.failed"
+	Phase16NotifyBlocked   EventType = "phase16.notify.blocked"
+	Phase16NotifyRetryable EventType = "phase16.notify.retryable"
+
+	// Channel events
+	Phase16NotifyWebBadgeAdded    EventType = "phase16.notify.web_badge.added"
+	Phase16NotifyWebBadgeCleared  EventType = "phase16.notify.web_badge.cleared"
+	Phase16NotifyWebBadgeExpired  EventType = "phase16.notify.web_badge.expired"
+	Phase16NotifyEmailDraftCreate EventType = "phase16.notify.email_draft.created"
+	Phase16NotifyEmailDigestSent  EventType = "phase16.notify.email_digest.sent"
+	Phase16NotifyEmailAlertSent   EventType = "phase16.notify.email_alert.sent"
+	Phase16NotifyPushSent         EventType = "phase16.notify.push.sent"
+	Phase16NotifyPushBlocked      EventType = "phase16.notify.push.blocked"
+	Phase16NotifySMSSent          EventType = "phase16.notify.sms.sent"
+	Phase16NotifySMSBlocked       EventType = "phase16.notify.sms.blocked"
+
+	// Policy events
+	Phase16NotifyQuietHoursActive   EventType = "phase16.notify.quiet_hours.active"
+	Phase16NotifyQuietHoursInactive EventType = "phase16.notify.quiet_hours.inactive"
+	Phase16NotifyQuotaExceeded      EventType = "phase16.notify.quota.exceeded"
+	Phase16NotifyQuotaReset         EventType = "phase16.notify.quota.reset"
+	Phase16NotifyPrivacyBlocked     EventType = "phase16.notify.privacy.blocked"
+
+	// Audience events
+	Phase16NotifyAudienceResolved   EventType = "phase16.notify.audience.resolved"
+	Phase16NotifyAudienceOwnerOnly  EventType = "phase16.notify.audience.owner_only"
+	Phase16NotifyAudienceSpouseOnly EventType = "phase16.notify.audience.spouse_only"
+	Phase16NotifyAudienceBoth       EventType = "phase16.notify.audience.both"
+
+	// Store events
+	Phase16NotifyStoreAppend EventType = "phase16.notify.store.append"
+	Phase16NotifyStoreReplay EventType = "phase16.notify.store.replay"
+	Phase16NotifyStoreError  EventType = "phase16.notify.store.error"
+
+	// Digest events
+	Phase16NotifyDigestPlanned    EventType = "phase16.notify.digest.planned"
+	Phase16NotifyDigestSuppressed EventType = "phase16.notify.digest.suppressed"
+	Phase16NotifyDigestSent       EventType = "phase16.notify.digest.sent"
+	Phase16NotifyDigestEmpty      EventType = "phase16.notify.digest.empty"
 )
 
 // Event represents a system event for audit and observability.
