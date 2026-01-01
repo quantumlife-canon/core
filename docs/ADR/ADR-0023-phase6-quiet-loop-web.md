@@ -255,6 +255,46 @@ The UI displays: **"Nothing Needs You"** with a message like "All caught up. Enj
 
 This is the goal state. The system should strive to reach quiet as quickly as possible after the user has taken all necessary actions.
 
+### Graceful Shutdown (Phase 6.1)
+
+The web server supports graceful shutdown via SIGINT/SIGTERM signals:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                 Graceful Shutdown Architecture                   │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  SIGNAL (SIGINT/SIGTERM)                                         │
+│       │                                                          │
+│       ▼                                                          │
+│  Signal Handler Goroutine (cmd/quantumlife-web ONLY)             │
+│       │   - Prints: "quantumlife-web: shutting down"             │
+│       │   - Creates 3-second timeout context                     │
+│       │                                                          │
+│       ▼                                                          │
+│  http.Server.Shutdown(ctx)                                       │
+│       │   - Stops accepting new connections                      │
+│       │   - Waits for in-flight requests to complete             │
+│       │   - Times out after 3 seconds                            │
+│       │                                                          │
+│       ▼                                                          │
+│  Exit with code 0                                                │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**CRITICAL INVARIANT**: The signal-handling goroutine is ONLY in the command layer (`cmd/quantumlife-web/main.go`). Core packages (`internal/`, `pkg/`) remain synchronous with no goroutines. This preserves:
+
+1. **Determinism** — Core computation is single-threaded and reproducible
+2. **Testability** — No race conditions in business logic
+3. **Simplicity** — Concurrency is isolated to infrastructure concerns
+
+Makefile convenience targets:
+- `make web-mock` — Run with mock data
+- `make web` — Run without mock data
+- `make web-stop` — Stop the server on :8080
+- `make web-status` — Check if :8080 is bound
+
 ## Consequences
 
 ### Positive

@@ -3,6 +3,7 @@
 // CRITICAL: Uses stdlib only (net/http + html/template).
 // CRITICAL: No goroutines in request handlers.
 // CRITICAL: Loop runs synchronously per request.
+// CRITICAL: Graceful shutdown is command-layer only (not in internal/ or pkg/).
 //
 // Reference: docs/ADR/ADR-0023-phase6-quiet-loop-web.md
 package main
@@ -14,7 +15,10 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"quantumlife/internal/calendar/execution"
@@ -186,11 +190,48 @@ func main() {
 	mux.HandleFunc("/run/daily", server.handleRunDaily)
 	mux.HandleFunc("/feedback", server.handleFeedback)
 
+	// Create HTTP server with explicit configuration
+	httpServer := &http.Server{
+		Addr:    *addr,
+		Handler: mux,
+	}
+
+	// Channel to signal server shutdown complete
+	shutdownComplete := make(chan struct{})
+
+	// Goroutine to handle graceful shutdown on signals
+	// NOTE: This goroutine is ONLY in the command layer (main.go).
+	// Core packages (internal/, pkg/) remain synchronous with no goroutines.
+	go func() {
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+		<-sigChan
+
+		// Print shutdown message to stdout (not log, for clean output)
+		fmt.Println("quantumlife-web: shutting down")
+
+		// Create shutdown context with 3-second timeout
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		// Gracefully shutdown the server
+		if err := httpServer.Shutdown(ctx); err != nil {
+			log.Printf("shutdown error: %v", err)
+		}
+
+		close(shutdownComplete)
+	}()
+
 	log.Printf("Starting QuantumLife Web on %s", *addr)
 	log.Printf("Mock data: %v", *mockData)
-	if err := http.ListenAndServe(*addr, mux); err != nil {
-		log.Fatal(err)
+
+	// Start the server (blocks until shutdown)
+	if err := httpServer.ListenAndServe(); err != http.ErrServerClosed {
+		log.Fatalf("server error: %v", err)
 	}
+
+	// Wait for shutdown to complete
+	<-shutdownComplete
 }
 
 // populateMockEvents creates realistic mock events.

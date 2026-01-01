@@ -7,7 +7,7 @@
 #
 # Guardrails enforce Canon invariants at build time.
 
-.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6
+.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 web web-mock web-stop web-status
 
 # Default target
 all: ci
@@ -33,6 +33,12 @@ help:
 	@echo "  make demo-phase4  - Run Phase 4 drafts-only assistance demo"
 	@echo "  make demo-phase5  - Run Phase 5 calendar execution demo"
 	@echo "  make demo-phase6  - Run Phase 6 quiet loop demo"
+	@echo ""
+	@echo "Web Server:"
+	@echo "  make web          - Run web server on :8080 (real mode)"
+	@echo "  make web-mock     - Run web server on :8080 with mock data"
+	@echo "  make web-stop     - Stop whatever is listening on :8080"
+	@echo "  make web-status   - Check if :8080 is bound"
 	@echo ""
 	@echo "Guardrail Checks:"
 	@echo "  make check-terms              - Check for forbidden terms"
@@ -204,3 +210,38 @@ demo-phase5:
 demo-phase6:
 	@echo "Running Phase 6 Demo: The Quiet Loop..."
 	go test -v ./internal/demo_phase6_quiet_loop/...
+
+# =============================================================================
+# Web Server Targets
+# =============================================================================
+# These are convenience targets for running the QuantumLife web server.
+# The server supports graceful shutdown via SIGINT/SIGTERM.
+# Reference: docs/ADR/ADR-0023-phase6-quiet-loop-web.md
+
+# Run web server in real mode (no mock data)
+web:
+	@echo "Starting QuantumLife Web on :8080 (real mode)..."
+	go run ./cmd/quantumlife-web -mock=false
+
+# Run web server with mock data
+web-mock:
+	@echo "Starting QuantumLife Web on :8080 (mock mode)..."
+	go run ./cmd/quantumlife-web -mock=true
+
+# Stop whatever is listening on :8080
+# Safe to run even if nothing is listening (will not fail)
+web-stop:
+	@echo "Stopping process on :8080..."
+	@lsof -ti :8080 | xargs -r kill 2>/dev/null || true
+	@echo "Done."
+
+# Check if :8080 is bound
+# Always returns 0 (safe for scripts)
+web-status:
+	@echo "Checking :8080 status..."
+	@if lsof -i :8080 >/dev/null 2>&1; then \
+		echo "Port 8080: BOUND"; \
+		lsof -i :8080; \
+	else \
+		echo "Port 8080: FREE"; \
+	fi
