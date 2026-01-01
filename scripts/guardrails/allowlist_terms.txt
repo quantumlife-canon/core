@@ -151,3 +151,14 @@ internal/config/*.go
 internal/routing/*.go
 internal/loop/multi_circle.go
 internal/demo_phase11_multicircle/*.go
+
+# Phase 13: Identity + Contact Graph Unification (ADR-0028)
+# These files use "account" for email accounts (EmailAccount entity type),
+# NOT "user account". The identity graph requires this terminology to model
+# email ownership relationships. Also uses "role" for email participant roles
+# (from, to, cc, attendee, organizer) which is standard email/calendar terminology.
+# QuantumLife core uses "circle" for identity - these are identity resolution components.
+internal/identityresolve/*.go
+internal/persist/identity_store.go
+internal/persist/persist_test.go
+internal/demo_phase13_identity_graph/*.go

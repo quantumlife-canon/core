@@ -7,6 +7,7 @@ import (
 
 	"quantumlife/pkg/domain/draft"
 	"quantumlife/pkg/domain/feedback"
+	"quantumlife/pkg/domain/identity"
 	"quantumlife/pkg/domain/storelog"
 	"quantumlife/pkg/primitives"
 )
@@ -311,5 +312,161 @@ func TestApprovalStore_DuplicateRejection(t *testing.T) {
 	err := store.StoreApproval(ctx, artifact2)
 	if err == nil {
 		t.Error("expected duplicate rejection error")
+	}
+}
+
+func TestIdentityStore_StoreAndGet(t *testing.T) {
+	log := storelog.NewInMemoryLog()
+	store, err := NewIdentityStore(log)
+	if err != nil {
+		t.Fatalf("NewIdentityStore failed: %v", err)
+	}
+
+	now := time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC)
+	gen := identity.NewGenerator()
+
+	// Store a person
+	person := gen.PersonFromEmail("test@example.com", now)
+	if err := store.StoreEntity(person, now); err != nil {
+		t.Fatalf("StoreEntity failed: %v", err)
+	}
+
+	// Retrieve by ID
+	got, err := store.GetEntity(person.ID())
+	if err != nil {
+		t.Fatalf("GetEntity failed: %v", err)
+	}
+
+	if got.ID() != person.ID() {
+		t.Errorf("ID mismatch: %s != %s", got.ID(), person.ID())
+	}
+
+	// Find by email
+	foundPerson, err := store.FindPersonByEmail("test@example.com")
+	if err != nil {
+		t.Fatalf("FindPersonByEmail failed: %v", err)
+	}
+
+	if foundPerson.ID() != person.ID() {
+		t.Errorf("FindPersonByEmail ID mismatch: %s != %s", foundPerson.ID(), person.ID())
+	}
+}
+
+func TestIdentityStore_StoreEdge(t *testing.T) {
+	log := storelog.NewInMemoryLog()
+	store, err := NewIdentityStore(log)
+	if err != nil {
+		t.Fatalf("NewIdentityStore failed: %v", err)
+	}
+
+	now := time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC)
+	gen := identity.NewGenerator()
+
+	// Store a person and email account
+	person := gen.PersonFromEmail("alice@example.com", now)
+	emailAccount := gen.EmailAccountFromAddress("alice@example.com", "other", now)
+
+	store.StoreEntity(person, now)
+	store.StoreEntity(emailAccount, now)
+
+	// Store edge
+	edge := identity.NewEdge(
+		identity.EdgeTypeOwnsEmail,
+		person.ID(),
+		emailAccount.ID(),
+		identity.ConfidenceHigh,
+		"test",
+		now,
+	)
+
+	if err := store.StoreEdge(edge, now); err != nil {
+		t.Fatalf("StoreEdge failed: %v", err)
+	}
+
+	// Retrieve edges from person
+	edges, err := store.GetEdgesFrom(person.ID())
+	if err != nil {
+		t.Fatalf("GetEdgesFrom failed: %v", err)
+	}
+
+	if len(edges) != 1 {
+		t.Errorf("expected 1 edge, got %d", len(edges))
+	}
+
+	if edges[0].EdgeType != identity.EdgeTypeOwnsEmail {
+		t.Errorf("edge type mismatch: %s", edges[0].EdgeType)
+	}
+}
+
+func TestIdentityStore_Replay(t *testing.T) {
+	log := storelog.NewInMemoryLog()
+
+	now := time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC)
+	gen := identity.NewGenerator()
+
+	// Store entities in first store instance
+	store1, _ := NewIdentityStore(log)
+	person := gen.PersonFromEmail("bob@example.com", now)
+	store1.StoreEntity(person, now)
+
+	org := gen.OrganizationFromDomain("example.com", now)
+	store1.StoreEntity(org, now)
+
+	// Create new store from same log - should replay
+	store2, err := NewIdentityStore(log)
+	if err != nil {
+		t.Fatalf("NewIdentityStore (replay) failed: %v", err)
+	}
+
+	// Verify entities were replayed
+	gotPerson, err := store2.FindPersonByEmail("bob@example.com")
+	if err != nil {
+		t.Fatalf("FindPersonByEmail after replay failed: %v", err)
+	}
+
+	if gotPerson.ID() != person.ID() {
+		t.Errorf("person ID mismatch after replay")
+	}
+
+	gotOrg, err := store2.FindOrganizationByDomain("example.com")
+	if err != nil {
+		t.Fatalf("FindOrganizationByDomain after replay failed: %v", err)
+	}
+
+	if gotOrg.ID() != org.ID() {
+		t.Errorf("org ID mismatch after replay")
+	}
+}
+
+func TestIdentityStore_Stats(t *testing.T) {
+	log := storelog.NewInMemoryLog()
+	store, _ := NewIdentityStore(log)
+
+	now := time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC)
+	gen := identity.NewGenerator()
+
+	// Add various entities
+	store.StoreEntity(gen.PersonFromEmail("alice@example.com", now), now)
+	store.StoreEntity(gen.PersonFromEmail("bob@example.com", now), now)
+	store.StoreEntity(gen.OrganizationFromDomain("example.com", now), now)
+	store.StoreEntity(gen.EmailAccountFromAddress("alice@example.com", "other", now), now)
+	store.StoreEntity(gen.HouseholdFromName("Test Household", now), now)
+
+	stats := store.Stats()
+
+	if stats.PersonCount != 2 {
+		t.Errorf("PersonCount = %d, want 2", stats.PersonCount)
+	}
+	if stats.OrganizationCount != 1 {
+		t.Errorf("OrganizationCount = %d, want 1", stats.OrganizationCount)
+	}
+	if stats.EmailAccountCount != 1 {
+		t.Errorf("EmailAccountCount = %d, want 1", stats.EmailAccountCount)
+	}
+	if stats.HouseholdCount != 1 {
+		t.Errorf("HouseholdCount = %d, want 1", stats.HouseholdCount)
+	}
+	if stats.TotalEntityCount != 5 {
+		t.Errorf("TotalEntityCount = %d, want 5", stats.TotalEntityCount)
 	}
 }

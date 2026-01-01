@@ -29,6 +29,10 @@ const (
 	RecordTypeApproval = "APPROVAL"
 	RecordTypeFeedback = "FEEDBACK"
 	RecordTypeRun      = "RUN"
+
+	// Identity graph record types (Phase 13)
+	RecordTypeIdentityEntity = "IDENTITY_ENTITY_UPSERT"
+	RecordTypeIdentityEdge   = "IDENTITY_EDGE_UPSERT"
 )
 
 // Common errors

@@ -2,6 +2,7 @@ package identity
 
 import (
 	"errors"
+	"strings"
 	"sync"
 )
 
@@ -61,28 +62,68 @@ type UnificationRepository interface {
 	GetPersonEmails(personID EntityID) ([]*EmailAccount, error)
 }
 
+// EdgeRepository provides storage and retrieval of edges.
+type EdgeRepository interface {
+	// StoreEdge saves an edge. Returns ErrEntityExists if ID already exists.
+	StoreEdge(edge *Edge) error
+
+	// GetEdge retrieves an edge by ID.
+	GetEdge(id EntityID) (*Edge, error)
+
+	// GetEdgesFrom returns all edges originating from an entity.
+	GetEdgesFrom(entityID EntityID) ([]*Edge, error)
+
+	// GetEdgesTo returns all edges pointing to an entity.
+	GetEdgesTo(entityID EntityID) ([]*Edge, error)
+
+	// GetEdgesByType returns all edges of a specific type.
+	GetEdgesByType(edgeType EdgeType) ([]*Edge, error)
+
+	// DeleteEdge removes an edge.
+	DeleteEdge(id EntityID) error
+
+	// EdgeCount returns total edge count.
+	EdgeCount() int
+}
+
 // InMemoryRepository is a thread-safe in-memory implementation of UnificationRepository.
 type InMemoryRepository struct {
 	mu       sync.RWMutex
 	entities map[EntityID]Entity
+	edges    map[EntityID]*Edge
 
 	// Indexes for fast lookup
-	emailToPerson  map[string]EntityID     // normalized email -> person ID
-	domainToOrg    map[string]EntityID     // normalized domain -> org ID
-	merchantToOrg  map[string]EntityID     // normalized merchant -> org ID
-	emailToAccount map[string]EntityID     // normalized email -> email account ID
-	personToEmails map[EntityID][]EntityID // person ID -> email account IDs
+	emailToPerson   map[string]EntityID     // normalized email -> person ID
+	domainToOrg     map[string]EntityID     // normalized domain -> org ID
+	merchantToOrg   map[string]EntityID     // normalized merchant -> org ID
+	emailToAccount  map[string]EntityID     // normalized email -> email account ID
+	personToEmails  map[EntityID][]EntityID // person ID -> email account IDs
+	phoneToPerson   map[string]EntityID     // normalized phone -> person ID
+	phoneToEntity   map[string]EntityID     // normalized phone -> PhoneNumber entity ID
+	householdByName map[string]EntityID     // normalized name -> household ID
+
+	// Edge indexes
+	edgesFromEntity map[EntityID][]EntityID // entity ID -> edge IDs originating from it
+	edgesToEntity   map[EntityID][]EntityID // entity ID -> edge IDs pointing to it
+	edgesByType     map[EdgeType][]EntityID // edge type -> edge IDs
 }
 
 // NewInMemoryRepository creates a new in-memory repository.
 func NewInMemoryRepository() *InMemoryRepository {
 	return &InMemoryRepository{
-		entities:       make(map[EntityID]Entity),
-		emailToPerson:  make(map[string]EntityID),
-		domainToOrg:    make(map[string]EntityID),
-		merchantToOrg:  make(map[string]EntityID),
-		emailToAccount: make(map[string]EntityID),
-		personToEmails: make(map[EntityID][]EntityID),
+		entities:        make(map[EntityID]Entity),
+		edges:           make(map[EntityID]*Edge),
+		emailToPerson:   make(map[string]EntityID),
+		domainToOrg:     make(map[string]EntityID),
+		merchantToOrg:   make(map[string]EntityID),
+		emailToAccount:  make(map[string]EntityID),
+		personToEmails:  make(map[EntityID][]EntityID),
+		phoneToPerson:   make(map[string]EntityID),
+		phoneToEntity:   make(map[string]EntityID),
+		householdByName: make(map[string]EntityID),
+		edgesFromEntity: make(map[EntityID][]EntityID),
+		edgesToEntity:   make(map[EntityID][]EntityID),
+		edgesByType:     make(map[EdgeType][]EntityID),
 	}
 }
 
@@ -122,6 +163,15 @@ func (r *InMemoryRepository) Store(entity Entity) error {
 		for _, alias := range e.Aliases {
 			r.merchantToOrg[normalizeMerchant(alias)] = e.ID()
 		}
+
+	case *PhoneNumber:
+		r.phoneToEntity[e.Number] = e.ID()
+		if e.OwnerID != "" {
+			r.phoneToPerson[e.Number] = e.OwnerID
+		}
+
+	case *Household:
+		r.householdByName[strings.ToLower(e.Name)] = e.ID()
 	}
 
 	return nil
@@ -393,8 +443,195 @@ func (r *InMemoryRepository) GetPersonEmails(personID EntityID) ([]*EmailAccount
 	return result, nil
 }
 
+// FindPersonByPhone finds a person by any of their phone numbers.
+func (r *InMemoryRepository) FindPersonByPhone(phone string) (*Person, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	normalized := normalizePhone(phone)
+	personID, exists := r.phoneToPerson[normalized]
+	if !exists {
+		return nil, ErrEntityNotFound
+	}
+
+	entity, exists := r.entities[personID]
+	if !exists {
+		return nil, ErrEntityNotFound
+	}
+
+	person, ok := entity.(*Person)
+	if !ok {
+		return nil, ErrInvalidEntityType
+	}
+
+	return person, nil
+}
+
+// FindHouseholdByName finds a household by name.
+func (r *InMemoryRepository) FindHouseholdByName(name string) (*Household, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	normalized := strings.ToLower(strings.TrimSpace(name))
+	householdID, exists := r.householdByName[normalized]
+	if !exists {
+		return nil, ErrEntityNotFound
+	}
+
+	entity, exists := r.entities[householdID]
+	if !exists {
+		return nil, ErrEntityNotFound
+	}
+
+	household, ok := entity.(*Household)
+	if !ok {
+		return nil, ErrInvalidEntityType
+	}
+
+	return household, nil
+}
+
+// LinkPhoneToPerson associates a phone number with a person.
+func (r *InMemoryRepository) LinkPhoneToPerson(phoneID EntityID, personID EntityID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	phoneEntity, exists := r.entities[phoneID]
+	if !exists {
+		return ErrEntityNotFound
+	}
+	phone, ok := phoneEntity.(*PhoneNumber)
+	if !ok {
+		return ErrInvalidEntityType
+	}
+
+	_, exists = r.entities[personID]
+	if !exists {
+		return ErrEntityNotFound
+	}
+
+	phone.OwnerID = personID
+	r.phoneToPerson[phone.Number] = personID
+
+	return nil
+}
+
+// StoreEdge saves an edge to the repository.
+func (r *InMemoryRepository) StoreEdge(edge *Edge) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, exists := r.edges[edge.ID()]; exists {
+		return ErrEntityExists
+	}
+
+	r.edges[edge.ID()] = edge
+
+	// Update indexes
+	r.edgesFromEntity[edge.FromID] = append(r.edgesFromEntity[edge.FromID], edge.ID())
+	r.edgesToEntity[edge.ToID] = append(r.edgesToEntity[edge.ToID], edge.ID())
+	r.edgesByType[edge.EdgeType] = append(r.edgesByType[edge.EdgeType], edge.ID())
+
+	return nil
+}
+
+// GetEdge retrieves an edge by ID.
+func (r *InMemoryRepository) GetEdge(id EntityID) (*Edge, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	edge, exists := r.edges[id]
+	if !exists {
+		return nil, ErrEntityNotFound
+	}
+	return edge, nil
+}
+
+// GetEdgesFrom returns all edges originating from an entity.
+func (r *InMemoryRepository) GetEdgesFrom(entityID EntityID) ([]*Edge, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	edgeIDs := r.edgesFromEntity[entityID]
+	result := make([]*Edge, 0, len(edgeIDs))
+	for _, id := range edgeIDs {
+		if edge, exists := r.edges[id]; exists {
+			result = append(result, edge)
+		}
+	}
+	return result, nil
+}
+
+// GetEdgesTo returns all edges pointing to an entity.
+func (r *InMemoryRepository) GetEdgesTo(entityID EntityID) ([]*Edge, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	edgeIDs := r.edgesToEntity[entityID]
+	result := make([]*Edge, 0, len(edgeIDs))
+	for _, id := range edgeIDs {
+		if edge, exists := r.edges[id]; exists {
+			result = append(result, edge)
+		}
+	}
+	return result, nil
+}
+
+// GetEdgesByType returns all edges of a specific type.
+func (r *InMemoryRepository) GetEdgesByType(edgeType EdgeType) ([]*Edge, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	edgeIDs := r.edgesByType[edgeType]
+	result := make([]*Edge, 0, len(edgeIDs))
+	for _, id := range edgeIDs {
+		if edge, exists := r.edges[id]; exists {
+			result = append(result, edge)
+		}
+	}
+	return result, nil
+}
+
+// DeleteEdge removes an edge.
+func (r *InMemoryRepository) DeleteEdge(id EntityID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	edge, exists := r.edges[id]
+	if !exists {
+		return ErrEntityNotFound
+	}
+
+	// Remove from indexes
+	r.edgesFromEntity[edge.FromID] = removeFromSlice(r.edgesFromEntity[edge.FromID], id)
+	r.edgesToEntity[edge.ToID] = removeFromSlice(r.edgesToEntity[edge.ToID], id)
+	r.edgesByType[edge.EdgeType] = removeFromSlice(r.edgesByType[edge.EdgeType], id)
+
+	delete(r.edges, id)
+	return nil
+}
+
+// EdgeCount returns total edge count.
+func (r *InMemoryRepository) EdgeCount() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return len(r.edges)
+}
+
+// removeFromSlice removes an element from a slice of EntityIDs.
+func removeFromSlice(slice []EntityID, id EntityID) []EntityID {
+	result := make([]EntityID, 0, len(slice))
+	for _, item := range slice {
+		if item != id {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
 // Verify interface compliance at compile time.
 var (
 	_ Repository            = (*InMemoryRepository)(nil)
 	_ UnificationRepository = (*InMemoryRepository)(nil)
+	_ EdgeRepository        = (*InMemoryRepository)(nil)
 )

@@ -212,6 +212,34 @@ func (g *Generator) PayeeFromDetails(name string, sortCode string, accountNumber
 	}
 }
 
+// HouseholdFromName creates a Household entity.
+func (g *Generator) HouseholdFromName(name string, createdAt time.Time) *Household {
+	normalizedName := strings.ToLower(strings.TrimSpace(name))
+	canonicalStr := "household|" + normalizedName
+
+	return &Household{
+		id:           generateID(EntityTypeHousehold, canonicalStr),
+		canonicalStr: canonicalStr,
+		createdAt:    createdAt,
+		Name:         name,
+		Members:      []EntityID{},
+	}
+}
+
+// PhoneNumberFromNumber creates a PhoneNumber entity.
+func (g *Generator) PhoneNumberFromNumber(number string, createdAt time.Time) *PhoneNumber {
+	normalizedNumber := normalizePhone(number)
+	canonicalStr := "phone_number|" + normalizedNumber
+
+	return &PhoneNumber{
+		id:           generateID(EntityTypePhoneNumber, canonicalStr),
+		canonicalStr: canonicalStr,
+		createdAt:    createdAt,
+		Number:       normalizedNumber,
+		RawNumbers:   []string{number},
+	}
+}
+
 // Normalization helpers
 
 func normalizeEmail(email string) string {

@@ -31,7 +31,79 @@ const (
 	EntityTypeIntersection EntityType = "intersection"
 	EntityTypeVendor       EntityType = "vendor"
 	EntityTypePayee        EntityType = "payee"
+	EntityTypeHousehold    EntityType = "household"
+	EntityTypePhoneNumber  EntityType = "phone_number"
 )
+
+// EdgeType identifies a relationship between entities in the identity graph.
+type EdgeType string
+
+const (
+	// Ownership edges
+	EdgeTypeOwnsEmail    EdgeType = "owns_email"    // Person -> EmailAccount
+	EdgeTypeOwnsPhone    EdgeType = "owns_phone"    // Person -> PhoneNumber
+	EdgeTypeOwnsCalendar EdgeType = "owns_calendar" // Person -> CalendarAccount
+	EdgeTypeOwnsDevice   EdgeType = "owns_device"   // Person -> Device
+
+	// Organizational edges
+	EdgeTypeMemberOfOrg EdgeType = "member_of_org" // Person -> Organization
+	EdgeTypeWorksAt     EdgeType = "works_at"      // Person -> Organization
+
+	// Family edges
+	EdgeTypeSpouseOf   EdgeType = "spouse_of"    // Person -> Person
+	EdgeTypeParentOf   EdgeType = "parent_of"    // Person -> Person
+	EdgeTypeChildOf    EdgeType = "child_of"     // Person -> Person
+	EdgeTypeMemberOfHH EdgeType = "member_of_hh" // Person -> Household
+
+	// Vendor edges
+	EdgeTypeVendorOf EdgeType = "vendor_of" // Organization -> Person (org sells to person)
+
+	// Alias edges (for unification)
+	EdgeTypeAliasOf EdgeType = "alias_of" // Entity -> Entity (same real-world entity)
+)
+
+// Confidence represents the certainty of an identity link.
+type Confidence string
+
+const (
+	ConfidenceHigh   Confidence = "high"   // Explicit configuration or exact match
+	ConfidenceMedium Confidence = "medium" // Strong heuristic match
+	ConfidenceLow    Confidence = "low"    // Weak heuristic match
+)
+
+// Edge represents a directional relationship between two entities.
+type Edge struct {
+	id           EntityID
+	canonicalStr string
+	createdAt    time.Time
+
+	// Edge details
+	EdgeType   EdgeType
+	FromID     EntityID
+	ToID       EntityID
+	Confidence Confidence
+	Provenance string // Where this relationship was discovered
+}
+
+func (e *Edge) ID() EntityID            { return e.id }
+func (e *Edge) Type() EntityType        { return EntityType("edge") }
+func (e *Edge) CanonicalString() string { return e.canonicalStr }
+func (e *Edge) CreatedAt() time.Time    { return e.createdAt }
+
+// NewEdge creates a new edge between entities.
+func NewEdge(edgeType EdgeType, fromID, toID EntityID, confidence Confidence, provenance string, createdAt time.Time) *Edge {
+	canonicalStr := fmt.Sprintf("edge|%s|%s|%s", edgeType, fromID, toID)
+	return &Edge{
+		id:           generateID(EntityType("edge"), canonicalStr),
+		canonicalStr: canonicalStr,
+		createdAt:    createdAt,
+		EdgeType:     edgeType,
+		FromID:       fromID,
+		ToID:         toID,
+		Confidence:   confidence,
+		Provenance:   provenance,
+	}
+}
 
 // EntityID is a deterministic identifier for an entity.
 // Format: {type}_{hash_prefix}
@@ -274,6 +346,45 @@ type PayeeAccountDetails struct {
 	IBAN          string
 	BIC           string
 }
+
+// Household represents a family unit or shared living arrangement.
+type Household struct {
+	id           EntityID
+	canonicalStr string
+	createdAt    time.Time
+
+	// Household details
+	Name    string     // e.g., "Rajan Household"
+	Members []EntityID // Person IDs
+	Address string     // Optional
+}
+
+func (h *Household) ID() EntityID            { return h.id }
+func (h *Household) Type() EntityType        { return EntityTypeHousehold }
+func (h *Household) CanonicalString() string { return h.canonicalStr }
+func (h *Household) CreatedAt() time.Time    { return h.createdAt }
+
+// PhoneNumber represents a phone number as a first-class entity.
+// This allows tracking ownership and linking across providers.
+type PhoneNumber struct {
+	id           EntityID
+	canonicalStr string
+	createdAt    time.Time
+
+	// Phone details
+	Number     string   // Normalized E.164 format
+	RawNumbers []string // Original formats seen
+	Provider   string   // Carrier if known
+	IsVerified bool
+
+	// Owner (if known)
+	OwnerID EntityID
+}
+
+func (p *PhoneNumber) ID() EntityID            { return p.id }
+func (p *PhoneNumber) Type() EntityType        { return EntityTypePhoneNumber }
+func (p *PhoneNumber) CanonicalString() string { return p.canonicalStr }
+func (p *PhoneNumber) CreatedAt() time.Time    { return p.createdAt }
 
 // EntityRef is a lightweight reference to an entity.
 // Used in events to link to identity graph without embedding full entity.
