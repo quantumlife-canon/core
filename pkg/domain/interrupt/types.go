@@ -62,7 +62,14 @@ const (
 	TriggerFinanceLowBalance     Trigger = "finance_low_balance"
 	TriggerFinanceLargeTxn       Trigger = "finance_large_txn"
 	TriggerFinancePending        Trigger = "finance_pending"
-	TriggerUnknown               Trigger = "unknown"
+
+	// Commerce triggers (Phase 8)
+	TriggerCommerceInvoiceDue          Trigger = "commerce_invoice_due"
+	TriggerCommerceShipmentPending     Trigger = "commerce_shipment_pending"
+	TriggerCommerceRefundPending       Trigger = "commerce_refund_pending"
+	TriggerCommerceSubscriptionRenewed Trigger = "commerce_subscription_renewed"
+
+	TriggerUnknown Trigger = "unknown"
 )
 
 // CircleType for regret scoring.

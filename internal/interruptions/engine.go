@@ -246,6 +246,11 @@ func (e *Engine) computeLevel(regret int, oblig *obligation.Obligation, now time
 
 // obligationToTrigger maps obligation type to trigger.
 func (e *Engine) obligationToTrigger(oblig *obligation.Obligation) interrupt.Trigger {
+	// Handle commerce source first (Phase 8)
+	if oblig.SourceType == "commerce" {
+		return e.commerceToTrigger(oblig)
+	}
+
 	switch oblig.Type {
 	case obligation.ObligationReply, obligation.ObligationReview:
 		if oblig.SourceType == "email" {
@@ -274,6 +279,54 @@ func (e *Engine) obligationToTrigger(oblig *obligation.Obligation) interrupt.Tri
 	}
 
 	return interrupt.TriggerUnknown
+}
+
+// commerceToTrigger maps commerce obligations to triggers.
+func (e *Engine) commerceToTrigger(oblig *obligation.Obligation) interrupt.Trigger {
+	switch oblig.Type {
+	case obligation.ObligationPay:
+		return interrupt.TriggerCommerceInvoiceDue
+	case obligation.ObligationFollowup:
+		// Check for shipment vs refund
+		if oblig.Evidence["tracking_id"] != "" || oblig.Evidence["status"] != "" {
+			return interrupt.TriggerCommerceShipmentPending
+		}
+		return interrupt.TriggerCommerceRefundPending
+	case obligation.ObligationReview:
+		// Could be subscription renewal or large order
+		if vendor := oblig.Evidence["vendor"]; vendor != "" {
+			// Check reason for subscription keyword
+			if containsSubscription(oblig.Reason) {
+				return interrupt.TriggerCommerceSubscriptionRenewed
+			}
+		}
+		return interrupt.TriggerObligationDueSoon
+	}
+
+	return interrupt.TriggerUnknown
+}
+
+// containsSubscription checks if reason mentions subscription.
+func containsSubscription(reason string) bool {
+	lowerReason := reason
+	for i := 0; i < len(lowerReason); i++ {
+		if lowerReason[i] >= 'A' && lowerReason[i] <= 'Z' {
+			lowerReason = lowerReason[:i] + string(lowerReason[i]+32) + lowerReason[i+1:]
+		}
+	}
+	return len(lowerReason) > 0 && (contains(lowerReason, "subscription") ||
+		contains(lowerReason, "renewal") ||
+		contains(lowerReason, "renewed"))
+}
+
+// contains is a simple substring check.
+func contains(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
 
 // computeExpiry determines when this interruption expires.

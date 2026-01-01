@@ -16,12 +16,14 @@ import (
 	"time"
 
 	calexec "quantumlife/internal/calendar/execution"
+	"quantumlife/internal/commerce/extract"
 	"quantumlife/internal/drafts"
 	"quantumlife/internal/drafts/review"
 	emailexec "quantumlife/internal/email/execution"
 	"quantumlife/internal/interruptions"
 	"quantumlife/internal/obligations"
 	"quantumlife/pkg/clock"
+	"quantumlife/pkg/domain/commerce"
 	"quantumlife/pkg/domain/draft"
 	domainevents "quantumlife/pkg/domain/events"
 	"quantumlife/pkg/domain/feedback"
@@ -69,6 +71,12 @@ type Engine struct {
 
 	// EventEmitter emits audit events.
 	EventEmitter events.Emitter
+
+	// CommerceExtractor extracts commerce events from emails (Phase 8).
+	CommerceExtractor *extract.Engine
+
+	// CommerceObligationExtractor extracts obligations from commerce events (Phase 8).
+	CommerceObligationExtractor *obligations.CommerceObligationExtractor
 }
 
 // RunOptions configures a loop run.
@@ -118,6 +126,13 @@ type CircleResult struct {
 	ObligationCount     int
 	InterruptionCount   int
 	DraftCount          int
+
+	// Commerce (Phase 8)
+	CommerceEvents            []*commerce.CommerceEvent
+	CommerceObligations       []*obligation.Obligation
+	CommerceEventCount        int
+	CommerceObligationCount   int
+	CommerceExtractionMetrics commerce.ExtractionMetrics
 }
 
 // EmailExecuteResult wraps the result of an email execution.
@@ -212,6 +227,22 @@ func (e *Engine) processCircle(ctx context.Context, circle CircleInfo, now time.
 		result.ObligationCount = len(extractResult.Obligations)
 	}
 
+	// Extract commerce events from emails (Phase 8)
+	if e.CommerceExtractor != nil && e.EventStore != nil {
+		result.CommerceEvents, result.CommerceExtractionMetrics = e.extractCommerceEvents(circle, now)
+		result.CommerceEventCount = len(result.CommerceEvents)
+
+		// Extract commerce-specific obligations
+		if e.CommerceObligationExtractor != nil && len(result.CommerceEvents) > 0 {
+			result.CommerceObligations = e.CommerceObligationExtractor.ExtractFromCommerceEvents(result.CommerceEvents, now)
+			result.CommerceObligationCount = len(result.CommerceObligations)
+
+			// Merge commerce obligations into main obligations list
+			result.Obligations = append(result.Obligations, result.CommerceObligations...)
+			result.ObligationCount = len(result.Obligations)
+		}
+	}
+
 	// Build daily view using obligations
 	dailyView := e.buildDailyView(circle, now, result.Obligations)
 	result.DailyView = dailyView
@@ -282,6 +313,51 @@ func (e *Engine) buildDailyView(circle CircleInfo, now time.Time, obligs []*obli
 	builder.AddCircle(circle.ID, circle.Name)
 	builder.SetObligations(obligs)
 	return builder.Build()
+}
+
+// extractCommerceEvents extracts commerce events from emails for a circle.
+func (e *Engine) extractCommerceEvents(circle CircleInfo, now time.Time) ([]*commerce.CommerceEvent, commerce.ExtractionMetrics) {
+	if e.CommerceExtractor == nil || e.EventStore == nil {
+		return nil, commerce.ExtractionMetrics{}
+	}
+
+	// Get email events for this circle
+	emailType := domainevents.EventTypeEmailMessage
+	emailEvents, _ := e.EventStore.GetByCircle(circle.ID, &emailType, 0)
+
+	// Convert to EmailMessageEvent pointers
+	var emails []*domainevents.EmailMessageEvent
+	for _, evt := range emailEvents {
+		if email, ok := evt.(*domainevents.EmailMessageEvent); ok {
+			emails = append(emails, email)
+		}
+	}
+
+	if len(emails) == 0 {
+		return nil, commerce.ExtractionMetrics{}
+	}
+
+	// Extract commerce events
+	commerceEvents, metrics := e.CommerceExtractor.ExtractFromEmails(emails)
+
+	// Set circle ID on extracted events
+	for _, evt := range commerceEvents {
+		evt.WithCircle(circle.ID)
+	}
+
+	return commerceEvents, metrics
+}
+
+// GetCommerceEvents returns commerce events for a circle.
+func (e *Engine) GetCommerceEvents(circleID identity.EntityID) []*commerce.CommerceEvent {
+	if e.CommerceExtractor == nil || e.EventStore == nil {
+		return nil
+	}
+
+	now := e.Clock.Now()
+	circle := CircleInfo{ID: circleID, Name: string(circleID)}
+	events, _ := e.extractCommerceEvents(circle, now)
+	return events
 }
 
 // executeCalendarDraft executes an approved calendar draft.

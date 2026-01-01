@@ -7,7 +7,7 @@
 #
 # Guardrails enforce Canon invariants at build time.
 
-.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 web web-mock web-stop web-status
+.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 web web-mock web-stop web-status
 
 # Default target
 all: ci
@@ -34,6 +34,7 @@ help:
 	@echo "  make demo-phase5  - Run Phase 5 calendar execution demo"
 	@echo "  make demo-phase6  - Run Phase 6 quiet loop demo"
 	@echo "  make demo-phase7  - Run Phase 7 email execution demo"
+	@echo "  make demo-phase8  - Run Phase 8 commerce mirror demo"
 	@echo ""
 	@echo "Web Server:"
 	@echo "  make web          - Run web server on :8080 (real mode)"
@@ -222,6 +223,12 @@ demo-phase6:
 demo-phase7:
 	@echo "Running Phase 7 Demo: Email Execution Boundary..."
 	go test -v ./internal/demo_phase7_email_execution/...
+
+# Phase 8 Demo: Commerce Mirror
+# Reference: docs/ADR/ADR-0024-phase8-commerce-mirror-email-derived.md
+demo-phase8:
+	@echo "Running Phase 8 Demo: Commerce Mirror..."
+	go test -v ./internal/demo_phase8_commerce_mirror/...
 
 # =============================================================================
 # Web Server Targets
