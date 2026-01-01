@@ -1001,13 +1001,115 @@
   border-top: 1px solid var(--color-border-subtle);
 }
 
-.today-back-link {
+.today-back-link,
+.today-subtle-link {
   font-size: var(--text-sm);
   color: var(--color-text-tertiary);
   text-decoration: none;
   transition: color var(--duration-fast) var(--easing-default);
 }
 
-.today-back-link:hover {
+.today-back-link:hover,
+.today-subtle-link:hover {
+  color: var(--color-text-secondary);
+}
+
+.today-footer-divider {
+  color: var(--color-text-tertiary);
+  margin: 0 var(--space-2);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PHASE 18.3: HELD, NOT SHOWN
+   The Proof of Care
+   ═══════════════════════════════════════════════════════════════ */
+
+.held {
+  max-width: 36rem;
+  margin: 0 auto;
+  padding: var(--space-16) var(--container-padding);
+  min-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.held-header {
+  text-align: center;
+  margin-bottom: var(--space-12);
+}
+
+.held-title {
+  font-size: var(--text-2xl);
+  font-weight: var(--font-medium);
+  color: var(--color-text-primary);
+  letter-spacing: -0.01em;
+}
+
+/* Main statement - the core message */
+.held-statement {
+  text-align: center;
+  margin-bottom: var(--space-12);
+}
+
+.held-statement-text {
+  font-size: var(--text-lg);
+  color: var(--color-text-secondary);
+  line-height: var(--leading-relaxed);
+}
+
+/* Categories - abstract, not specific */
+.held-categories {
+  text-align: center;
+  margin-bottom: var(--space-12);
+}
+
+.held-categories-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  justify-content: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.held-category {
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-full);
+  text-transform: capitalize;
+}
+
+/* Reassurance - the closing comfort */
+.held-reassurance {
+  text-align: center;
+  margin-bottom: var(--space-16);
+}
+
+.held-reassurance-text {
+  font-size: var(--text-base);
+  color: var(--color-text-tertiary);
+  font-style: italic;
+}
+
+/* Footer */
+.held-footer {
+  text-align: center;
+  margin-top: auto;
+  padding-top: var(--space-8);
+}
+
+.held-back-link {
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+  text-decoration: none;
+  transition: color var(--duration-fast) var(--easing-default);
+}
+
+.held-back-link:hover {
   color: var(--color-text-secondary);
 }

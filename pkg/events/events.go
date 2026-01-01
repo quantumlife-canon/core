@@ -1038,6 +1038,18 @@ const (
 
 	// Suppression demonstrated event - emitted when suppressed insight is shown
 	Phase18_2SuppressionDemonstrated EventType = "phase18_2.suppression.demonstrated"
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	// Phase 18.3: The Proof of Care - Held, not shown
+	// Reference: docs/ADR/ADR-0035-phase18-3-proof-of-care.md
+	// ═══════════════════════════════════════════════════════════════════════════
+
+	// Held computed event - emitted when held summary is computed
+	// CRITICAL: Contains hash only, never raw data
+	Phase18_3HeldComputed EventType = "phase18_3.held.computed"
+
+	// Held presented event - emitted when /held page is rendered
+	Phase18_3HeldPresented EventType = "phase18_3.held.presented"
 )
 
 // Event represents a system event for audit and observability.

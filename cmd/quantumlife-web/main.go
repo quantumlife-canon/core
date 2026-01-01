@@ -33,6 +33,7 @@ import (
 	emailexec "quantumlife/internal/email/execution"
 	"quantumlife/internal/execexecutor"
 	"quantumlife/internal/execrouter"
+	"quantumlife/internal/held"
 	"quantumlife/internal/interest"
 	"quantumlife/internal/interruptions"
 	"quantumlife/internal/loop"
@@ -67,6 +68,8 @@ type Server struct {
 	interestStore     *interest.Store               // Phase 18.1: Interest capture
 	todayEngine       *todayquietly.Engine          // Phase 18.2: Today, quietly
 	preferenceStore   *todayquietly.PreferenceStore // Phase 18.2: Preference capture
+	heldEngine        *held.Engine                  // Phase 18.3: Held, not shown
+	heldStore         *held.SummaryStore            // Phase 18.3: Summary store
 }
 
 // eventLogger logs events.
@@ -113,7 +116,9 @@ type templateData struct {
 	// Phase 18.2: Today, quietly
 	TodayPage           *todayquietly.TodayQuietlyPage
 	PreferenceSubmitted bool
-	PreferenceMessage   string
+	PreferenceMessage string
+	// Phase 18.3: Held, not shown
+	HeldSummary *held.HeldSummary
 }
 
 // personInfo contains person data for display. Phase 13.1.
@@ -320,6 +325,12 @@ func main() {
 		todayquietly.WithStoreClock(clk.Now),
 	)
 
+	// Create held engine and store (Phase 18.3)
+	heldEngine := held.NewEngine(clk.Now)
+	heldStore := held.NewSummaryStore(
+		held.WithStoreClock(clk.Now),
+	)
+
 	// Create server
 	server := &Server{
 		engine:            engine,
@@ -333,6 +344,8 @@ func main() {
 		interestStore:     interestStore,   // Phase 18.1
 		todayEngine:       todayEngine,     // Phase 18.2
 		preferenceStore:   preferenceStore, // Phase 18.2
+		heldEngine:        heldEngine,      // Phase 18.3
+		heldStore:         heldStore,       // Phase 18.3
 	}
 
 	// Set up routes
@@ -346,6 +359,7 @@ func main() {
 	mux.HandleFunc("/interest", server.handleInterest)           // Phase 18.1: Interest capture
 	mux.HandleFunc("/today", server.handleToday)                 // Phase 18.2: Today, quietly
 	mux.HandleFunc("/today/preference", server.handlePreference) // Phase 18.2: Preference capture
+	mux.HandleFunc("/held", server.handleHeld)                   // Phase 18.3: Held, not shown
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18: App routes (authenticated)
@@ -638,6 +652,49 @@ func (s *Server) handlePreference(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.render(w, "today", data)
+}
+
+// handleHeld serves the "Held, not shown" page.
+// Phase 18.3: The Proof of Care
+func (s *Server) handleHeld(w http.ResponseWriter, r *http.Request) {
+	// Build held input from current state
+	// For now, use default input (can be wired to loop results later)
+	input := held.DefaultInput()
+
+	// Generate summary deterministically
+	summary := s.heldEngine.Generate(input)
+
+	// Record summary hash (for replay verification)
+	if err := s.heldStore.Record(summary); err != nil {
+		log.Printf("Held store error: %v", err)
+	}
+
+	// Emit computed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase18_3HeldComputed,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"summary_hash": summary.Hash,
+			"magnitude":    summary.Magnitude,
+		},
+	})
+
+	// Emit presented event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase18_3HeldPresented,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"summary_hash": summary.Hash,
+		},
+	})
+
+	data := templateData{
+		Title:       "Held",
+		CurrentTime: s.clk.Now().Format("2006-01-02 15:04"),
+		HeldSummary: &summary,
+	}
+
+	s.render(w, "held", data)
 }
 
 // handleDemo serves the deterministic demo page.
@@ -1621,15 +1678,56 @@ const templates = `
     </section>
     {{end}}
 
-    {{/* Subtle link back to landing */}}
+    {{/* Subtle links */}}
     <footer class="today-footer">
+        <a href="/held" class="today-subtle-link">What are you holding for me?</a>
+        <span class="today-footer-divider">·</span>
         <a href="/" class="today-back-link">Back to home</a>
     </footer>
 </div>
 {{end}}
 
+{{/* ================================================================
+     Phase 18.3: Held, not shown - The Proof of Care
+     ================================================================ */}}
+{{define "held"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "held-content"}}
+<div class="held">
+    <header class="held-header">
+        <h1 class="held-title">Held, quietly.</h1>
+    </header>
+
+    <section class="held-statement">
+        <p class="held-statement-text">{{.HeldSummary.Statement}}</p>
+    </section>
+
+    {{if .HeldSummary.Categories}}
+    <section class="held-categories">
+        <ul class="held-categories-list">
+            {{range .HeldSummary.Categories}}
+            <li class="held-category">{{.Category}}</li>
+            {{end}}
+        </ul>
+    </section>
+    {{end}}
+
+    <section class="held-reassurance">
+        <p class="held-reassurance-text">We're watching, so you don't have to.</p>
+    </section>
+
+    <footer class="held-footer">
+        <a href="/today" class="held-back-link">Back to today</a>
+    </footer>
+</div>
+{{end}}
+
 {{define "page-content"}}
-{{if eq .Title "Today, quietly."}}
+{{if eq .Title "Held"}}
+    {{template "held-content" .}}
+{{else if eq .Title "Today, quietly."}}
     {{template "today-content" .}}
 {{else if eq .Title "The Moment"}}
     {{template "moment-content" .}}
