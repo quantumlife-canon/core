@@ -7,7 +7,7 @@
 #
 # Guardrails enforce Canon invariants at build time.
 
-.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 web web-mock web-stop web-status
+.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 web web-mock web-stop web-status
 
 # Default target
 all: ci
@@ -33,6 +33,7 @@ help:
 	@echo "  make demo-phase4  - Run Phase 4 drafts-only assistance demo"
 	@echo "  make demo-phase5  - Run Phase 5 calendar execution demo"
 	@echo "  make demo-phase6  - Run Phase 6 quiet loop demo"
+	@echo "  make demo-phase7  - Run Phase 7 email execution demo"
 	@echo ""
 	@echo "Web Server:"
 	@echo "  make web          - Run web server on :8080 (real mode)"
@@ -51,6 +52,7 @@ help:
 	@echo "  make check-write-provider-reg - Check write provider registry (v9.9)"
 	@echo "  make check-free-text-recipient- Check free-text recipient elimination (v9.10)"
 	@echo "  make check-policy-snapshot    - Check policy snapshot enforcement (v9.12.1)"
+	@echo "  make check-email-execution    - Check email execution boundary (Phase 7)"
 	@echo ""
 
 # Build
@@ -127,6 +129,10 @@ check-free-text-recipient:
 check-policy-snapshot:
 	@echo "Checking policy snapshot enforcement (v9.12.1)..."
 	@./scripts/guardrails/policy_snapshot_enforced.sh --check
+
+check-email-execution:
+	@echo "Checking email execution boundary (Phase 7)..."
+	@./scripts/guardrails/email_execution_enforced.sh
 
 # All guardrails
 guardrails: check-terms check-imports check-deps check-time-now check-background-async check-no-auto-retry check-single-trace-final check-write-provider-reg check-free-text-recipient check-policy-snapshot
@@ -210,6 +216,12 @@ demo-phase5:
 demo-phase6:
 	@echo "Running Phase 6 Demo: The Quiet Loop..."
 	go test -v ./internal/demo_phase6_quiet_loop/...
+
+# Phase 7 Demo: Email Execution Boundary
+# Reference: Phase 7 Email Execution Boundary
+demo-phase7:
+	@echo "Running Phase 7 Demo: Email Execution Boundary..."
+	go test -v ./internal/demo_phase7_email_execution/...
 
 # =============================================================================
 # Web Server Targets

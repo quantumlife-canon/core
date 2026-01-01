@@ -15,9 +15,10 @@ import (
 	"sort"
 	"time"
 
-	"quantumlife/internal/calendar/execution"
+	calexec "quantumlife/internal/calendar/execution"
 	"quantumlife/internal/drafts"
 	"quantumlife/internal/drafts/review"
+	emailexec "quantumlife/internal/email/execution"
 	"quantumlife/internal/interruptions"
 	"quantumlife/internal/obligations"
 	"quantumlife/pkg/clock"
@@ -58,7 +59,10 @@ type Engine struct {
 	ReviewService *review.Service
 
 	// CalendarExecutor executes approved calendar drafts.
-	CalendarExecutor *execution.Executor
+	CalendarExecutor *calexec.Executor
+
+	// EmailExecutor executes approved email drafts.
+	EmailExecutor *emailexec.Executor
 
 	// FeedbackStore stores feedback signals.
 	FeedbackStore feedback.Store
@@ -102,17 +106,26 @@ type RunResult struct {
 
 // CircleResult contains results for a single circle.
 type CircleResult struct {
-	CircleID          identity.EntityID
-	CircleName        string
-	DailyView         *view.DailyView
-	Obligations       []*obligation.Obligation
-	Interruptions     []*interrupt.Interruption
-	DraftsGenerated   []draft.Draft
-	DraftsPending     []draft.Draft
-	ExecutionResults  []execution.ExecuteResult
-	ObligationCount   int
-	InterruptionCount int
-	DraftCount        int
+	CircleID            identity.EntityID
+	CircleName          string
+	DailyView           *view.DailyView
+	Obligations         []*obligation.Obligation
+	Interruptions       []*interrupt.Interruption
+	DraftsGenerated     []draft.Draft
+	DraftsPending       []draft.Draft
+	CalendarExecResults []calexec.ExecuteResult
+	EmailExecResults    []EmailExecuteResult
+	ObligationCount     int
+	InterruptionCount   int
+	DraftCount          int
+}
+
+// EmailExecuteResult wraps the result of an email execution.
+type EmailExecuteResult struct {
+	EnvelopeID string
+	Success    bool
+	MessageID  string
+	Error      string
 }
 
 // NeedsYouSummary contains the "needs you" state.
@@ -237,17 +250,25 @@ func (e *Engine) processCircle(ctx context.Context, circle CircleInfo, now time.
 		result.DraftsPending = pending
 	}
 
-	// Execute approved calendar drafts if requested
-	if opts.ExecuteApprovedDrafts && e.CalendarExecutor != nil {
+	// Execute approved drafts if requested
+	if opts.ExecuteApprovedDrafts {
 		approvedDrafts := e.DraftStore.List(draft.ListFilter{
 			CircleID: circle.ID,
 			Status:   draft.StatusApproved,
 		})
 
 		for _, d := range approvedDrafts {
-			if d.DraftType == draft.DraftTypeCalendarResponse {
-				execResult := e.executeCalendarDraft(ctx, d, now)
-				result.ExecutionResults = append(result.ExecutionResults, execResult)
+			switch d.DraftType {
+			case draft.DraftTypeCalendarResponse:
+				if e.CalendarExecutor != nil {
+					execResult := e.executeCalendarDraft(ctx, d, now)
+					result.CalendarExecResults = append(result.CalendarExecResults, execResult)
+				}
+			case draft.DraftTypeEmailReply:
+				if e.EmailExecutor != nil {
+					execResult := e.executeEmailDraft(ctx, d, now)
+					result.EmailExecResults = append(result.EmailExecResults, execResult)
+				}
 			}
 		}
 	}
@@ -264,9 +285,9 @@ func (e *Engine) buildDailyView(circle CircleInfo, now time.Time, obligs []*obli
 }
 
 // executeCalendarDraft executes an approved calendar draft.
-func (e *Engine) executeCalendarDraft(ctx context.Context, d draft.Draft, now time.Time) execution.ExecuteResult {
+func (e *Engine) executeCalendarDraft(ctx context.Context, d draft.Draft, now time.Time) calexec.ExecuteResult {
 	// Create policy and view snapshots
-	policySnapshot := execution.NewPolicySnapshot(execution.PolicySnapshotParams{
+	policySnapshot := calexec.NewPolicySnapshot(calexec.PolicySnapshotParams{
 		CircleID:             d.CircleID,
 		IntersectionID:       d.IntersectionID,
 		CalendarWriteEnabled: true,
@@ -276,13 +297,13 @@ func (e *Engine) executeCalendarDraft(ctx context.Context, d draft.Draft, now ti
 
 	calContent, ok := d.Content.(draft.CalendarDraftContent)
 	if !ok {
-		return execution.ExecuteResult{
+		return calexec.ExecuteResult{
 			Success: false,
 			Error:   "invalid draft content type",
 		}
 	}
 
-	viewSnapshot := execution.NewViewSnapshot(execution.ViewSnapshotParams{
+	viewSnapshot := calexec.NewViewSnapshot(calexec.ViewSnapshotParams{
 		CircleID:               d.CircleID,
 		Provider:               calContent.ProviderHint,
 		CalendarID:             calContent.CalendarID,
@@ -293,7 +314,7 @@ func (e *Engine) executeCalendarDraft(ctx context.Context, d draft.Draft, now ti
 	}, now)
 
 	// Create envelope and execute
-	envelope, err := execution.NewEnvelopeFromDraft(
+	envelope, err := calexec.NewEnvelopeFromDraft(
 		d,
 		policySnapshot.PolicyHash,
 		viewSnapshot.ViewHash,
@@ -302,13 +323,99 @@ func (e *Engine) executeCalendarDraft(ctx context.Context, d draft.Draft, now ti
 		now,
 	)
 	if err != nil {
-		return execution.ExecuteResult{
+		return calexec.ExecuteResult{
 			Success: false,
 			Error:   fmt.Sprintf("failed to create envelope: %v", err),
 		}
 	}
 
 	return e.CalendarExecutor.Execute(ctx, envelope)
+}
+
+// executeEmailDraft executes an approved email draft.
+func (e *Engine) executeEmailDraft(ctx context.Context, d draft.Draft, now time.Time) EmailExecuteResult {
+	emailContent, ok := d.Content.(draft.EmailDraftContent)
+	if !ok {
+		return EmailExecuteResult{
+			Success: false,
+			Error:   "invalid draft content type",
+		}
+	}
+
+	// Create policy snapshot
+	policySnapshot := emailexec.NewPolicySnapshot(emailexec.PolicySnapshotParams{
+		CircleID:          d.CircleID,
+		IntersectionID:    d.IntersectionID,
+		EmailWriteEnabled: true,
+		AllowedProviders:  []string{"mock", "google"},
+		MaxSendsPerDay:    100,
+		DryRunMode:        false,
+	}, now)
+
+	// Create view snapshot
+	viewSnapshot := emailexec.NewViewSnapshot(emailexec.ViewSnapshotParams{
+		Provider:           emailContent.ProviderHint,
+		AccountID:          "mock-account",
+		CircleID:           d.CircleID,
+		IntersectionID:     d.IntersectionID,
+		ThreadID:           emailContent.ThreadID,
+		InReplyToMessageID: emailContent.InReplyToMessageID,
+		MessageCount:       1,
+		LastMessageAt:      now.Add(-1 * time.Hour),
+	}, now)
+
+	// Create envelope
+	envelope, err := emailexec.NewEnvelopeFromDraft(
+		d,
+		policySnapshot.PolicyHash,
+		viewSnapshot.SnapshotHash,
+		viewSnapshot.CapturedAt,
+		fmt.Sprintf("trace-email-%s", d.DraftID),
+		now,
+	)
+	if err != nil {
+		return EmailExecuteResult{
+			Success: false,
+			Error:   fmt.Sprintf("failed to create envelope: %v", err),
+		}
+	}
+
+	// Execute
+	result, err := e.EmailExecutor.Execute(ctx, *envelope)
+	if err != nil {
+		return EmailExecuteResult{
+			EnvelopeID: envelope.EnvelopeID,
+			Success:    false,
+			Error:      err.Error(),
+		}
+	}
+
+	if result.Status != emailexec.EnvelopeStatusExecuted {
+		errorMsg := ""
+		if result.ExecutionResult != nil {
+			if result.ExecutionResult.Error != "" {
+				errorMsg = result.ExecutionResult.Error
+			} else if result.ExecutionResult.BlockedReason != "" {
+				errorMsg = result.ExecutionResult.BlockedReason
+			}
+		}
+		return EmailExecuteResult{
+			EnvelopeID: result.EnvelopeID,
+			Success:    false,
+			Error:      errorMsg,
+		}
+	}
+
+	messageID := ""
+	if result.ExecutionResult != nil {
+		messageID = result.ExecutionResult.MessageID
+	}
+
+	return EmailExecuteResult{
+		EnvelopeID: result.EnvelopeID,
+		Success:    true,
+		MessageID:  messageID,
+	}
 }
 
 // computeNeedsYou computes the needs-you summary.
@@ -502,7 +609,7 @@ func (e *Engine) GetPendingDrafts() []draft.Draft {
 }
 
 // GetExecutionHistory returns calendar execution history.
-func (e *Engine) GetExecutionHistory() []execution.Envelope {
+func (e *Engine) GetExecutionHistory() []calexec.Envelope {
 	if e.CalendarExecutor == nil {
 		return nil
 	}
@@ -510,4 +617,12 @@ func (e *Engine) GetExecutionHistory() []execution.Envelope {
 	// Return empty for now - would need to list all
 	_ = env
 	return nil
+}
+
+// GetEmailExecutionHistory returns email execution history.
+func (e *Engine) GetEmailExecutionHistory() []emailexec.Envelope {
+	if e.EmailExecutor == nil {
+		return nil
+	}
+	return e.EmailExecutor.ListEnvelopes(emailexec.ListFilter{IncludeAll: true})
 }

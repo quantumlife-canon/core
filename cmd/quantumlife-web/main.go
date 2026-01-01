@@ -21,12 +21,14 @@ import (
 	"syscall"
 	"time"
 
-	"quantumlife/internal/calendar/execution"
+	calexec "quantumlife/internal/calendar/execution"
 	mockcal "quantumlife/internal/connectors/calendar/write/providers/mock"
+	mockemail "quantumlife/internal/connectors/email/write/providers/mock"
 	"quantumlife/internal/drafts"
 	"quantumlife/internal/drafts/calendar"
 	"quantumlife/internal/drafts/email"
 	"quantumlife/internal/drafts/review"
+	emailexec "quantumlife/internal/email/execution"
 	"quantumlife/internal/interruptions"
 	"quantumlife/internal/loop"
 	"quantumlife/internal/obligations"
@@ -64,17 +66,18 @@ func (l *eventLogger) Emit(event events.Event) {
 
 // templateData holds data for templates.
 type templateData struct {
-	Title         string
-	CurrentTime   string
-	RunResult     *loop.RunResult
-	NeedsYou      *loop.NeedsYouSummary
-	Circles       []loop.CircleResult
-	Draft         *draft.Draft
-	PendingDrafts []draft.Draft
-	FeedbackStats *feedback.FeedbackStats
-	ExecutionHist []execution.Envelope
-	Message       string
-	Error         string
+	Title            string
+	CurrentTime      string
+	RunResult        *loop.RunResult
+	NeedsYou         *loop.NeedsYouSummary
+	Circles          []loop.CircleResult
+	Draft            *draft.Draft
+	PendingDrafts    []draft.Draft
+	FeedbackStats    *feedback.FeedbackStats
+	CalendarExecHist []calexec.Envelope
+	EmailExecHist    []emailexec.Envelope
+	Message          string
+	Error            string
 }
 
 // mockIdentityRepo implements IdentityRepository for obligations engine.
@@ -139,15 +142,25 @@ func main() {
 	reviewService := review.NewService(draftStore)
 
 	// Create calendar executor
-	mockWriter := mockcal.NewWriter(
+	calMockWriter := mockcal.NewWriter(
 		mockcal.WithClock(clk.Now),
 	)
-	executor := execution.NewExecutor(execution.ExecutorConfig{
-		EnvelopeStore:   execution.NewMemoryStore(),
-		FreshnessPolicy: execution.NewDefaultFreshnessPolicy(),
+	calExecutor := calexec.NewExecutor(calexec.ExecutorConfig{
+		EnvelopeStore:   calexec.NewMemoryStore(),
+		FreshnessPolicy: calexec.NewDefaultFreshnessPolicy(),
 		Clock:           clk.Now,
 	})
-	executor.RegisterWriter("mock", mockWriter)
+	calExecutor.RegisterWriter("mock", calMockWriter)
+
+	// Create email executor
+	emailMockWriter := mockemail.NewWriter(
+		mockemail.WithClock(clk.Now),
+	)
+	emailExecutor := emailexec.NewExecutor(
+		emailexec.WithExecutorClock(clk.Now),
+		emailexec.WithWriter("mock", emailMockWriter),
+		emailexec.WithEventEmitter(emitter),
+	)
 
 	// Create loop engine
 	engine := &loop.Engine{
@@ -159,7 +172,8 @@ func main() {
 		DraftEngine:        draftEngine,
 		DraftStore:         draftStore,
 		ReviewService:      reviewService,
-		CalendarExecutor:   executor,
+		CalendarExecutor:   calExecutor,
+		EmailExecutor:      emailExecutor,
 		FeedbackStore:      feedbackStore,
 		EventEmitter:       emitter,
 	}
@@ -431,12 +445,14 @@ func (s *Server) handleDraft(w http.ResponseWriter, r *http.Request) {
 
 // handleHistory shows execution history.
 func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
-	history := s.engine.GetExecutionHistory()
+	calHistory := s.engine.GetExecutionHistory()
+	emailHistory := s.engine.GetEmailExecutionHistory()
 
 	data := templateData{
-		Title:         "Execution History",
-		CurrentTime:   s.clk.Now().Format("2006-01-02 15:04:05"),
-		ExecutionHist: history,
+		Title:            "Execution History",
+		CurrentTime:      s.clk.Now().Format("2006-01-02 15:04:05"),
+		CalendarExecHist: calHistory,
+		EmailExecHist:    emailHistory,
 	}
 
 	s.render(w, "history", data)

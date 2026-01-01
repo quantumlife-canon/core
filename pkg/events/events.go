@@ -660,6 +660,47 @@ const (
 
 	// Web request events (minimal)
 	Phase6WebRequestServed EventType = "phase6.web.request.served"
+
+	// Phase 7: Email Execution Boundary events
+	// CRITICAL: This is the ONLY path to external email writes.
+	// CRITICAL: Execution ONLY from approved drafts.
+	// CRITICAL: No auto-retries. No background execution.
+	// CRITICAL: Must be idempotent - same envelope executed twice returns same result.
+	// CRITICAL: Reply-only - no new thread creation.
+	//
+	// Reference: Phase 7 Email Execution Boundary
+
+	// Envelope lifecycle events
+	EmailEnvelopeCreated   EventType = "email.envelope.created"
+	EmailEnvelopeValidated EventType = "email.envelope.validated"
+
+	// Execution lifecycle events
+	EmailExecutionAttempted  EventType = "email.execution.attempted"
+	EmailExecutionSucceeded  EventType = "email.execution.succeeded"
+	EmailExecutionFailed     EventType = "email.execution.failed"
+	EmailExecutionBlocked    EventType = "email.execution.blocked"
+	EmailExecutionIdempotent EventType = "email.execution.idempotent"
+	EmailExecutionStoreError EventType = "email.execution.store_error"
+
+	// Policy snapshot events
+	EmailPolicySnapshotTaken    EventType = "email.policy.snapshot.taken"
+	EmailPolicySnapshotVerified EventType = "email.policy.snapshot.verified"
+	EmailPolicySnapshotMismatch EventType = "email.policy.snapshot.mismatch"
+
+	// View snapshot events
+	EmailViewSnapshotTaken   EventType = "email.view.snapshot.taken"
+	EmailViewSnapshotFresh   EventType = "email.view.snapshot.fresh"
+	EmailViewSnapshotStale   EventType = "email.view.snapshot.stale"
+	EmailViewSnapshotChanged EventType = "email.view.snapshot.changed"
+
+	// Provider events
+	EmailProviderCalled    EventType = "email.provider.called"
+	EmailProviderSucceeded EventType = "email.provider.succeeded"
+	EmailProviderFailed    EventType = "email.provider.failed"
+
+	// Safety events
+	EmailSandboxEnforced EventType = "email.sandbox.enforced"
+	EmailDryRunEnforced  EventType = "email.dryrun.enforced"
 )
 
 // Event represents a system event for audit and observability.
