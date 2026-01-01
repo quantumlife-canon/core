@@ -7,7 +7,7 @@
 #
 # Guardrails enforce Canon invariants at build time.
 
-.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 demo-phase9 demo-phase10 demo-phase11 demo-phase12 demo-phase13 demo-phase13-1 demo-phase14 demo-phase15 demo-phase16 web web-mock web-stop web-status
+.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 demo-phase9 demo-phase10 demo-phase11 demo-phase12 demo-phase13 demo-phase13-1 demo-phase14 demo-phase15 demo-phase16 demo-phase18 web web-mock web-demo web-app web-stop web-status
 
 # Default target
 all: ci
@@ -44,10 +44,13 @@ help:
 	@echo "  make demo-phase14 - Run Phase 14 policy learning demo"
 	@echo "  make demo-phase15 - Run Phase 15 household approvals demo"
 	@echo "  make demo-phase16 - Run Phase 16 notification projection demo"
+	@echo "  make demo-phase18 - Run Phase 18 product language demo"
 	@echo ""
 	@echo "Web Server:"
 	@echo "  make web          - Run web server on :8080 (real mode)"
 	@echo "  make web-mock     - Run web server on :8080 with mock data"
+	@echo "  make web-demo     - Run web server on :8080 in demo mode"
+	@echo "  make web-app      - Run web server on :8080 in app mode"
 	@echo "  make web-stop     - Stop whatever is listening on :8080"
 	@echo "  make web-status   - Check if :8080 is bound"
 	@echo ""
@@ -343,6 +346,12 @@ demo-phase16:
 	@echo "Running Phase 16 Demo: Notification Projection..."
 	go test -v ./internal/demo_phase16_notifications/...
 
+# Phase 18 Demo: Product Language System
+# Reference: docs/ADR/ADR-0034-phase18-product-language-and-web-shell.md
+demo-phase18:
+	@echo "Running Phase 18 Demo: Product Language System..."
+	go test -v ./internal/demo_phase18_product_language/...
+
 # =============================================================================
 # Web Server Targets
 # =============================================================================
@@ -359,6 +368,17 @@ web:
 web-mock:
 	@echo "Starting QuantumLife Web on :8080 (mock mode)..."
 	go run ./cmd/quantumlife-web -mock=true
+
+# Run web server in demo mode (deterministic seed)
+# Reference: docs/GUIDED_DEMO_SCRIPT_V1.md
+web-demo:
+	@echo "Starting QuantumLife Web on :8080 (demo mode)..."
+	go run ./cmd/quantumlife-web -mock=true
+
+# Run web server in app mode (alias for real mode)
+web-app:
+	@echo "Starting QuantumLife Web on :8080 (app mode)..."
+	go run ./cmd/quantumlife-web -mock=false
 
 # Stop whatever is listening on :8080
 # Safe to run even if nothing is listening (will not fail)

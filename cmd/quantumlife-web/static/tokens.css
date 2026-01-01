@@ -1,0 +1,205 @@
+/**
+ * QuantumLife Design Tokens v1
+ *
+ * These tokens are the atomic units of the visual system.
+ * All component CSS must reference tokens, never raw values.
+ *
+ * Phase 18 - Product Language System
+ */
+
+:root {
+  /* ═══════════════════════════════════════════════════════════════
+     TYPOGRAPHY
+     ═══════════════════════════════════════════════════════════════ */
+
+  /* Font Stacks */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+               "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo,
+               Monaco, Consolas, monospace;
+
+  /* Type Scale */
+  --text-xs: 0.6875rem;   /* 11px */
+  --text-sm: 0.8125rem;   /* 13px */
+  --text-base: 0.9375rem; /* 15px */
+  --text-lg: 1.0625rem;   /* 17px */
+  --text-xl: 1.3125rem;   /* 21px */
+  --text-2xl: 1.75rem;    /* 28px */
+  --text-3xl: 2.25rem;    /* 36px */
+
+  /* Line Height */
+  --leading-tight: 1.2;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.7;
+
+  /* Font Weight */
+  --font-normal: 400;
+  --font-medium: 500;
+  --font-semibold: 600;
+
+  /* ═══════════════════════════════════════════════════════════════
+     SPACING SCALE (4px base unit)
+     ═══════════════════════════════════════════════════════════════ */
+
+  --space-1: 0.25rem;  /* 4px */
+  --space-2: 0.5rem;   /* 8px */
+  --space-3: 0.75rem;  /* 12px */
+  --space-4: 1rem;     /* 16px */
+  --space-6: 1.5rem;   /* 24px */
+  --space-8: 2rem;     /* 32px */
+  --space-12: 3rem;    /* 48px */
+  --space-16: 4rem;    /* 64px */
+
+  /* ═══════════════════════════════════════════════════════════════
+     COLORS - LIGHT MODE
+     ═══════════════════════════════════════════════════════════════ */
+
+  /* Core Backgrounds */
+  --color-bg: #FAFAFA;
+  --color-surface: #FFFFFF;
+  --color-surface-raised: #FFFFFF;
+
+  /* Text */
+  --color-text-primary: #1A1A1A;
+  --color-text-secondary: #666666;
+  --color-text-tertiary: #999999;
+
+  /* Borders */
+  --color-border: #E5E5E5;
+  --color-border-subtle: #F0F0F0;
+
+  /* Interactive */
+  --color-focus: #0066CC;
+  --color-link: #0066CC;
+  --color-link-hover: #004499;
+
+  /* Actions */
+  --color-action-primary: #1A1A1A;
+  --color-action-primary-hover: #333333;
+  --color-action-primary-text: #FFFFFF;
+  --color-action-secondary: transparent;
+  --color-action-secondary-hover: #F5F5F5;
+  --color-action-secondary-border: #CCCCCC;
+  --color-action-secondary-text: #1A1A1A;
+
+  /* Interruption Levels - Intentionally muted */
+  --color-level-silent: transparent;
+  --color-level-ambient: #F5F5F5;
+  --color-level-needs-you: #FFF9E6;
+  --color-level-urgent: #FFF0F0;
+
+  /* Semantic */
+  --color-success: #2E7D32;
+  --color-error: #C62828;
+  --color-warning: #F9A825;
+
+  /* ═══════════════════════════════════════════════════════════════
+     RADIUS
+     ═══════════════════════════════════════════════════════════════ */
+
+  --radius-sm: 0.25rem;  /* 4px */
+  --radius-md: 0.5rem;   /* 8px */
+  --radius-lg: 0.75rem;  /* 12px */
+  --radius-full: 9999px;
+
+  /* ═══════════════════════════════════════════════════════════════
+     SHADOW - Subtle only
+     ═══════════════════════════════════════════════════════════════ */
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.08);
+
+  /* ═══════════════════════════════════════════════════════════════
+     MOTION
+     ═══════════════════════════════════════════════════════════════ */
+
+  --duration-instant: 0ms;
+  --duration-fast: 100ms;
+  --duration-normal: 200ms;
+  --duration-slow: 300ms;
+
+  --easing-default: cubic-bezier(0.4, 0, 0.2, 1);
+  --easing-enter: cubic-bezier(0, 0, 0.2, 1);
+  --easing-exit: cubic-bezier(0.4, 0, 1, 1);
+
+  /* ═══════════════════════════════════════════════════════════════
+     Z-INDEX SCALE
+     ═══════════════════════════════════════════════════════════════ */
+
+  --z-base: 0;
+  --z-raised: 10;
+  --z-dropdown: 100;
+  --z-modal: 200;
+  --z-toast: 300;
+
+  /* ═══════════════════════════════════════════════════════════════
+     COMPONENT TOKENS
+     ═══════════════════════════════════════════════════════════════ */
+
+  /* Cards */
+  --card-padding: var(--space-4);
+  --card-radius: var(--radius-md);
+  --card-shadow: var(--shadow-md);
+  --card-border: 1px solid var(--color-border-subtle);
+
+  /* Buttons */
+  --button-padding-x: var(--space-4);
+  --button-padding-y: var(--space-2);
+  --button-radius: var(--radius-sm);
+  --button-font-size: var(--text-sm);
+  --button-font-weight: var(--font-medium);
+
+  /* Inputs */
+  --input-padding-x: var(--space-3);
+  --input-padding-y: var(--space-2);
+  --input-radius: var(--radius-sm);
+  --input-border: 1px solid var(--color-border);
+
+  /* Container */
+  --container-max-width: 64rem; /* 1024px */
+  --container-padding: var(--space-4);
+
+  /* Header */
+  --header-height: 3.5rem; /* 56px */
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DARK MODE
+   ═══════════════════════════════════════════════════════════════ */
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Core Backgrounds */
+    --color-bg: #121212;
+    --color-surface: #1E1E1E;
+    --color-surface-raised: #252525;
+
+    /* Text */
+    --color-text-primary: #EBEBEB;
+    --color-text-secondary: #A0A0A0;
+    --color-text-tertiary: #707070;
+
+    /* Borders */
+    --color-border: #333333;
+    --color-border-subtle: #282828;
+
+    /* Actions */
+    --color-action-primary: #EBEBEB;
+    --color-action-primary-hover: #FFFFFF;
+    --color-action-primary-text: #1A1A1A;
+    --color-action-secondary-hover: #282828;
+    --color-action-secondary-border: #555555;
+    --color-action-secondary-text: #EBEBEB;
+
+    /* Interruption Levels - Dark mode variants */
+    --color-level-ambient: #252525;
+    --color-level-needs-you: #2D2A1F;
+    --color-level-urgent: #2D1F1F;
+
+    /* Shadows are less visible in dark mode */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+    --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.4);
+  }
+}

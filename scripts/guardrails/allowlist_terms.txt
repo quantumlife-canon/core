@@ -194,3 +194,14 @@ internal/demo_phase15_household_approvals/*.go
 # to describe shared family finances. QuantumLife core uses "circle" for identity -
 # these are finance execution demo components testing household approvals.
 internal/demo_phase17_finance_execution/*.go
+
+# Phase 18: Product Language System (ADR-0034)
+# Demo tests contain "workspace" in a list of FORBIDDEN terms that should NEVER
+# substitute for "Circle". This is documenting the vocabulary contract, not using
+# the term in code. Web templates use "identity-role" as a CSS class name for
+# displaying email participant role in identity cards, and "accounts" in the
+# empty state message "Identities will appear as you connect accounts" which
+# refers to email/calendar/finance provider accounts, NOT user accounts.
+# QuantumLife core uses "circle" for identity - these are UI/documentation components.
+internal/demo_phase18_product_language/*.go
+cmd/quantumlife-web/main.go

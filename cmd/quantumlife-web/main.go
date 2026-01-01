@@ -98,6 +98,8 @@ type templateData struct {
 	IdentityStats *identityStats
 	// Phase 14: Policy UI
 	PolicySet      *policy.PolicySet
+	// Phase 18: Circle detail
+	CircleDetail   *loop.CircleResult
 	CirclePolicies []circlePolicyInfo
 	CirclePolicy   *circlePolicyInfo
 }
@@ -282,6 +284,17 @@ func main() {
 		"formatTime": func(t time.Time) string {
 			return t.Format("2006-01-02 15:04:05")
 		},
+		// Phase 18: Template helpers
+		"hasPrefix": strings.HasPrefix,
+		"slice": func(s string, start, end int) string {
+			if start < 0 || end > len(s) || start >= end {
+				if len(s) > 0 {
+					return s[:1]
+				}
+				return ""
+			}
+			return s[start:end]
+		},
 	}).Parse(templates))
 
 	// Create server
@@ -298,7 +311,24 @@ func main() {
 
 	// Set up routes
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", server.handleHome)
+
+	// Phase 18: Static files
+	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("cmd/quantumlife-web/static"))))
+
+	// Phase 18: Public routes
+	mux.HandleFunc("/", server.handleLanding)
+	mux.HandleFunc("/demo", server.handleDemo)
+
+	// Phase 18: App routes (authenticated)
+	mux.HandleFunc("/app", server.handleAppHome)
+	mux.HandleFunc("/app/", server.handleAppHome)
+	mux.HandleFunc("/app/circle/", server.handleAppCircle)
+	mux.HandleFunc("/app/drafts", server.handleAppDrafts)
+	mux.HandleFunc("/app/draft/", server.handleAppDraft)
+	mux.HandleFunc("/app/people", server.handleAppPeople)
+	mux.HandleFunc("/app/policies", server.handleAppPolicies)
+
+	// Legacy routes (redirect to new app routes)
 	mux.HandleFunc("/circles", server.handleCircles)
 	mux.HandleFunc("/circle/", server.handleCircle)
 	mux.HandleFunc("/needs-you", server.handleNeedsYou)
@@ -400,6 +430,225 @@ func populateMockEvents(store *domainevents.InMemoryEventStore, now time.Time, p
 
 	log.Printf("Populated %d mock events", 4)
 }
+
+// ============================================================================
+// Phase 18: Product Language System - Landing, Demo, and App Handlers
+// ============================================================================
+
+// handleLanding serves the public landing page.
+// This explains the category, not the features.
+func (s *Server) handleLanding(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+
+	data := templateData{
+		Title:       "Nothing Needs You",
+		CurrentTime: s.clk.Now().Format("2006-01-02 15:04"),
+	}
+
+	s.render(w, "landing", data)
+}
+
+// handleDemo serves the deterministic demo page.
+// Same seed = same output, always.
+func (s *Server) handleDemo(w http.ResponseWriter, r *http.Request) {
+	// Run the loop with demo context
+	result := s.engine.Run(context.Background(), loop.RunOptions{
+		IncludeMockData: true,
+	})
+
+	data := templateData{
+		Title:       "Demo",
+		CurrentTime: s.clk.Now().Format("2006-01-02 15:04"),
+		RunResult:   &result,
+		NeedsYou:    &result.NeedsYou,
+		Circles:     result.Circles,
+	}
+
+	s.render(w, "demo", data)
+}
+
+// handleAppHome shows the app home page ("Nothing Needs You" or items).
+func (s *Server) handleAppHome(w http.ResponseWriter, r *http.Request) {
+	// Check for exact paths
+	if r.URL.Path != "/app" && r.URL.Path != "/app/" {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Run the loop
+	result := s.engine.Run(context.Background(), loop.RunOptions{
+		IncludeMockData: *mockData,
+	})
+
+	data := templateData{
+		Title:       "Home",
+		CurrentTime: s.clk.Now().Format("2006-01-02 15:04"),
+		RunResult:   &result,
+		NeedsYou:    &result.NeedsYou,
+		Circles:     result.Circles,
+	}
+
+	s.render(w, "app-home", data)
+}
+
+// handleAppCircle shows a circle detail page.
+func (s *Server) handleAppCircle(w http.ResponseWriter, r *http.Request) {
+	circleID := strings.TrimPrefix(r.URL.Path, "/app/circle/")
+	if circleID == "" {
+		http.Redirect(w, r, "/app", http.StatusFound)
+		return
+	}
+
+	// Run the loop
+	result := s.engine.Run(context.Background(), loop.RunOptions{
+		IncludeMockData: *mockData,
+	})
+
+	// Find the specific circle
+	var circleResult *loop.CircleResult
+	for i := range result.Circles {
+		if string(result.Circles[i].CircleID) == circleID {
+			circleResult = &result.Circles[i]
+			break
+		}
+	}
+
+	// Get people from identity repo
+	var people []personInfo
+	if s.identityRepo != nil {
+		persons := s.identityRepo.ListPersons()
+		for _, p := range persons {
+			people = append(people, personInfo{
+				ID:    string(p.ID()),
+				Label: s.identityRepo.PersonLabel(p.ID()),
+			})
+		}
+	}
+
+	data := templateData{
+		Title:        "Circle: " + circleID,
+		CurrentTime:  s.clk.Now().Format("2006-01-02 15:04"),
+		RunResult:    &result,
+		Circles:      result.Circles,
+		People:       people,
+		CircleDetail: circleResult,
+	}
+
+	s.render(w, "app-circle", data)
+}
+
+// handleAppDrafts shows all pending drafts.
+func (s *Server) handleAppDrafts(w http.ResponseWriter, r *http.Request) {
+	// Run the loop to get pending drafts
+	result := s.engine.Run(context.Background(), loop.RunOptions{
+		IncludeMockData: *mockData,
+	})
+
+	data := templateData{
+		Title:         "Drafts",
+		CurrentTime:   s.clk.Now().Format("2006-01-02 15:04"),
+		PendingDrafts: result.NeedsYou.PendingDrafts,
+	}
+
+	s.render(w, "app-drafts", data)
+}
+
+// handleAppDraft shows a specific draft for review.
+func (s *Server) handleAppDraft(w http.ResponseWriter, r *http.Request) {
+	draftID := strings.TrimPrefix(r.URL.Path, "/app/draft/")
+	if draftID == "" {
+		http.Redirect(w, r, "/app/drafts", http.StatusFound)
+		return
+	}
+
+	// Find the draft
+	var foundDraft *draft.Draft
+	result := s.engine.Run(context.Background(), loop.RunOptions{
+		IncludeMockData: *mockData,
+	})
+
+	for i := range result.NeedsYou.PendingDrafts {
+		if string(result.NeedsYou.PendingDrafts[i].DraftID) == draftID {
+			foundDraft = &result.NeedsYou.PendingDrafts[i]
+			break
+		}
+	}
+
+	data := templateData{
+		Title:       "Review Draft",
+		CurrentTime: s.clk.Now().Format("2006-01-02 15:04"),
+		Draft:       foundDraft,
+	}
+
+	s.render(w, "app-draft", data)
+}
+
+// handleAppPeople shows the identity graph.
+func (s *Server) handleAppPeople(w http.ResponseWriter, r *http.Request) {
+	var people []personInfo
+	var stats *identityStats
+
+	if s.identityRepo != nil {
+		persons := s.identityRepo.ListPersons()
+		for _, p := range persons {
+			people = append(people, personInfo{
+				ID:           string(p.ID()),
+				Label:        s.identityRepo.PersonLabel(p.ID()),
+				PrimaryEmail: s.identityRepo.PrimaryEmail(p.ID()),
+			})
+		}
+		stats = &identityStats{
+			PersonCount:       s.identityRepo.CountByType(identity.EntityTypePerson),
+			OrganizationCount: s.identityRepo.CountByType(identity.EntityTypeOrganization),
+		}
+	}
+
+	data := templateData{
+		Title:         "People",
+		CurrentTime:   s.clk.Now().Format("2006-01-02 15:04"),
+		People:        people,
+		IdentityStats: stats,
+	}
+
+	s.render(w, "app-people", data)
+}
+
+// handleAppPolicies shows circle policies.
+func (s *Server) handleAppPolicies(w http.ResponseWriter, r *http.Request) {
+	var circlePolicies []circleConfigInfo
+
+	if s.multiCircleConfig != nil {
+		for _, circleID := range s.multiCircleConfig.CircleIDs() {
+			circle := s.multiCircleConfig.GetCircle(circleID)
+			if circle == nil {
+				continue
+			}
+			info := circleConfigInfo{
+				ID:            string(circle.ID),
+				Name:          circle.Name,
+				EmailCount:    len(circle.EmailIntegrations),
+				CalendarCount: len(circle.CalendarIntegrations),
+				FinanceCount:  len(circle.FinanceIntegrations),
+			}
+			circlePolicies = append(circlePolicies, info)
+		}
+	}
+
+	data := templateData{
+		Title:         "Policies",
+		CurrentTime:   s.clk.Now().Format("2006-01-02 15:04"),
+		CircleConfigs: circlePolicies,
+	}
+
+	s.render(w, "app-policies", data)
+}
+
+// ============================================================================
+// Legacy Handlers (Phase 1-17)
+// ============================================================================
 
 // handleHome shows the home page ("Nothing Needs You" or needs-you summary).
 func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
@@ -1000,7 +1249,477 @@ func generateMockDraftsFromObligations(engine *drafts.Engine, circleID identity.
 }
 
 // templates contains all HTML templates.
+// Phase 18: Product Language System - uses external CSS files.
 const templates = `
+{{/* ================================================================
+     Phase 18: Base template with external CSS
+     ================================================================ */}}
+{{define "base18"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{.Title}} - QuantumLife</title>
+    <link rel="stylesheet" href="/static/tokens.css">
+    <link rel="stylesheet" href="/static/reset.css">
+    <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+    <div class="page">
+        {{template "page-content" .}}
+    </div>
+</body>
+</html>
+{{end}}
+
+{{/* ================================================================
+     Landing Page - Public
+     ================================================================ */}}
+{{define "landing"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "landing-content"}}
+<div class="hero">
+    <h1 class="hero-title">Nothing Needs You</h1>
+    <p class="hero-subtitle">
+        QuantumLife is a personal operating system that handles life administration
+        in the background. When it's working, you don't notice.
+    </p>
+    <div class="hero-cta">
+        <a href="/demo" class="btn btn-primary">Try the Demo</a>
+        <a href="/app" class="btn btn-secondary">Enter App</a>
+    </div>
+</div>
+<p class="category-line">
+    Not a todo list. Not an inbox. Not an assistant. A system that handles, so you don't have to.
+</p>
+{{end}}
+
+{{define "page-content"}}
+{{if eq .Title "Nothing Needs You"}}
+    {{template "landing-content" .}}
+{{else if eq .Title "Demo"}}
+    {{template "demo-content" .}}
+{{else if eq .Title "Home"}}
+    <header class="header">
+        <div class="header-inner container">
+            <a href="/app" class="header-logo">QuantumLife</a>
+            <nav class="header-nav">
+                <a href="/app" class="header-nav-link header-nav-link--active">Home</a>
+                <a href="/app/drafts" class="header-nav-link">Drafts</a>
+                <a href="/app/people" class="header-nav-link">People</a>
+                <a href="/app/policies" class="header-nav-link">Policies</a>
+            </nav>
+        </div>
+    </header>
+    <div class="page-content">
+        <div class="container">
+            {{template "app-home-content" .}}
+        </div>
+    </div>
+    <footer class="footer">
+        <div class="container footer-inner">
+            <span class="footer-text">QuantumLife</span>
+            <div class="footer-links">
+                <a href="#" class="footer-link">Audit trail</a>
+            </div>
+        </div>
+    </footer>
+{{else if hasPrefix .Title "Circle:"}}
+    <header class="header">
+        <div class="header-inner container">
+            <a href="/app" class="header-logo">QuantumLife</a>
+            <nav class="header-nav">
+                <a href="/app" class="header-nav-link">Home</a>
+                <a href="/app/drafts" class="header-nav-link">Drafts</a>
+                <a href="/app/people" class="header-nav-link">People</a>
+                <a href="/app/policies" class="header-nav-link">Policies</a>
+            </nav>
+        </div>
+    </header>
+    <div class="page-content">
+        <div class="container">
+            {{template "app-circle-content" .}}
+        </div>
+    </div>
+{{else if eq .Title "Drafts"}}
+    <header class="header">
+        <div class="header-inner container">
+            <a href="/app" class="header-logo">QuantumLife</a>
+            <nav class="header-nav">
+                <a href="/app" class="header-nav-link">Home</a>
+                <a href="/app/drafts" class="header-nav-link header-nav-link--active">Drafts</a>
+                <a href="/app/people" class="header-nav-link">People</a>
+                <a href="/app/policies" class="header-nav-link">Policies</a>
+            </nav>
+        </div>
+    </header>
+    <div class="page-content">
+        <div class="container">
+            {{template "app-drafts-content" .}}
+        </div>
+    </div>
+{{else if eq .Title "Review Draft"}}
+    <header class="header">
+        <div class="header-inner container">
+            <a href="/app" class="header-logo">QuantumLife</a>
+            <nav class="header-nav">
+                <a href="/app" class="header-nav-link">Home</a>
+                <a href="/app/drafts" class="header-nav-link header-nav-link--active">Drafts</a>
+                <a href="/app/people" class="header-nav-link">People</a>
+                <a href="/app/policies" class="header-nav-link">Policies</a>
+            </nav>
+        </div>
+    </header>
+    <div class="page-content">
+        <div class="container">
+            {{template "app-draft-content" .}}
+        </div>
+    </div>
+{{else if eq .Title "People"}}
+    <header class="header">
+        <div class="header-inner container">
+            <a href="/app" class="header-logo">QuantumLife</a>
+            <nav class="header-nav">
+                <a href="/app" class="header-nav-link">Home</a>
+                <a href="/app/drafts" class="header-nav-link">Drafts</a>
+                <a href="/app/people" class="header-nav-link header-nav-link--active">People</a>
+                <a href="/app/policies" class="header-nav-link">Policies</a>
+            </nav>
+        </div>
+    </header>
+    <div class="page-content">
+        <div class="container">
+            {{template "app-people-content" .}}
+        </div>
+    </div>
+{{else if eq .Title "Policies"}}
+    <header class="header">
+        <div class="header-inner container">
+            <a href="/app" class="header-logo">QuantumLife</a>
+            <nav class="header-nav">
+                <a href="/app" class="header-nav-link">Home</a>
+                <a href="/app/drafts" class="header-nav-link">Drafts</a>
+                <a href="/app/people" class="header-nav-link">People</a>
+                <a href="/app/policies" class="header-nav-link header-nav-link--active">Policies</a>
+            </nav>
+        </div>
+    </header>
+    <div class="page-content">
+        <div class="container">
+            {{template "app-policies-content" .}}
+        </div>
+    </div>
+{{else}}
+    {{template "legacy-content" .}}
+{{end}}
+{{end}}
+
+{{/* ================================================================
+     Demo Page - Public, Deterministic
+     ================================================================ */}}
+{{define "demo"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "demo-content"}}
+<header class="header">
+    <div class="header-inner container">
+        <a href="/" class="header-logo">QuantumLife</a>
+        <span class="demo-badge">Demo</span>
+    </div>
+</header>
+<div class="page-content">
+    <div class="container">
+        <div class="demo-notice">
+            This is a deterministic demo. Every time you run it, you see the same output. This is simulated data.
+        </div>
+
+        {{if .NeedsYou}}
+            {{if .NeedsYou.IsQuiet}}
+            <div class="empty-state">
+                <h2 class="empty-state-title">Nothing needs you.</h2>
+                <p class="empty-state-body">QuantumLife handled everything this week.</p>
+            </div>
+            {{else}}
+            <div class="section">
+                <h2 class="section-title">{{.NeedsYou.TotalItems}} item(s) need you</h2>
+                {{range .NeedsYou.PendingDrafts}}
+                <a href="#" class="needs-you-item needs-you-item--needs-you">
+                    <div class="needs-you-item-title">{{.DraftType}}</div>
+                    <div class="needs-you-item-meta">Circle: {{.CircleID}}</div>
+                </a>
+                {{end}}
+            </div>
+            {{end}}
+        {{end}}
+
+        {{if .Circles}}
+        <div class="section">
+            <h2 class="section-title">Your Circles</h2>
+            <div class="circles-row">
+                {{range .Circles}}
+                <div class="circle-card">
+                    <div class="circle-card-title">{{.CircleName}}</div>
+                    <div class="circle-card-meta">{{.ObligationCount}} obligations</div>
+                    {{if gt .DraftCount 0}}
+                    <span class="circle-card-badge">{{.DraftCount}} drafts</span>
+                    {{end}}
+                </div>
+                {{end}}
+            </div>
+        </div>
+        {{end}}
+
+        <div class="mt-8 text-center">
+            <a href="/app" class="btn btn-primary">Enter App</a>
+        </div>
+    </div>
+</div>
+{{end}}
+
+{{/* ================================================================
+     App Home - "Nothing Needs You" or items
+     ================================================================ */}}
+{{define "app-home"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "app-home-content"}}
+{{if .NeedsYou}}
+    {{if .NeedsYou.IsQuiet}}
+    <div class="empty-state">
+        <h2 class="empty-state-title">Nothing needs you.</h2>
+        <p class="empty-state-body">QuantumLife handled everything this week.</p>
+    </div>
+    {{else}}
+    <div class="section">
+        <h2 class="section-title">{{.NeedsYou.TotalItems}} item(s) need you</h2>
+        {{range .NeedsYou.PendingDrafts}}
+        <a href="/app/draft/{{.DraftID}}" class="needs-you-item needs-you-item--needs-you">
+            <div class="needs-you-item-title">{{.DraftType}}</div>
+            <div class="needs-you-item-meta">Circle: {{.CircleID}} | Created: {{formatTime .CreatedAt}}</div>
+        </a>
+        {{end}}
+        {{range .NeedsYou.ActiveInterruptions}}
+        <div class="needs-you-item needs-you-item--urgent">
+            <div class="needs-you-item-title">{{.Level}}</div>
+            <div class="needs-you-item-meta">{{.Trigger}}</div>
+        </div>
+        {{end}}
+    </div>
+    {{end}}
+{{end}}
+
+{{if .Circles}}
+<div class="section">
+    <h2 class="section-title">Your Circles</h2>
+    <div class="circles-row">
+        {{range .Circles}}
+        <a href="/app/circle/{{.CircleID}}" class="circle-card">
+            <div class="circle-card-title">{{.CircleName}}</div>
+            <div class="circle-card-meta">{{.ObligationCount}} obligations</div>
+            {{if gt .DraftCount 0}}
+            <span class="circle-card-badge">{{.DraftCount}} drafts</span>
+            {{end}}
+        </a>
+        {{end}}
+    </div>
+</div>
+{{end}}
+{{end}}
+
+{{/* ================================================================
+     App Circle Detail
+     ================================================================ */}}
+{{define "app-circle"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "app-circle-content"}}
+<h2 class="section-title">{{.Title}}</h2>
+
+{{if .CircleDetail}}
+<div class="card mb-4">
+    <div class="card-meta">
+        {{.CircleDetail.ObligationCount}} obligations |
+        {{.CircleDetail.InterruptionCount}} interruptions |
+        {{.CircleDetail.DraftCount}} drafts
+    </div>
+</div>
+{{end}}
+
+{{if .People}}
+<div class="section">
+    <h3 class="section-title">People in this circle</h3>
+    {{range .People}}
+    <div class="identity-card">
+        <div class="identity-avatar">{{slice .Label 0 1}}</div>
+        <div class="identity-info">
+            <div class="identity-name">{{.Label}}</div>
+            <div class="identity-role">{{if .PrimaryEmail}}{{.PrimaryEmail}}{{end}}</div>
+        </div>
+    </div>
+    {{end}}
+</div>
+{{end}}
+
+<div class="mt-4">
+    <a href="/app" class="btn btn-secondary">Back to Home</a>
+</div>
+{{end}}
+
+{{/* ================================================================
+     App Drafts List
+     ================================================================ */}}
+{{define "app-drafts"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "app-drafts-content"}}
+<h2 class="section-title">Drafts</h2>
+
+{{if .PendingDrafts}}
+<div class="section">
+    {{range .PendingDrafts}}
+    <div class="draft-card">
+        <div class="draft-card-action">{{.DraftType}}</div>
+        <div class="draft-card-meta">Circle: {{.CircleID}} | Created: {{formatTime .CreatedAt}}</div>
+        <div class="draft-card-actions">
+            <a href="/app/draft/{{.DraftID}}" class="btn btn-primary">Review</a>
+        </div>
+    </div>
+    {{end}}
+</div>
+{{else}}
+<div class="empty-state">
+    <h2 class="empty-state-title">No drafts.</h2>
+    <p class="empty-state-body">Proposed actions will appear here.</p>
+</div>
+{{end}}
+{{end}}
+
+{{/* ================================================================
+     App Draft Detail
+     ================================================================ */}}
+{{define "app-draft"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "app-draft-content"}}
+{{if .Draft}}
+<div class="draft-card">
+    <div class="draft-card-action">{{.Draft.DraftType}}</div>
+    <div class="draft-card-meta">
+        Circle: {{.Draft.CircleID}}<br>
+        Created: {{formatTime .Draft.CreatedAt}}<br>
+        Expires: {{formatTime .Draft.ExpiresAt}}
+    </div>
+
+    <div class="explain-panel">
+        <div class="explain-panel-title">Why am I seeing this?</div>
+        <p class="explain-panel-body">
+            This needs your approval before it can proceed.
+            {{if .Draft.SourceObligationID}}From obligation: {{.Draft.SourceObligationID}}{{end}}
+        </p>
+    </div>
+
+    {{if eq .Draft.Status "proposed"}}
+    <div class="draft-card-actions mt-4">
+        <form method="POST" action="/draft/{{.Draft.DraftID}}/approve" style="display: inline;">
+            <input type="hidden" name="reason" value="approved via web">
+            <button type="submit" class="btn btn-primary">Approve</button>
+        </form>
+        <form method="POST" action="/draft/{{.Draft.DraftID}}/reject" style="display: inline;">
+            <input type="hidden" name="reason" value="rejected via web">
+            <button type="submit" class="btn btn-secondary">Reject</button>
+        </form>
+    </div>
+    {{end}}
+    {{if eq .Draft.Status "approved"}}
+    <div class="draft-card-actions mt-4">
+        <form method="POST" action="/execute/{{.Draft.DraftID}}" style="display: inline;">
+            <button type="submit" class="btn btn-primary">Execute</button>
+        </form>
+    </div>
+    {{end}}
+</div>
+{{else}}
+<div class="empty-state">
+    <h2 class="empty-state-title">Draft not found.</h2>
+    <p class="empty-state-body"><a href="/app/drafts">Back to drafts</a></p>
+</div>
+{{end}}
+{{end}}
+
+{{/* ================================================================
+     App People
+     ================================================================ */}}
+{{define "app-people"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "app-people-content"}}
+<h2 class="section-title">People</h2>
+
+{{if .IdentityStats}}
+<p class="text-secondary mb-4">{{.IdentityStats.PersonCount}} people known</p>
+{{end}}
+
+{{if .People}}
+<div class="section">
+    {{range .People}}
+    <div class="identity-card">
+        <div class="identity-avatar">{{slice .Label 0 1}}</div>
+        <div class="identity-info">
+            <div class="identity-name">{{.Label}}</div>
+            <div class="identity-role">{{if .PrimaryEmail}}{{.PrimaryEmail}}{{end}}</div>
+        </div>
+    </div>
+    {{end}}
+</div>
+{{else}}
+<div class="empty-state">
+    <h2 class="empty-state-title">No people yet.</h2>
+    <p class="empty-state-body">Identities will appear as you connect accounts.</p>
+</div>
+{{end}}
+{{end}}
+
+{{/* ================================================================
+     App Policies
+     ================================================================ */}}
+{{define "app-policies"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "app-policies-content"}}
+<h2 class="section-title">Policies</h2>
+
+{{if .CircleConfigs}}
+<div class="section">
+    {{range .CircleConfigs}}
+    <div class="policy-card">
+        <div class="policy-card-title">{{.Name}}</div>
+        <div class="policy-card-description">
+            {{.EmailCount}} email | {{.CalendarCount}} calendar | {{.FinanceCount}} finance
+        </div>
+    </div>
+    {{end}}
+</div>
+{{else}}
+<div class="empty-state">
+    <h2 class="empty-state-title">No policies defined.</h2>
+    <p class="empty-state-body">Default policies apply.</p>
+</div>
+{{end}}
+{{end}}
+
+{{/* ================================================================
+     Legacy base template (Phase 1-17 compatibility)
+     ================================================================ */}}
 {{define "base"}}
 <!DOCTYPE html>
 <html>
@@ -1008,69 +1727,59 @@ const templates = `
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{.Title}} - QuantumLife</title>
+    <link rel="stylesheet" href="/static/tokens.css">
+    <link rel="stylesheet" href="/static/reset.css">
+    <link rel="stylesheet" href="/static/app.css">
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: system-ui, sans-serif; line-height: 1.6; background: #f5f5f5; color: #333; }
-        .container { max-width: 800px; margin: 0 auto; padding: 20px; }
-        header { background: #2d2d2d; color: white; padding: 20px 0; margin-bottom: 20px; }
-        header .container { display: flex; justify-content: space-between; align-items: center; }
-        header h1 { font-size: 1.5rem; }
-        header nav a { color: white; text-decoration: none; margin-left: 20px; }
-        header nav a:hover { text-decoration: underline; }
-        .card { background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .quiet { text-align: center; padding: 60px 20px; }
-        .quiet h2 { color: #4caf50; font-size: 2rem; margin-bottom: 10px; }
-        .quiet p { color: #666; }
-        .needs-you { border-left: 4px solid #ff9800; }
-        .needs-you h2 { color: #ff9800; }
-        .circle-tile { display: inline-block; background: #e3f2fd; padding: 15px 25px; border-radius: 8px; margin: 5px; }
+        /* Legacy inline styles for backwards compatibility */
+        .circle-tile { display: inline-block; background: var(--color-level-ambient); padding: 15px 25px; border-radius: 8px; margin: 5px; }
         .circle-tile h3 { margin-bottom: 5px; }
-        .draft-item { border-bottom: 1px solid #eee; padding: 15px 0; }
+        .draft-item { border-bottom: 1px solid var(--color-border-subtle); padding: 15px 0; }
         .draft-item:last-child { border-bottom: none; }
-        .btn { display: inline-block; padding: 8px 16px; border-radius: 4px; text-decoration: none; cursor: pointer; border: none; font-size: 14px; }
-        .btn-primary { background: #2196f3; color: white; }
-        .btn-success { background: #4caf50; color: white; }
-        .btn-danger { background: #f44336; color: white; }
-        .btn-secondary { background: #757575; color: white; }
-        .btn:hover { opacity: 0.9; }
         .status-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
-        .status-proposed { background: #fff3e0; color: #e65100; }
+        .status-proposed { background: var(--color-level-needs-you); color: var(--color-text-primary); }
         .status-approved { background: #e8f5e9; color: #2e7d32; }
         .status-rejected { background: #ffebee; color: #c62828; }
-        .meta { color: #666; font-size: 14px; margin-top: 10px; }
-        .actions { margin-top: 15px; }
+        .quiet { text-align: center; padding: 60px 20px; }
+        .quiet h2 { color: var(--color-success); font-size: 2rem; margin-bottom: 10px; }
+        .needs-you-legacy { border-left: 4px solid var(--color-warning); }
+        .needs-you-legacy h2 { color: var(--color-warning); }
         .actions form { display: inline; }
         .form-group { margin-bottom: 15px; }
         .form-group label { display: block; margin-bottom: 5px; font-weight: 500; }
-        .form-group input, .form-group textarea { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
-        .error { color: #c62828; background: #ffebee; padding: 15px; border-radius: 4px; }
-        .message { color: #2e7d32; background: #e8f5e9; padding: 15px; border-radius: 4px; }
-        footer { text-align: center; padding: 20px; color: #666; font-size: 14px; }
+        .form-group input, .form-group textarea { width: 100%; padding: 8px; border: var(--input-border); border-radius: var(--input-radius); }
+        .message { color: var(--color-success); background: #e8f5e9; padding: 15px; border-radius: 4px; }
     </style>
 </head>
 <body>
-    <header>
-        <div class="container">
-            <h1>QuantumLife</h1>
-            <nav>
-                <a href="/">Home</a>
-                <a href="/circles">Circles</a>
-                <a href="/people">People</a>
-                <a href="/policies">Policies</a>
-                <a href="/needs-you">Needs You</a>
-                <a href="/draft/">Drafts</a>
-                <a href="/history">History</a>
+    <header class="header">
+        <div class="header-inner container">
+            <a href="/" class="header-logo">QuantumLife</a>
+            <nav class="header-nav">
+                <a href="/" class="header-nav-link">Home</a>
+                <a href="/circles" class="header-nav-link">Circles</a>
+                <a href="/people" class="header-nav-link">People</a>
+                <a href="/policies" class="header-nav-link">Policies</a>
+                <a href="/needs-you" class="header-nav-link">Needs You</a>
+                <a href="/draft/" class="header-nav-link">Drafts</a>
+                <a href="/history" class="header-nav-link">History</a>
             </nav>
         </div>
     </header>
-    <main class="container">
+    <main class="container page-content">
         {{template "content" .}}
     </main>
-    <footer>
-        <p>{{.CurrentTime}} | Deterministic. Synchronous. Quiet.</p>
+    <footer class="footer">
+        <div class="container footer-inner">
+            <span class="footer-text">{{.CurrentTime}} | Deterministic. Synchronous. Quiet.</span>
+        </div>
     </footer>
 </body>
 </html>
+{{end}}
+
+{{define "legacy-content"}}
+{{template "content" .}}
 {{end}}
 
 {{define "home"}}
