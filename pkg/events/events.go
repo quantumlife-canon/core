@@ -639,6 +639,27 @@ const (
 	// Safety events
 	Phase5CalendarSandboxEnforced EventType = "phase5.calendar.sandbox.enforced"
 	Phase5CalendarDryRunEnforced  EventType = "phase5.calendar.dryrun.enforced"
+
+	// Phase 6: The Quiet Loop events
+	// CRITICAL: Web-first daily loop with explicit trigger.
+	// CRITICAL: All loop execution is synchronous per request.
+	// CRITICAL: Feedback signals captured for future improvement.
+	//
+	// Reference: docs/ADR/ADR-0023-phase6-quiet-loop-web.md
+
+	// Daily loop lifecycle events
+	Phase6DailyRunStarted   EventType = "phase6.daily.run.started"
+	Phase6DailyRunCompleted EventType = "phase6.daily.run.completed"
+
+	// View computation events
+	Phase6ViewComputed     EventType = "phase6.view.computed"
+	Phase6NeedsYouComputed EventType = "phase6.needs_you.computed"
+
+	// Feedback events
+	Phase6FeedbackRecorded EventType = "phase6.feedback.recorded"
+
+	// Web request events (minimal)
+	Phase6WebRequestServed EventType = "phase6.web.request.served"
 )
 
 // Event represents a system event for audit and observability.

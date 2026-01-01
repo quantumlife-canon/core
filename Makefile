@@ -7,7 +7,7 @@
 #
 # Guardrails enforce Canon invariants at build time.
 
-.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5
+.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6
 
 # Default target
 all: ci
@@ -32,6 +32,7 @@ help:
 	@echo "  make demo-phase3  - Run Phase 3 interruption engine demo"
 	@echo "  make demo-phase4  - Run Phase 4 drafts-only assistance demo"
 	@echo "  make demo-phase5  - Run Phase 5 calendar execution demo"
+	@echo "  make demo-phase6  - Run Phase 6 quiet loop demo"
 	@echo ""
 	@echo "Guardrail Checks:"
 	@echo "  make check-terms              - Check for forbidden terms"
@@ -197,3 +198,9 @@ demo-phase4:
 demo-phase5:
 	@echo "Running Phase 5 Demo: Calendar Execution Boundary..."
 	go test -v ./internal/demo_phase5_calendar_execution/...
+
+# Phase 6 Demo: The Quiet Loop (Web)
+# Reference: docs/ADR/ADR-0023-phase6-quiet-loop-web.md
+demo-phase6:
+	@echo "Running Phase 6 Demo: The Quiet Loop..."
+	go test -v ./internal/demo_phase6_quiet_loop/...
