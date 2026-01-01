@@ -7,7 +7,7 @@
 #
 # Guardrails enforce Canon invariants at build time.
 
-.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 demo-phase9 demo-phase10 demo-phase11 demo-phase12 demo-phase13 web web-mock web-stop web-status
+.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 demo-phase9 demo-phase10 demo-phase11 demo-phase12 demo-phase13 demo-phase13-1 web web-mock web-stop web-status
 
 # Default target
 all: ci
@@ -40,6 +40,7 @@ help:
 	@echo "  make demo-phase11 - Run Phase 11 multi-circle demo"
 	@echo "  make demo-phase12 - Run Phase 12 persistence and replay demo"
 	@echo "  make demo-phase13 - Run Phase 13 identity graph demo"
+	@echo "  make demo-phase13-1 - Run Phase 13.1 identity routing + people UI demo"
 	@echo ""
 	@echo "Web Server:"
 	@echo "  make web          - Run web server on :8080 (real mode)"
@@ -64,6 +65,7 @@ help:
 	@echo "  make check-multicircle        - Check multi-circle constraints (Phase 11)"
 	@echo "  make check-persistence-replay - Check persistence and replay constraints (Phase 12)"
 	@echo "  make check-identity-graph     - Check identity graph constraints (Phase 13)"
+	@echo "  make check-identity-routing-web - Check identity routing + people UI (Phase 13.1)"
 	@echo ""
 
 # Build
@@ -164,6 +166,10 @@ check-persistence-replay:
 check-identity-graph:
 	@echo "Checking identity graph constraints (Phase 13)..."
 	@./scripts/guardrails/identity_graph_enforced.sh
+
+check-identity-routing-web:
+	@echo "Checking identity routing + people UI constraints (Phase 13.1)..."
+	@./scripts/guardrails/identity_routing_web_enforced.sh
 
 # All guardrails
 guardrails: check-terms check-imports check-deps check-time-now check-background-async check-no-auto-retry check-single-trace-final check-write-provider-reg check-free-text-recipient check-policy-snapshot
@@ -289,6 +295,12 @@ demo-phase12:
 demo-phase13:
 	@echo "Running Phase 13 Demo: Identity Graph..."
 	go test -v ./internal/demo_phase13_identity_graph/...
+
+# Phase 13.1 Demo: Identity-Driven Routing + People UI
+# Reference: docs/ADR/ADR-0029-phase13-1-identity-driven-routing-and-people-ui.md
+demo-phase13-1:
+	@echo "Running Phase 13.1 Demo: Identity Routing + People UI..."
+	go test -v ./internal/demo_phase13_1_identity_routing_web/...
 
 # =============================================================================
 # Web Server Targets

@@ -16,9 +16,29 @@ import (
 	"quantumlife/pkg/domain/identity"
 )
 
+// IdentityRouter provides identity graph lookup methods for routing.
+// This is a subset of identity.InMemoryRepository for decoupling.
+type IdentityRouter interface {
+	// FindPersonByEmail finds a person by any of their email addresses.
+	FindPersonByEmail(email string) (*identity.Person, error)
+
+	// FindOrganizationByDomain finds an org by domain.
+	FindOrganizationByDomain(domain string) (*identity.Organization, error)
+
+	// IsHouseholdMember checks if a person belongs to any household.
+	IsHouseholdMember(personID identity.EntityID) bool
+
+	// GetPersonOrganizations returns all organizations a person works at.
+	GetPersonOrganizations(personID identity.EntityID) []*identity.Organization
+}
+
 // Router routes events to circles based on deterministic rules.
+// Phase 13.1: Supports identity graph for person/org-based routing.
 type Router struct {
 	config *config.MultiCircleConfig
+
+	// Identity repository for person/org lookup (optional, Phase 13.1)
+	identityRepo IdentityRouter
 
 	// Pre-computed lookup tables for O(1) routing
 	workDomains     map[string]bool
@@ -34,6 +54,12 @@ type Router struct {
 
 	// Default circle for unrouted events
 	defaultCircle identity.EntityID
+
+	// familyCircle is the configured circle for family/household events
+	familyCircle identity.EntityID
+
+	// workCircle is the configured circle for work-related events
+	workCircle identity.EntityID
 }
 
 // NewRouter creates a new router with the given configuration.
@@ -86,60 +112,161 @@ func NewRouter(cfg *config.MultiCircleConfig) *Router {
 		}
 	}
 
+	// Set family and work circles if they exist
+	if cfg.GetCircle("family") != nil {
+		r.familyCircle = "family"
+	}
+	if cfg.GetCircle("work") != nil {
+		r.workCircle = "work"
+	}
+
 	return r
+}
+
+// SetIdentityRepository sets the identity repository for identity-based routing.
+// Phase 13.1: Enables person/org-based routing decisions.
+func (r *Router) SetIdentityRepository(repo IdentityRouter) {
+	r.identityRepo = repo
 }
 
 // RouteEmailToCircle determines which circle an email event belongs to.
 //
-// Routing priority:
-// 1. If receiver email is a known integration email, use that circle
-// 2. If sender domain is in work_domains, route to work
-// 3. If sender is a known family member, route to family
-// 4. If sender domain is in personal_domains, route to personal
-// 5. Default to personal (or first configured circle)
+// Phase 13.1 Routing Precedence (deterministic, stable order):
+// P1: If receiver email is bound to a circle integration → that circle
+// P2: If sender resolves to PersonID in Household → family circle
+// P3: If sender resolves to works_at OrgID with domain in work_domains → work circle
+// P4: If sender domain is in personal_domains → personal circle
+// P5: Fallback → default circle (typically personal)
 func (r *Router) RouteEmailToCircle(event *events.EmailMessageEvent) identity.EntityID {
-	// Priority 1: Check if receiver email is a known integration
+	// P1: Check if receiver email is bound to a circle integration
 	receiverEmail := strings.ToLower(event.AccountEmail)
 	if circleID, ok := r.emailToCircle[receiverEmail]; ok {
 		return circleID
 	}
 
-	// Priority 2: Check sender domain against work domains
-	senderDomain := strings.ToLower(event.SenderDomain)
-	if senderDomain != "" && r.workDomains[senderDomain] {
-		if r.config.GetCircle("work") != nil {
-			return "work"
-		}
-	}
-
-	// Priority 3: Check if sender is a family member
 	senderEmail := strings.ToLower(event.From.Address)
-	if r.familyEmails[senderEmail] {
-		if r.config.GetCircle("family") != nil {
-			return "family"
+	senderDomain := strings.ToLower(event.SenderDomain)
+
+	// P2: Check if sender resolves to a person in a household (identity graph)
+	if r.identityRepo != nil {
+		person, err := r.identityRepo.FindPersonByEmail(senderEmail)
+		if err == nil && person != nil {
+			// Check if person is in a household
+			if r.identityRepo.IsHouseholdMember(person.ID()) {
+				if r.familyCircle != "" {
+					return r.familyCircle
+				}
+			}
 		}
 	}
 
-	// Priority 4: Check sender domain against personal domains
+	// P2 fallback: Check config-based family members
+	if r.familyEmails[senderEmail] {
+		if r.familyCircle != "" {
+			return r.familyCircle
+		}
+	}
+
+	// P3: Check if sender works at an organization with domain in work_domains
+	if r.identityRepo != nil && senderDomain != "" {
+		person, err := r.identityRepo.FindPersonByEmail(senderEmail)
+		if err == nil && person != nil {
+			orgs := r.identityRepo.GetPersonOrganizations(person.ID())
+			for _, org := range orgs {
+				// Check if org domain is in work_domains
+				if org.Domain != "" && r.workDomains[strings.ToLower(org.Domain)] {
+					if r.workCircle != "" {
+						return r.workCircle
+					}
+				}
+			}
+		}
+	}
+
+	// P3 fallback: Check sender domain directly against work_domains
+	if senderDomain != "" && r.workDomains[senderDomain] {
+		if r.workCircle != "" {
+			return r.workCircle
+		}
+	}
+
+	// P4: Check sender domain against personal_domains
 	if senderDomain != "" && r.personalDomains[senderDomain] {
 		if r.config.GetCircle("personal") != nil {
 			return "personal"
 		}
 	}
 
-	// Default
+	// P5: Default
 	return r.defaultCircle
+}
+
+// RouteEmailToCircleWithReason returns the routed circle and the reason code.
+// Useful for debugging and audit trails.
+func (r *Router) RouteEmailToCircleWithReason(event *events.EmailMessageEvent) (identity.EntityID, string) {
+	receiverEmail := strings.ToLower(event.AccountEmail)
+	if circleID, ok := r.emailToCircle[receiverEmail]; ok {
+		return circleID, "P1:integration_email"
+	}
+
+	senderEmail := strings.ToLower(event.From.Address)
+	senderDomain := strings.ToLower(event.SenderDomain)
+
+	if r.identityRepo != nil {
+		person, err := r.identityRepo.FindPersonByEmail(senderEmail)
+		if err == nil && person != nil {
+			if r.identityRepo.IsHouseholdMember(person.ID()) {
+				if r.familyCircle != "" {
+					return r.familyCircle, "P2:household_member"
+				}
+			}
+		}
+	}
+
+	if r.familyEmails[senderEmail] {
+		if r.familyCircle != "" {
+			return r.familyCircle, "P2:config_family"
+		}
+	}
+
+	if r.identityRepo != nil && senderDomain != "" {
+		person, err := r.identityRepo.FindPersonByEmail(senderEmail)
+		if err == nil && person != nil {
+			orgs := r.identityRepo.GetPersonOrganizations(person.ID())
+			for _, org := range orgs {
+				if org.Domain != "" && r.workDomains[strings.ToLower(org.Domain)] {
+					if r.workCircle != "" {
+						return r.workCircle, "P3:works_at_org"
+					}
+				}
+			}
+		}
+	}
+
+	if senderDomain != "" && r.workDomains[senderDomain] {
+		if r.workCircle != "" {
+			return r.workCircle, "P3:work_domain"
+		}
+	}
+
+	if senderDomain != "" && r.personalDomains[senderDomain] {
+		if r.config.GetCircle("personal") != nil {
+			return "personal", "P4:personal_domain"
+		}
+	}
+
+	return r.defaultCircle, "P5:default"
 }
 
 // RouteCalendarToCircle determines which circle a calendar event belongs to.
 //
-// Routing priority:
-// 1. If calendar ID is a known integration calendar, use that circle
-// 2. If any attendee is a family member, consider routing to family
-// 3. If organizer domain is in work_domains, route to work
-// 4. Default to personal (or first configured circle)
+// Phase 13.1 Routing Precedence (deterministic, stable order):
+// P1: If calendar ID is bound to a circle integration → that circle
+// P2: If organizer resolves to PersonID in Household → family circle
+// P3: If organizer resolves to works_at OrgID with domain in work_domains → work circle
+// P4: Fallback → default circle (typically personal)
 func (r *Router) RouteCalendarToCircle(event *events.CalendarEventEvent) identity.EntityID {
-	// Priority 1: Check if calendar ID is a known integration
+	// P1: Check if calendar ID is bound to a circle integration
 	calendarID := strings.ToLower(event.CalendarID)
 	if circleID, ok := r.calendarToCircle[calendarID]; ok {
 		return circleID
@@ -151,27 +278,122 @@ func (r *Router) RouteCalendarToCircle(event *events.CalendarEventEvent) identit
 		return circleID
 	}
 
-	// Priority 2: Check if any attendee is a family member
+	// Get organizer email for identity lookup
+	var organizerEmail string
+	if event.Organizer != nil {
+		organizerEmail = strings.ToLower(event.Organizer.Email)
+	}
+
+	// P2: Check if organizer resolves to a person in a household (identity graph)
+	if r.identityRepo != nil && organizerEmail != "" {
+		person, err := r.identityRepo.FindPersonByEmail(organizerEmail)
+		if err == nil && person != nil {
+			if r.identityRepo.IsHouseholdMember(person.ID()) {
+				if r.familyCircle != "" {
+					return r.familyCircle
+				}
+			}
+		}
+	}
+
+	// P2 fallback: Check if any attendee is a config-based family member
 	for _, attendee := range event.Attendees {
 		if r.familyEmails[strings.ToLower(attendee.Email)] {
-			if r.config.GetCircle("family") != nil {
-				return "family"
+			if r.familyCircle != "" {
+				return r.familyCircle
 			}
 		}
 	}
 
-	// Priority 3: Check organizer domain
-	if event.Organizer != nil {
-		organizerDomain := extractDomain(event.Organizer.Email)
+	// P3: Check if organizer works at an organization with domain in work_domains
+	if r.identityRepo != nil && organizerEmail != "" {
+		person, err := r.identityRepo.FindPersonByEmail(organizerEmail)
+		if err == nil && person != nil {
+			orgs := r.identityRepo.GetPersonOrganizations(person.ID())
+			for _, org := range orgs {
+				if org.Domain != "" && r.workDomains[strings.ToLower(org.Domain)] {
+					if r.workCircle != "" {
+						return r.workCircle
+					}
+				}
+			}
+		}
+	}
+
+	// P3 fallback: Check organizer domain directly against work_domains
+	if organizerEmail != "" {
+		organizerDomain := extractDomain(organizerEmail)
 		if organizerDomain != "" && r.workDomains[organizerDomain] {
-			if r.config.GetCircle("work") != nil {
-				return "work"
+			if r.workCircle != "" {
+				return r.workCircle
 			}
 		}
 	}
 
-	// Default
+	// P4: Default
 	return r.defaultCircle
+}
+
+// RouteCalendarToCircleWithReason returns the routed circle and the reason code.
+func (r *Router) RouteCalendarToCircleWithReason(event *events.CalendarEventEvent) (identity.EntityID, string) {
+	calendarID := strings.ToLower(event.CalendarID)
+	if circleID, ok := r.calendarToCircle[calendarID]; ok {
+		return circleID, "P1:integration_calendar"
+	}
+
+	accountEmail := strings.ToLower(event.AccountEmail)
+	if circleID, ok := r.calendarToCircle[accountEmail]; ok {
+		return circleID, "P1:integration_account"
+	}
+
+	var organizerEmail string
+	if event.Organizer != nil {
+		organizerEmail = strings.ToLower(event.Organizer.Email)
+	}
+
+	if r.identityRepo != nil && organizerEmail != "" {
+		person, err := r.identityRepo.FindPersonByEmail(organizerEmail)
+		if err == nil && person != nil {
+			if r.identityRepo.IsHouseholdMember(person.ID()) {
+				if r.familyCircle != "" {
+					return r.familyCircle, "P2:household_member"
+				}
+			}
+		}
+	}
+
+	for _, attendee := range event.Attendees {
+		if r.familyEmails[strings.ToLower(attendee.Email)] {
+			if r.familyCircle != "" {
+				return r.familyCircle, "P2:config_family"
+			}
+		}
+	}
+
+	if r.identityRepo != nil && organizerEmail != "" {
+		person, err := r.identityRepo.FindPersonByEmail(organizerEmail)
+		if err == nil && person != nil {
+			orgs := r.identityRepo.GetPersonOrganizations(person.ID())
+			for _, org := range orgs {
+				if org.Domain != "" && r.workDomains[strings.ToLower(org.Domain)] {
+					if r.workCircle != "" {
+						return r.workCircle, "P3:works_at_org"
+					}
+				}
+			}
+		}
+	}
+
+	if organizerEmail != "" {
+		organizerDomain := extractDomain(organizerEmail)
+		if organizerDomain != "" && r.workDomains[organizerDomain] {
+			if r.workCircle != "" {
+				return r.workCircle, "P3:work_domain"
+			}
+		}
+	}
+
+	return r.defaultCircle, "P4:default"
 }
 
 // IsVIPSender checks if an email address is a VIP sender.

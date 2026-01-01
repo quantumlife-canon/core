@@ -60,6 +60,7 @@ type Server struct {
 	execRouter        *execrouter.Router
 	execExecutor      *execexecutor.Executor
 	multiCircleConfig *config.MultiCircleConfig
+	identityRepo      *identity.InMemoryRepository // Phase 13.1: Identity graph
 }
 
 // eventLogger logs events.
@@ -90,6 +91,30 @@ type templateData struct {
 	CircleConfigs    []circleConfigInfo
 	ConfigHash       string
 	ConfigPath       string
+	// Phase 13.1: People UI
+	People        []personInfo
+	Person        *personInfo
+	IdentityStats *identityStats
+}
+
+// personInfo contains person data for display. Phase 13.1.
+type personInfo struct {
+	ID            string
+	Label         string
+	PrimaryEmail  string
+	IsVIP         bool
+	IsHousehold   bool
+	EdgeCount     int
+	Organizations []string
+	Households    []string
+}
+
+// identityStats contains identity graph statistics for display. Phase 13.1.
+type identityStats struct {
+	PersonCount       int
+	OrganizationCount int
+	HouseholdCount    int
+	EdgeCount         int
 }
 
 // circleConfigInfo contains config info for display.
@@ -240,6 +265,7 @@ func main() {
 		execRouter:        execRouter,
 		execExecutor:      execExecutor,
 		multiCircleConfig: multiCfg,
+		identityRepo:      identityRepo, // Phase 13.1
 	}
 
 	// Set up routes
@@ -253,6 +279,8 @@ func main() {
 	mux.HandleFunc("/history", server.handleHistory)
 	mux.HandleFunc("/run/daily", server.handleRunDaily)
 	mux.HandleFunc("/feedback", server.handleFeedback)
+	mux.HandleFunc("/people", server.handlePeople)  // Phase 13.1
+	mux.HandleFunc("/people/", server.handlePerson) // Phase 13.1
 
 	// Create HTTP server with explicit configuration
 	httpServer := &http.Server{
@@ -672,6 +700,111 @@ func (s *Server) handleExecute(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "exec-result", data)
 }
 
+// handlePeople lists all people in the identity graph. Phase 13.1.
+func (s *Server) handlePeople(w http.ResponseWriter, r *http.Request) {
+	var people []personInfo
+	var stats *identityStats
+
+	if s.identityRepo != nil {
+		// Get all persons in deterministic order
+		persons := s.identityRepo.ListPersons()
+		for _, p := range persons {
+			info := personInfo{
+				ID:           string(p.ID()),
+				Label:        s.identityRepo.PersonLabel(p.ID()),
+				PrimaryEmail: s.identityRepo.PrimaryEmail(p.ID()),
+				IsHousehold:  s.identityRepo.IsHouseholdMember(p.ID()),
+				EdgeCount:    len(s.identityRepo.GetPersonEdgesSorted(p.ID())),
+			}
+
+			// Get organizations
+			orgs := s.identityRepo.GetPersonOrganizations(p.ID())
+			for _, org := range orgs {
+				info.Organizations = append(info.Organizations, org.NormalizedName)
+			}
+
+			// Get households
+			hhs := s.identityRepo.GetPersonHouseholds(p.ID())
+			for _, hh := range hhs {
+				info.Households = append(info.Households, hh.Name)
+			}
+
+			people = append(people, info)
+		}
+
+		// Get stats
+		stats = &identityStats{
+			PersonCount:       s.identityRepo.CountByType(identity.EntityTypePerson),
+			OrganizationCount: s.identityRepo.CountByType(identity.EntityTypeOrganization),
+			HouseholdCount:    s.identityRepo.CountByType(identity.EntityTypeHousehold),
+			EdgeCount:         s.identityRepo.EdgeCount(),
+		}
+	}
+
+	data := templateData{
+		Title:         "People",
+		CurrentTime:   s.clk.Now().Format("2006-01-02 15:04:05"),
+		People:        people,
+		IdentityStats: stats,
+	}
+
+	s.render(w, "people", data)
+}
+
+// handlePerson shows details for a single person. Phase 13.1.
+func (s *Server) handlePerson(w http.ResponseWriter, r *http.Request) {
+	personID := strings.TrimPrefix(r.URL.Path, "/people/")
+	if personID == "" {
+		http.Redirect(w, r, "/people", http.StatusFound)
+		return
+	}
+
+	if s.identityRepo == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	entity, err := s.identityRepo.Get(identity.EntityID(personID))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	person, ok := entity.(*identity.Person)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	info := &personInfo{
+		ID:           string(person.ID()),
+		Label:        s.identityRepo.PersonLabel(person.ID()),
+		PrimaryEmail: s.identityRepo.PrimaryEmail(person.ID()),
+		IsHousehold:  s.identityRepo.IsHouseholdMember(person.ID()),
+		EdgeCount:    len(s.identityRepo.GetPersonEdgesSorted(person.ID())),
+	}
+
+	// Get organizations
+	orgs := s.identityRepo.GetPersonOrganizations(person.ID())
+	for _, org := range orgs {
+		info.Organizations = append(info.Organizations, org.NormalizedName)
+	}
+
+	// Get households
+	hhs := s.identityRepo.GetPersonHouseholds(person.ID())
+	for _, hh := range hhs {
+		info.Households = append(info.Households, hh.Name)
+	}
+
+	data := templateData{
+		Title:       fmt.Sprintf("Person: %s", info.Label),
+		CurrentTime: s.clk.Now().Format("2006-01-02 15:04:05"),
+		Person:      info,
+	}
+
+	s.render(w, "person", data)
+}
+
 // render executes a template.
 func (s *Server) render(w http.ResponseWriter, name string, data templateData) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -753,6 +886,7 @@ const templates = `
             <nav>
                 <a href="/">Home</a>
                 <a href="/circles">Circles</a>
+                <a href="/people">People</a>
                 <a href="/needs-you">Needs You</a>
                 <a href="/draft/">Drafts</a>
                 <a href="/history">History</a>
@@ -894,6 +1028,51 @@ const templates = `
 </div>
 {{end}}
 
+{{if .People}}
+<div class="card">
+    <h2>People</h2>
+    {{if .IdentityStats}}
+    <div class="meta" style="margin-bottom: 15px;">
+        {{.IdentityStats.PersonCount}} people |
+        {{.IdentityStats.OrganizationCount}} organizations |
+        {{.IdentityStats.HouseholdCount}} households |
+        {{.IdentityStats.EdgeCount}} edges
+    </div>
+    {{end}}
+    {{range .People}}
+    <div class="draft-item">
+        <strong>{{.Label}}</strong>
+        {{if .IsHousehold}}<span class="status-badge status-proposed">Household</span>{{end}}
+        <div class="meta">
+            {{if .PrimaryEmail}}Email: {{.PrimaryEmail}}{{end}}
+            {{if .Organizations}} | Orgs: {{range .Organizations}}{{.}} {{end}}{{end}}
+            {{if .Households}} | Households: {{range .Households}}{{.}} {{end}}{{end}}
+            | {{.EdgeCount}} edges
+        </div>
+        <a href="/people/{{.ID}}" class="btn btn-secondary" style="margin-top: 10px; font-size: 12px;">View</a>
+    </div>
+    {{end}}
+</div>
+{{end}}
+
+{{if .Person}}
+<div class="card">
+    <h2>Person: {{.Person.Label}}</h2>
+    {{if .Person.IsHousehold}}<span class="status-badge status-proposed">Household Member</span>{{end}}
+    <div class="meta">
+        <p><strong>ID:</strong> {{.Person.ID}}</p>
+        {{if .Person.PrimaryEmail}}<p><strong>Primary Email:</strong> {{.Person.PrimaryEmail}}</p>{{end}}
+        <p><strong>Edge Count:</strong> {{.Person.EdgeCount}}</p>
+        {{if .Person.Organizations}}
+        <p><strong>Organizations:</strong> {{range .Person.Organizations}}{{.}} {{end}}</p>
+        {{end}}
+        {{if .Person.Households}}
+        <p><strong>Households:</strong> {{range .Person.Households}}{{.}} {{end}}</p>
+        {{end}}
+    </div>
+</div>
+{{end}}
+
 <div class="card" style="margin-top: 20px;">
     <h3>Run Daily Loop</h3>
     <p style="margin: 10px 0;">Trigger a full daily loop run (synchronous).</p>
@@ -936,6 +1115,14 @@ const templates = `
 {{end}}
 
 {{define "exec-result"}}
+{{template "base" .}}
+{{end}}
+
+{{define "people"}}
+{{template "base" .}}
+{{end}}
+
+{{define "person"}}
 {{template "base" .}}
 {{end}}
 `

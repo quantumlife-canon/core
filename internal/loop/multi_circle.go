@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"quantumlife/internal/config"
+	"quantumlife/internal/identityresolve"
 	"quantumlife/internal/ingestion"
 	"quantumlife/internal/routing"
 	"quantumlife/pkg/clock"
@@ -26,6 +27,7 @@ import (
 )
 
 // MultiCircleRunner combines ingestion and loop execution for multi-circle operation.
+// Phase 13.1: Integrates identity resolution before obligation extraction.
 type MultiCircleRunner struct {
 	// Engine is the underlying loop engine.
 	Engine *Engine
@@ -47,6 +49,13 @@ type MultiCircleRunner struct {
 
 	// EventEmitter emits audit events.
 	EventEmitter events.Emitter
+
+	// Phase 13.1: Identity graph components
+	// IdentityRepo stores identity entities and edges.
+	IdentityRepo *identity.InMemoryRepository
+
+	// IdentityResolver resolves identity from events.
+	IdentityResolver *identityresolve.Resolver
 }
 
 // CircleSyncState tracks sync state for a single circle.
@@ -114,6 +123,20 @@ func (r *MultiCircleRunner) WithEventEmitter(emitter events.Emitter) *MultiCircl
 	return r
 }
 
+// WithIdentity sets the identity repository and resolver.
+// Phase 13.1: Enables identity-driven routing and resolution.
+func (r *MultiCircleRunner) WithIdentity(repo *identity.InMemoryRepository, resolver *identityresolve.Resolver) *MultiCircleRunner {
+	r.IdentityRepo = repo
+	r.IdentityResolver = resolver
+
+	// Connect identity repository to router for identity-based routing
+	if repo != nil {
+		r.Router.SetIdentityRepository(repo)
+	}
+
+	return r
+}
+
 // MultiCircleRunOptions configures a multi-circle run.
 type MultiCircleRunOptions struct {
 	// CircleID limits the run to a specific circle (empty = all circles).
@@ -154,10 +177,28 @@ type MultiCircleRunResult struct {
 
 	// Errors contains any errors.
 	Errors []string
+
+	// Phase 13.1: Identity graph statistics
+	// IdentityGraphHash is the deterministic hash of the identity graph state.
+	IdentityGraphHash string
+
+	// IdentityStats contains counts of identity entities and edges.
+	IdentityStats IdentityStats
+}
+
+// IdentityStats provides identity graph statistics.
+type IdentityStats struct {
+	PersonCount       int
+	OrganizationCount int
+	HouseholdCount    int
+	EmailAccountCount int
+	PhoneNumberCount  int
+	EdgeCount         int
 }
 
 // Run executes a multi-circle ingestion + loop run.
 // CRITICAL: This method is synchronous. No goroutines are spawned.
+// Phase 13.1: Identity resolution runs before obligation extraction.
 func (r *MultiCircleRunner) Run(opts MultiCircleRunOptions) MultiCircleRunResult {
 	now := r.Clock.Now()
 	result := MultiCircleRunResult{
@@ -190,6 +231,22 @@ func (r *MultiCircleRunner) Run(opts MultiCircleRunOptions) MultiCircleRunResult
 		}
 	}
 
+	// Phase 13.1: Compute identity graph statistics before loop
+	if r.IdentityRepo != nil {
+		result.IdentityStats = r.computeIdentityStats()
+		result.IdentityGraphHash = r.computeIdentityGraphHash()
+
+		// Emit identity resolution event
+		r.emitEvent(events.EventType("phase13.identity.graph.computed"), map[string]string{
+			"run_id":             result.RunID,
+			"identity_hash":      result.IdentityGraphHash,
+			"person_count":       fmt.Sprintf("%d", result.IdentityStats.PersonCount),
+			"organization_count": fmt.Sprintf("%d", result.IdentityStats.OrganizationCount),
+			"household_count":    fmt.Sprintf("%d", result.IdentityStats.HouseholdCount),
+			"edge_count":         fmt.Sprintf("%d", result.IdentityStats.EdgeCount),
+		})
+	}
+
 	// Run the loop
 	loopOpts := RunOptions{
 		CircleID:              opts.CircleID,
@@ -209,9 +266,10 @@ func (r *MultiCircleRunner) Run(opts MultiCircleRunOptions) MultiCircleRunResult
 
 	// Emit completion event
 	r.emitEvent(events.EventType("phase11.multicircle.run.completed"), map[string]string{
-		"run_id":      result.RunID,
-		"duration_ms": fmt.Sprintf("%d", result.CompletedAt.Sub(result.StartedAt).Milliseconds()),
-		"hash":        result.Hash,
+		"run_id":              result.RunID,
+		"duration_ms":         fmt.Sprintf("%d", result.CompletedAt.Sub(result.StartedAt).Milliseconds()),
+		"hash":                result.Hash,
+		"identity_graph_hash": result.IdentityGraphHash,
 	})
 
 	return result
@@ -280,6 +338,79 @@ func (r *MultiCircleRunner) computeRunID(now time.Time, opts MultiCircleRunOptio
 	return hex.EncodeToString(h[:])[:16]
 }
 
+// computeIdentityStats computes identity graph statistics.
+// Phase 13.1: Returns counts of all entity types and edges.
+func (r *MultiCircleRunner) computeIdentityStats() IdentityStats {
+	if r.IdentityRepo == nil {
+		return IdentityStats{}
+	}
+
+	return IdentityStats{
+		PersonCount:       r.IdentityRepo.CountByType(identity.EntityTypePerson),
+		OrganizationCount: r.IdentityRepo.CountByType(identity.EntityTypeOrganization),
+		HouseholdCount:    r.IdentityRepo.CountByType(identity.EntityTypeHousehold),
+		EmailAccountCount: r.IdentityRepo.CountByType(identity.EntityTypeEmailAccount),
+		PhoneNumberCount:  r.IdentityRepo.CountByType(identity.EntityTypePhoneNumber),
+		EdgeCount:         r.IdentityRepo.EdgeCount(),
+	}
+}
+
+// computeIdentityGraphHash computes a deterministic hash of the identity graph state.
+// Phase 13.1: Hash is computed from sorted entities + sorted edges.
+func (r *MultiCircleRunner) computeIdentityGraphHash() string {
+	if r.IdentityRepo == nil {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("identity_graph|")
+
+	// Add persons in sorted order
+	persons := r.IdentityRepo.ListPersons()
+	for _, p := range persons {
+		b.WriteString("person:")
+		b.WriteString(string(p.ID()))
+		b.WriteString(":")
+		b.WriteString(p.PrimaryEmail)
+		b.WriteString("|")
+	}
+
+	// Add organizations in sorted order
+	orgs := r.IdentityRepo.ListOrganizations()
+	for _, o := range orgs {
+		b.WriteString("org:")
+		b.WriteString(string(o.ID()))
+		b.WriteString(":")
+		b.WriteString(o.Domain)
+		b.WriteString("|")
+	}
+
+	// Add households in sorted order
+	households := r.IdentityRepo.ListHouseholds()
+	for _, h := range households {
+		b.WriteString("hh:")
+		b.WriteString(string(h.ID()))
+		b.WriteString(":")
+		b.WriteString(h.Name)
+		b.WriteString("|")
+	}
+
+	// Add edges in sorted order
+	edges := r.IdentityRepo.GetAllEdgesSorted()
+	for _, e := range edges {
+		b.WriteString("edge:")
+		b.WriteString(string(e.EdgeType))
+		b.WriteString(":")
+		b.WriteString(string(e.FromID))
+		b.WriteString("->")
+		b.WriteString(string(e.ToID))
+		b.WriteString("|")
+	}
+
+	h := sha256.Sum256([]byte(b.String()))
+	return hex.EncodeToString(h[:])
+}
+
 // computeResultHash computes a deterministic hash of the run result.
 func (r *MultiCircleRunner) computeResultHash(result *MultiCircleRunResult) string {
 	var b strings.Builder
@@ -297,6 +428,12 @@ func (r *MultiCircleRunner) computeResultHash(result *MultiCircleRunResult) stri
 	if result.IngestionResult != nil {
 		b.WriteString("|ingest_hash:")
 		b.WriteString(result.IngestionResult.Hash)
+	}
+
+	// Phase 13.1: Include identity graph hash if present
+	if result.IdentityGraphHash != "" {
+		b.WriteString("|identity_hash:")
+		b.WriteString(result.IdentityGraphHash)
 	}
 
 	// Include circle states in sorted order

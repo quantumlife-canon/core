@@ -629,6 +629,302 @@ func removeFromSlice(slice []EntityID, id EntityID) []EntityID {
 	return result
 }
 
+// ============================================================================
+// Query Helpers with Deterministic Ordering (Phase 13.1)
+// ============================================================================
+
+// ListPersons returns all persons in deterministic order (sorted by PersonID).
+func (r *InMemoryRepository) ListPersons() []*Person {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var persons []*Person
+	for _, entity := range r.entities {
+		if person, ok := entity.(*Person); ok {
+			persons = append(persons, person)
+		}
+	}
+
+	// Sort by ID for determinism
+	sortPersonsByID(persons)
+	return persons
+}
+
+// ListOrganizations returns all organizations in deterministic order (sorted by OrgID).
+func (r *InMemoryRepository) ListOrganizations() []*Organization {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var orgs []*Organization
+	for _, entity := range r.entities {
+		if org, ok := entity.(*Organization); ok {
+			orgs = append(orgs, org)
+		}
+	}
+
+	// Sort by ID for determinism
+	sortOrganizationsByID(orgs)
+	return orgs
+}
+
+// ListHouseholds returns all households in deterministic order (sorted by HouseholdID).
+func (r *InMemoryRepository) ListHouseholds() []*Household {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var households []*Household
+	for _, entity := range r.entities {
+		if household, ok := entity.(*Household); ok {
+			households = append(households, household)
+		}
+	}
+
+	// Sort by ID for determinism
+	sortHouseholdsByID(households)
+	return households
+}
+
+// GetPersonEdgesSorted returns all edges for a person in deterministic order.
+// Sorted by EdgeType, then by ToID.
+func (r *InMemoryRepository) GetPersonEdgesSorted(personID EntityID) []*Edge {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var edges []*Edge
+
+	// Get edges from this person
+	fromEdgeIDs := r.edgesFromEntity[personID]
+	for _, id := range fromEdgeIDs {
+		if edge, exists := r.edges[id]; exists {
+			edges = append(edges, edge)
+		}
+	}
+
+	// Get edges to this person
+	toEdgeIDs := r.edgesToEntity[personID]
+	for _, id := range toEdgeIDs {
+		if edge, exists := r.edges[id]; exists {
+			edges = append(edges, edge)
+		}
+	}
+
+	// Sort deterministically: by EdgeType, then ToID
+	sortEdgesDeterministically(edges)
+	return edges
+}
+
+// GetAllEdgesSorted returns all edges in deterministic order.
+func (r *InMemoryRepository) GetAllEdgesSorted() []*Edge {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	edges := make([]*Edge, 0, len(r.edges))
+	for _, edge := range r.edges {
+		edges = append(edges, edge)
+	}
+
+	sortEdgesDeterministically(edges)
+	return edges
+}
+
+// Sorting helpers (stdlib sort, no external deps)
+
+func sortPersonsByID(persons []*Person) {
+	for i := 0; i < len(persons); i++ {
+		for j := i + 1; j < len(persons); j++ {
+			if string(persons[i].ID()) > string(persons[j].ID()) {
+				persons[i], persons[j] = persons[j], persons[i]
+			}
+		}
+	}
+}
+
+func sortOrganizationsByID(orgs []*Organization) {
+	for i := 0; i < len(orgs); i++ {
+		for j := i + 1; j < len(orgs); j++ {
+			if string(orgs[i].ID()) > string(orgs[j].ID()) {
+				orgs[i], orgs[j] = orgs[j], orgs[i]
+			}
+		}
+	}
+}
+
+func sortHouseholdsByID(households []*Household) {
+	for i := 0; i < len(households); i++ {
+		for j := i + 1; j < len(households); j++ {
+			if string(households[i].ID()) > string(households[j].ID()) {
+				households[i], households[j] = households[j], households[i]
+			}
+		}
+	}
+}
+
+func sortEdgesDeterministically(edges []*Edge) {
+	for i := 0; i < len(edges); i++ {
+		for j := i + 1; j < len(edges); j++ {
+			// Sort by EdgeType first
+			if string(edges[i].EdgeType) > string(edges[j].EdgeType) {
+				edges[i], edges[j] = edges[j], edges[i]
+			} else if edges[i].EdgeType == edges[j].EdgeType {
+				// Then by ToID
+				if string(edges[i].ToID) > string(edges[j].ToID) {
+					edges[i], edges[j] = edges[j], edges[i]
+				}
+			}
+		}
+	}
+}
+
+// ============================================================================
+// Display Helpers (Phase 13.1)
+// ============================================================================
+
+// PrimaryEmail returns the primary email for a person, if known via EdgeTypeOwnsEmail.
+// Returns empty string if no email edge exists.
+func (r *InMemoryRepository) PrimaryEmail(personID EntityID) string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	// Check person entity first
+	if entity, exists := r.entities[personID]; exists {
+		if person, ok := entity.(*Person); ok {
+			if person.PrimaryEmail != "" {
+				return person.PrimaryEmail
+			}
+		}
+	}
+
+	// Fall back to edges
+	edgeIDs := r.edgesFromEntity[personID]
+	var emails []string
+	for _, id := range edgeIDs {
+		if edge, exists := r.edges[id]; exists {
+			if edge.EdgeType == EdgeTypeOwnsEmail {
+				if emailEntity, exists := r.entities[edge.ToID]; exists {
+					if emailAccount, ok := emailEntity.(*EmailAccount); ok {
+						emails = append(emails, emailAccount.Address)
+					}
+				}
+			}
+		}
+	}
+
+	if len(emails) == 0 {
+		return ""
+	}
+
+	// Return first email deterministically (sorted)
+	for i := 0; i < len(emails); i++ {
+		for j := i + 1; j < len(emails); j++ {
+			if emails[i] > emails[j] {
+				emails[i], emails[j] = emails[j], emails[i]
+			}
+		}
+	}
+	return emails[0]
+}
+
+// PersonLabel returns a display label for a person.
+// Prefers configured name, then DisplayName, then email local-part.
+func (r *InMemoryRepository) PersonLabel(personID EntityID) string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	entity, exists := r.entities[personID]
+	if !exists {
+		return string(personID)[:16] // Fallback to truncated ID
+	}
+
+	person, ok := entity.(*Person)
+	if !ok {
+		return string(personID)[:16]
+	}
+
+	// Prefer DisplayName
+	if person.DisplayName != "" {
+		return person.DisplayName
+	}
+
+	// Fall back to email local-part
+	if person.PrimaryEmail != "" {
+		return extractLocalPart(person.PrimaryEmail)
+	}
+
+	// Final fallback
+	return string(personID)[:16]
+}
+
+// extractLocalPart extracts the local part of an email address.
+func extractLocalPart(email string) string {
+	atIdx := strings.Index(email, "@")
+	if atIdx < 0 {
+		return email
+	}
+	return email[:atIdx]
+}
+
+// IsHouseholdMember checks if a person belongs to any household.
+func (r *InMemoryRepository) IsHouseholdMember(personID EntityID) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	edgeIDs := r.edgesFromEntity[personID]
+	for _, id := range edgeIDs {
+		if edge, exists := r.edges[id]; exists {
+			if edge.EdgeType == EdgeTypeMemberOfHH {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// GetPersonHouseholds returns all households a person belongs to.
+func (r *InMemoryRepository) GetPersonHouseholds(personID EntityID) []*Household {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var households []*Household
+	edgeIDs := r.edgesFromEntity[personID]
+	for _, id := range edgeIDs {
+		if edge, exists := r.edges[id]; exists {
+			if edge.EdgeType == EdgeTypeMemberOfHH {
+				if entity, exists := r.entities[edge.ToID]; exists {
+					if household, ok := entity.(*Household); ok {
+						households = append(households, household)
+					}
+				}
+			}
+		}
+	}
+
+	sortHouseholdsByID(households)
+	return households
+}
+
+// GetPersonOrganizations returns all organizations a person works at.
+func (r *InMemoryRepository) GetPersonOrganizations(personID EntityID) []*Organization {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	var orgs []*Organization
+	edgeIDs := r.edgesFromEntity[personID]
+	for _, id := range edgeIDs {
+		if edge, exists := r.edges[id]; exists {
+			if edge.EdgeType == EdgeTypeWorksAt || edge.EdgeType == EdgeTypeMemberOfOrg {
+				if entity, exists := r.entities[edge.ToID]; exists {
+					if org, ok := entity.(*Organization); ok {
+						orgs = append(orgs, org)
+					}
+				}
+			}
+		}
+	}
+
+	sortOrganizationsByID(orgs)
+	return orgs
+}
+
 // Verify interface compliance at compile time.
 var (
 	_ Repository            = (*InMemoryRepository)(nil)

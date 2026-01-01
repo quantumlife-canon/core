@@ -162,3 +162,9 @@ internal/identityresolve/*.go
 internal/persist/identity_store.go
 internal/persist/persist_test.go
 internal/demo_phase13_identity_graph/*.go
+
+# Phase 13.1: Identity-Driven Routing + People UI (ADR-0029)
+# Demo tests use "account" for email account context in identity graph tests.
+# Also uses "role" for email participant roles (from, to, cc) which is standard
+# email terminology. QuantumLife core uses "circle" for identity.
+internal/demo_phase13_1_identity_routing_web/*.go
