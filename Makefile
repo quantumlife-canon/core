@@ -7,7 +7,7 @@
 #
 # Guardrails enforce Canon invariants at build time.
 
-.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 demo-phase9 demo-phase10 demo-phase11 demo-phase12 demo-phase13 demo-phase13-1 demo-phase14 demo-phase15 demo-phase16 demo-phase18 demo-phase18-2 demo-phase18-3 demo-phase18-4 web web-mock web-demo web-app web-stop web-status check-today-quietly check-held check-quiet-shift
+.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 demo-phase9 demo-phase10 demo-phase11 demo-phase12 demo-phase13 demo-phase13-1 demo-phase14 demo-phase15 demo-phase16 demo-phase18 demo-phase18-2 demo-phase18-3 demo-phase18-4 demo-phase18-5 web web-mock web-demo web-app web-stop web-status check-today-quietly check-held check-quiet-shift check-proof
 
 # Default target
 all: ci
@@ -48,6 +48,7 @@ help:
 	@echo "  make demo-phase18-2 - Run Phase 18.2 today quietly demo"
 	@echo "  make demo-phase18-3 - Run Phase 18.3 held projection demo"
 	@echo "  make demo-phase18-4 - Run Phase 18.4 quiet shift demo"
+	@echo "  make demo-phase18-5 - Run Phase 18.5 quiet proof demo"
 	@echo ""
 	@echo "Web Server:"
 	@echo "  make web          - Run web server on :8080 (real mode)"
@@ -213,6 +214,10 @@ check-held:
 check-quiet-shift:
 	@echo "Checking quiet shift constraints (Phase 18.4)..."
 	@./scripts/guardrails/quiet_shift_enforced.sh
+
+check-proof:
+	@echo "Checking proof constraints (Phase 18.5)..."
+	@./scripts/guardrails/proof_enforced.sh
 
 # All guardrails
 guardrails: check-terms check-imports check-deps check-time-now check-background-async check-no-auto-retry check-single-trace-final check-write-provider-reg check-free-text-recipient check-policy-snapshot check-finance-execution
@@ -387,6 +392,12 @@ demo-phase18-3:
 demo-phase18-4:
 	@echo "Running Phase 18.4 Demo: Quiet Shift..."
 	go test -v ./internal/demo_phase18_4_quiet_shift/...
+
+# Phase 18.5 Demo: Quiet Proof
+# Reference: docs/ADR/ADR-0037-phase18-5-quiet-proof.md
+demo-phase18-5:
+	@echo "Running Phase 18.5 Demo: Quiet Proof..."
+	go test -v ./internal/demo_phase18_5_proof/...
 
 # =============================================================================
 # Web Server Targets

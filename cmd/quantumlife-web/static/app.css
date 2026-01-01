@@ -1297,3 +1297,169 @@
 .surface-back-link:hover {
   color: var(--color-text-secondary);
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   PHASE 18.5: QUIET PROOF - RESTRAINT LEDGER
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Proof cue on /today - extremely subtle */
+.quiet-proof-cue {
+  text-align: center;
+  margin-top: var(--space-6);
+  padding: var(--space-2);
+}
+
+.quiet-proof-cue-text {
+  font-size: var(--text-xs);
+  color: var(--color-text-quaternary);
+  margin-bottom: var(--space-1);
+}
+
+.quiet-proof-cue-link {
+  font-size: var(--text-xs);
+  color: var(--color-text-quaternary);
+  text-decoration: none;
+  border-bottom: 1px dotted var(--color-text-quaternary);
+  transition: color var(--duration-fast) var(--easing-default);
+}
+
+.quiet-proof-cue-link:hover {
+  color: var(--color-text-tertiary);
+  border-bottom-style: solid;
+}
+
+/* Proof page - minimal, centered */
+.proof {
+  max-width: 32rem;
+  margin: 0 auto;
+  padding: var(--space-16) var(--container-padding);
+  min-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.proof-header {
+  text-align: center;
+  margin-bottom: var(--space-12);
+}
+
+.proof-title {
+  font-size: var(--text-xl);
+  font-weight: var(--font-medium);
+  color: var(--color-text-primary);
+  letter-spacing: -0.01em;
+  margin-bottom: var(--space-2);
+}
+
+.proof-subtitle {
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+}
+
+/* Nothing was held */
+.proof-nothing {
+  text-align: center;
+  margin-bottom: var(--space-12);
+}
+
+.proof-nothing-text {
+  font-size: var(--text-base);
+  color: var(--color-text-tertiary);
+}
+
+/* Statement - the main message */
+.proof-statement {
+  text-align: center;
+  margin-bottom: var(--space-8);
+}
+
+.proof-statement-text {
+  font-size: var(--text-lg);
+  color: var(--color-text-secondary);
+  line-height: var(--leading-relaxed);
+}
+
+/* Categories - chips identical to /held */
+.proof-categories {
+  text-align: center;
+  margin-bottom: var(--space-8);
+}
+
+.proof-categories-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+}
+
+.proof-category {
+  font-size: var(--text-xs);
+  color: var(--color-text-quaternary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-bg-subtle);
+  border-radius: var(--radius-sm);
+}
+
+/* Why line - reassurance */
+.proof-why {
+  text-align: center;
+  margin-bottom: var(--space-12);
+}
+
+.proof-why-text {
+  font-size: var(--text-xs);
+  color: var(--color-text-quaternary);
+  font-style: italic;
+}
+
+/* Proof actions */
+.proof-actions {
+  text-align: center;
+  margin-bottom: var(--space-8);
+}
+
+.proof-dismiss-form {
+  display: inline;
+}
+
+.proof-dismiss-link {
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: none;
+  border-bottom: 1px dotted var(--color-text-tertiary);
+  font-family: inherit;
+  transition: color var(--duration-fast) var(--easing-default);
+}
+
+.proof-dismiss-link:hover {
+  color: var(--color-text-secondary);
+  border-bottom-style: solid;
+}
+
+/* Proof footer */
+.proof-footer {
+  text-align: center;
+  margin-top: auto;
+  padding-top: var(--space-8);
+}
+
+.proof-back-link {
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+  text-decoration: none;
+  transition: color var(--duration-fast) var(--easing-default);
+}
+
+.proof-back-link:hover {
+  color: var(--color-text-secondary);
+}

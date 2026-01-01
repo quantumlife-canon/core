@@ -1068,6 +1068,21 @@ const (
 	Phase18_4SurfaceActionHeld         EventType = "phase18_4.surface.action.held"
 	Phase18_4SurfaceActionWhy          EventType = "phase18_4.surface.action.why"
 	Phase18_4SurfaceActionPreferShowAll EventType = "phase18_4.surface.action.prefer_show_all"
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	// Phase 18.5: Quiet Proof - Restraint Ledger
+	// Reference: docs/ADR/ADR-0037-phase18-5-quiet-proof.md
+	// ═══════════════════════════════════════════════════════════════════════════
+
+	// Proof computed event - emitted when restraint proof is computed
+	// CRITICAL: Contains hash only, never raw data or counts
+	Phase18_5ProofComputed EventType = "phase18_5.proof.computed"
+
+	// Proof viewed event - emitted when /proof page is rendered
+	Phase18_5ProofViewed EventType = "phase18_5.proof.viewed"
+
+	// Proof dismissed event - emitted when user dismisses the proof
+	Phase18_5ProofDismissed EventType = "phase18_5.proof.dismissed"
 )
 
 // Event represents a system event for audit and observability.

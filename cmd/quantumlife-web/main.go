@@ -35,6 +35,7 @@ import (
 	"quantumlife/internal/execrouter"
 	"quantumlife/internal/held"
 	"quantumlife/internal/interest"
+	"quantumlife/internal/proof"
 	"quantumlife/internal/surface"
 	"quantumlife/internal/interruptions"
 	"quantumlife/internal/loop"
@@ -73,6 +74,8 @@ type Server struct {
 	heldStore         *held.SummaryStore            // Phase 18.3: Summary store
 	surfaceEngine     *surface.Engine               // Phase 18.4: Quiet Shift
 	surfaceStore      *surface.ActionStore          // Phase 18.4: Action store
+	proofEngine       *proof.Engine                 // Phase 18.5: Quiet Proof
+	proofAckStore     *proof.AckStore               // Phase 18.5: Ack store
 }
 
 // eventLogger logs events.
@@ -127,6 +130,9 @@ type templateData struct {
 	SurfacePage        *surface.SurfacePage
 	SurfaceActionDone  bool
 	SurfaceActionMessage string
+	// Phase 18.5: Quiet Proof
+	ProofSummary *proof.ProofSummary
+	ProofCue     *proof.ProofCue
 }
 
 // personInfo contains person data for display. Phase 13.1.
@@ -345,6 +351,10 @@ func main() {
 		surface.WithStoreClock(clk.Now),
 	)
 
+	// Create proof engine and store (Phase 18.5)
+	proofEngine := proof.NewEngine()
+	proofAckStore := proof.NewAckStore(128)
+
 	// Create server
 	server := &Server{
 		engine:            engine,
@@ -362,6 +372,8 @@ func main() {
 		heldStore:         heldStore,       // Phase 18.3
 		surfaceEngine:     surfaceEngine,   // Phase 18.4
 		surfaceStore:      surfaceStore,    // Phase 18.4
+		proofEngine:       proofEngine,     // Phase 18.5
+		proofAckStore:     proofAckStore,   // Phase 18.5
 	}
 
 	// Set up routes
@@ -380,6 +392,8 @@ func main() {
 	mux.HandleFunc("/surface/hold", server.handleSurfaceHold)    // Phase 18.4: Hold action
 	mux.HandleFunc("/surface/why", server.handleSurfaceWhy)      // Phase 18.4: Why action
 	mux.HandleFunc("/surface/prefer", server.handleSurfacePrefer) // Phase 18.4: Prefer show_all
+	mux.HandleFunc("/proof", server.handleProof)                  // Phase 18.5: Quiet Proof
+	mux.HandleFunc("/proof/dismiss", server.handleProofDismiss)   // Phase 18.5: Dismiss proof
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18: App routes (authenticated)
@@ -650,11 +664,37 @@ func (s *Server) handleToday(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	// Phase 18.5: Build proof cue
+	// Proof shows restraint - how much we chose not to interrupt
+	proofInput := proof.ProofInput{
+		SuppressedByCategory: map[proof.Category]int{
+			proof.CategoryMoney: 2,
+			proof.CategoryTime:  1,
+			proof.CategoryWork:  3,
+		},
+		PreferenceQuiet: pref == "quiet",
+		Period:          "week",
+	}
+	proofSummary := s.proofEngine.BuildProof(proofInput)
+	hasRecentAck := s.proofAckStore.HasRecent(proofSummary.Hash)
+	proofCue := s.proofEngine.BuildCue(proofSummary, hasRecentAck)
+
+	// Emit proof computed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase18_5ProofComputed,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"proof_hash": proofSummary.Hash,
+			"magnitude":  string(proofSummary.Magnitude),
+		},
+	})
+
 	data := templateData{
 		Title:       "Today, quietly.",
 		CurrentTime: s.clk.Now().Format("2006-01-02 15:04"),
 		TodayPage:   &page,
 		SurfaceCue:  &surfaceCue,
+		ProofCue:    &proofCue,
 	}
 
 	s.render(w, "today", data)
@@ -894,6 +934,81 @@ func (s *Server) handleSurfacePrefer(w http.ResponseWriter, r *http.Request) {
 		Timestamp: s.clk.Now(),
 		Metadata: map[string]string{
 			"item_key_hash": itemKeyHash,
+		},
+	})
+
+	// Redirect to /today
+	http.Redirect(w, r, "/today", http.StatusFound)
+}
+
+// handleProof serves the "Quiet, kept." proof page.
+// Phase 18.5: Quiet Proof - Restraint Ledger
+func (s *Server) handleProof(w http.ResponseWriter, r *http.Request) {
+	// Get user preference
+	pref := s.preferenceStore.LatestPreference()
+	if pref == "" {
+		pref = "quiet"
+	}
+
+	// Build proof input
+	proofInput := proof.ProofInput{
+		SuppressedByCategory: map[proof.Category]int{
+			proof.CategoryMoney: 2,
+			proof.CategoryTime:  1,
+			proof.CategoryWork:  3,
+		},
+		PreferenceQuiet: pref == "quiet",
+		Period:          "week",
+	}
+
+	// Generate proof summary
+	proofSummary := s.proofEngine.BuildProof(proofInput)
+
+	// Record viewed acknowledgement
+	if err := s.proofAckStore.Record(proof.AckViewed, proofSummary.Hash, s.clk.Now()); err != nil {
+		log.Printf("Proof ack store error: %v", err)
+	}
+
+	// Emit proof viewed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase18_5ProofViewed,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"proof_hash": proofSummary.Hash,
+			"magnitude":  string(proofSummary.Magnitude),
+		},
+	})
+
+	data := templateData{
+		Title:        "Quiet, kept.",
+		CurrentTime:  s.clk.Now().Format("2006-01-02 15:04"),
+		ProofSummary: &proofSummary,
+	}
+
+	s.render(w, "proof", data)
+}
+
+// handleProofDismiss handles POST /proof/dismiss - dismisses the proof.
+// Phase 18.5: Dismiss proof action.
+func (s *Server) handleProofDismiss(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	proofHash := r.FormValue("proof_hash")
+
+	// Record dismissed acknowledgement
+	if err := s.proofAckStore.Record(proof.AckDismissed, proofHash, s.clk.Now()); err != nil {
+		log.Printf("Proof ack store error: %v", err)
+	}
+
+	// Emit proof dismissed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase18_5ProofDismissed,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"proof_hash": proofHash,
 		},
 	})
 
@@ -1890,6 +2005,14 @@ const templates = `
     </section>
     {{end}}
 
+    {{/* Phase 18.5: Quiet Proof - Restraint ledger cue */}}
+    {{if and .ProofCue .ProofCue.Available}}
+    <section class="quiet-proof-cue">
+        <p class="quiet-proof-cue-text">{{.ProofCue.CueText}}</p>
+        <a href="/proof" class="quiet-proof-cue-link">{{.ProofCue.LinkText}}</a>
+    </section>
+    {{end}}
+
     {{/* Subtle links */}}
     <footer class="today-footer">
         <a href="/held" class="today-subtle-link">What are you holding for me?</a>
@@ -1992,11 +2115,66 @@ const templates = `
 </div>
 {{end}}
 
+{{/* ================================================================
+     Phase 18.5: Quiet Proof - Restraint Ledger
+     ================================================================ */}}
+{{define "proof"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "proof-content"}}
+<div class="proof">
+    <header class="proof-header">
+        <h1 class="proof-title">Quiet, kept.</h1>
+        <p class="proof-subtitle">Proof that silence is intentional.</p>
+    </header>
+
+    {{if eq .ProofSummary.Magnitude "nothing"}}
+    <section class="proof-nothing">
+        <p class="proof-nothing-text">Nothing was held.</p>
+    </section>
+    {{else}}
+    <section class="proof-statement">
+        <p class="proof-statement-text">{{.ProofSummary.Statement}}</p>
+    </section>
+
+    {{if .ProofSummary.Categories}}
+    <section class="proof-categories">
+        <ul class="proof-categories-list">
+            {{range .ProofSummary.Categories}}
+            <li class="proof-category">{{.}}</li>
+            {{end}}
+        </ul>
+    </section>
+    {{end}}
+
+    {{if .ProofSummary.WhyLine}}
+    <section class="proof-why">
+        <p class="proof-why-text">{{.ProofSummary.WhyLine}}</p>
+    </section>
+    {{end}}
+
+    <section class="proof-actions">
+        <form action="/proof/dismiss" method="POST" class="proof-dismiss-form">
+            <input type="hidden" name="proof_hash" value="{{.ProofSummary.Hash}}">
+            <button type="submit" class="proof-dismiss-link">Dismiss</button>
+        </form>
+    </section>
+    {{end}}
+
+    <footer class="proof-footer">
+        <a href="/today" class="proof-back-link">Back to today</a>
+    </footer>
+</div>
+{{end}}
+
 {{define "page-content"}}
 {{if eq .Title "Held"}}
     {{template "held-content" .}}
 {{else if eq .Title "Something you could look at"}}
     {{template "surface-content" .}}
+{{else if eq .Title "Quiet, kept."}}
+    {{template "proof-content" .}}
 {{else if eq .Title "Today, quietly."}}
     {{template "today-content" .}}
 {{else if eq .Title "The Moment"}}
