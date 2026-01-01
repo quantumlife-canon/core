@@ -6,6 +6,7 @@
 *.dylib
 /quantumlife-daemon
 /quantumlife-cli
+/quantumlife-web
 
 # Test binary
 *.test
