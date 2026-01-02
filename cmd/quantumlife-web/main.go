@@ -45,6 +45,8 @@ import (
 	"quantumlife/internal/obligations"
 	"quantumlife/internal/persist"
 	"quantumlife/internal/proof"
+	"quantumlife/internal/shadowcalibration"
+	shadowdiffengine "quantumlife/internal/shadowdiff"
 	"quantumlife/internal/shadowllm"
 	"quantumlife/internal/shadowllm/stub"
 	"quantumlife/internal/surface"
@@ -95,8 +97,9 @@ type Server struct {
 	oauthStateManager  *oauth.StateManager              // Phase 18.8: OAuth state management
 	gmailHandler       *oauth.GmailHandler              // Phase 18.8: Gmail OAuth handler
 	syncReceiptStore   *persist.SyncReceiptStore        // Phase 19.1: Sync receipt store
-	shadowEngine       *shadowllm.Engine                // Phase 19.2: Shadow mode engine
-	shadowReceiptStore *persist.ShadowReceiptStore      // Phase 19.2: Shadow receipt store
+	shadowEngine           *shadowllm.Engine                // Phase 19.2: Shadow mode engine
+	shadowReceiptStore     *persist.ShadowReceiptStore      // Phase 19.2: Shadow receipt store
+	shadowCalibrationStore *persist.ShadowCalibrationStore  // Phase 19.4: Shadow calibration store
 }
 
 // eventLogger logs events.
@@ -432,6 +435,7 @@ func main() {
 	shadowProvider := stub.NewStubModel()
 	shadowEngine := shadowllm.NewEngine(clk, shadowProvider)
 	shadowReceiptStore := persist.NewShadowReceiptStore(clk.Now)
+	shadowCalibrationStore := persist.NewShadowCalibrationStore(clk.Now)
 
 	// Create server
 	server := &Server{
@@ -460,7 +464,8 @@ func main() {
 		gmailHandler:       gmailHandler,       // Phase 18.8
 		syncReceiptStore:   syncReceiptStore,   // Phase 19.1
 		shadowEngine:       shadowEngine,       // Phase 19.2
-		shadowReceiptStore: shadowReceiptStore, // Phase 19.2
+		shadowReceiptStore:     shadowReceiptStore,     // Phase 19.2
+		shadowCalibrationStore: shadowCalibrationStore, // Phase 19.4
 	}
 
 	// Set up routes
@@ -493,6 +498,7 @@ func main() {
 	mux.HandleFunc("/run/gmail-sync", server.handleGmailSync)                  // Phase 18.8: Gmail sync
 	mux.HandleFunc("/quiet-check", server.handleQuietCheck)                    // Phase 19.1: Quiet baseline verification
 	mux.HandleFunc("/run/shadow", server.handleShadowRun)                      // Phase 19.2: Shadow mode run
+	mux.HandleFunc("/run/shadow-diff", server.handleShadowDiff)               // Phase 19.4: Compute shadow diffs
 	mux.HandleFunc("/shadow/report", server.handleShadowReport)                // Phase 19.4: Shadow calibration report
 	mux.HandleFunc("/shadow/vote", server.handleShadowVote)                    // Phase 19.4: Shadow calibration vote
 	mux.HandleFunc("/demo", server.handleDemo)
@@ -1987,6 +1993,192 @@ func (s *Server) handleShadowRun(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/today", http.StatusFound)
 }
 
+// handleShadowDiff computes diffs between canon rules and shadow observations.
+//
+// Phase 19.4: Shadow Diff + Calibration
+// CRITICAL: Shadow does NOT affect any execution path. This is measurement ONLY.
+func (s *Server) handleShadowDiff(w http.ResponseWriter, r *http.Request) {
+	// POST only - explicit action required
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed - POST required", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get circle ID
+	circleID := r.URL.Query().Get("circle_id")
+	if circleID == "" {
+		circleIDs := s.multiCircleConfig.CircleIDs()
+		if len(circleIDs) > 0 {
+			circleID = string(circleIDs[0])
+		}
+	}
+
+	if circleID == "" {
+		http.Redirect(w, r, "/shadow/report", http.StatusFound)
+		return
+	}
+
+	// Get latest shadow receipt
+	receipts := s.shadowReceiptStore.ListForCircle(identity.EntityID(circleID))
+	if len(receipts) == 0 {
+		// No shadow receipts yet - redirect to report
+		http.Redirect(w, r, "/shadow/report", http.StatusFound)
+		return
+	}
+	latestReceipt := receipts[len(receipts)-1]
+
+	// Build canon signals from current loop state
+	// Run the loop to get current state
+	ctx := r.Context()
+	result := s.engine.Run(ctx, loop.RunOptions{})
+
+	// Find the circle result
+	var circleResult *loop.CircleResult
+	for i := range result.Circles {
+		if string(result.Circles[i].CircleID) == circleID {
+			circleResult = &result.Circles[i]
+			break
+		}
+	}
+
+	// Build canon signals from loop obligations (empty if no matching circle)
+	var canonSignals []shadowdiff.CanonSignal
+	if circleResult != nil {
+		canonSignals = buildCanonSignalsFromLoop(circleResult)
+	}
+
+	// If no canon signals and no shadow suggestions, nothing to diff
+	if len(canonSignals) == 0 && len(latestReceipt.Suggestions) == 0 {
+		log.Printf("No canon signals and no shadow suggestions - nothing to diff")
+		http.Redirect(w, r, "/shadow/report", http.StatusFound)
+		return
+	}
+
+	// Create diff input with the correct circle ID from the receipt
+	diffEngine := shadowdiffengine.NewEngine(s.clk)
+	input := shadowdiffengine.DiffInput{
+		Canon: shadowdiffengine.CanonResult{
+			CircleID:   latestReceipt.CircleID, // Use receipt's circle ID
+			Signals:    canonSignals,
+			ComputedAt: s.clk.Now(),
+		},
+		Shadow: latestReceipt,
+	}
+
+	// Compute diffs
+	output, err := diffEngine.Compute(input)
+	if err != nil {
+		log.Printf("Failed to compute diffs: %v", err)
+		http.Redirect(w, r, "/shadow/report", http.StatusFound)
+		return
+	}
+
+	// Log summary for debugging
+	log.Printf("Shadow diff computed: total=%d, matches=%d, conflicts=%d, canon_only=%d, shadow_only=%d",
+		output.Summary.TotalDiffs, output.Summary.MatchCount, output.Summary.ConflictCount,
+		output.Summary.CanonOnlyCount, output.Summary.ShadowOnlyCount)
+
+	// Persist each diff result and emit events
+	for _, result := range output.Results {
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase19_4DiffComputed,
+			Timestamp: s.clk.Now(),
+			Metadata: map[string]string{
+				"circle_id": circleID,
+				"diff_id":   result.DiffID,
+				"agreement": string(result.Agreement),
+				"novelty":   string(result.NoveltyType),
+			},
+		})
+
+		resultCopy := result // Copy for pointer
+		if err := s.shadowCalibrationStore.AppendDiff(&resultCopy); err != nil {
+			log.Printf("Failed to persist diff: %v", err)
+		} else {
+			s.eventEmitter.Emit(events.Event{
+				Type:      events.Phase19_4DiffPersisted,
+				Timestamp: s.clk.Now(),
+				Metadata: map[string]string{
+					"diff_id": result.DiffID,
+				},
+			})
+		}
+	}
+
+	// Redirect to shadow report
+	http.Redirect(w, r, "/shadow/report", http.StatusFound)
+}
+
+// buildCanonSignalsFromLoop builds canon signals from loop results.
+func buildCanonSignalsFromLoop(result *loop.CircleResult) []shadowdiff.CanonSignal {
+	// Group obligations by category
+	categoryCount := make(map[domainshadow.AbstractCategory]int)
+	categoryKeys := make(map[domainshadow.AbstractCategory][]string)
+
+	for _, obl := range result.Obligations {
+		cat := mapObligationToCategory(obl)
+		categoryCount[cat]++
+		categoryKeys[cat] = append(categoryKeys[cat], obl.ID)
+	}
+
+	// Build signals for each category with obligations
+	var signals []shadowdiff.CanonSignal
+	for cat, count := range categoryCount {
+		var magnitude domainshadow.MagnitudeBucket
+		switch {
+		case count == 0:
+			magnitude = domainshadow.MagnitudeNothing
+		case count <= 3:
+			magnitude = domainshadow.MagnitudeAFew
+		default:
+			magnitude = domainshadow.MagnitudeSeveral
+		}
+
+		// Create a signal for each item key
+		for _, key := range categoryKeys[cat] {
+			sig := shadowdiff.CanonSignal{
+				Key: shadowdiff.ComparisonKey{
+					CircleID:    result.CircleID,
+					Category:    cat,
+					ItemKeyHash: key,
+				},
+				Horizon:         domainshadow.HorizonSoon,
+				Magnitude:       magnitude,
+				SurfaceDecision: false, // Conservative default
+				HoldDecision:    true,  // Default to hold
+			}
+			signals = append(signals, sig)
+		}
+	}
+
+	return signals
+}
+
+// mapObligationToCategory maps an obligation to an abstract category.
+func mapObligationToCategory(obl *obligation.Obligation) domainshadow.AbstractCategory {
+	// Map by source type first
+	switch obl.SourceType {
+	case "email":
+		return domainshadow.CategoryPeople
+	case "calendar":
+		return domainshadow.CategoryTime
+	case "finance":
+		return domainshadow.CategoryMoney
+	default:
+		// Fallback to obligation type
+		switch obl.Type {
+		case obligation.ObligationReply, obligation.ObligationFollowup:
+			return domainshadow.CategoryPeople
+		case obligation.ObligationAttend, obligation.ObligationDecide:
+			return domainshadow.CategoryTime
+		case obligation.ObligationPay:
+			return domainshadow.CategoryMoney
+		default:
+			return domainshadow.CategoryWork
+		}
+	}
+}
+
 // buildShadowInputDigest builds an abstract input digest from current state.
 //
 // CRITICAL: All data must already be abstract/bucketed.
@@ -2063,18 +2255,43 @@ func (s *Server) handleShadowReport(w http.ResponseWriter, r *http.Request) {
 	// Check if shadow has been run (has receipts)
 	hasReceipts := false
 	if s.shadowReceiptStore != nil {
-		// Simple check - try to get any receipt for today
-		// In a real implementation, would have a HasReceiptsForPeriod method
-		hasReceipts = true // Assume true for now
+		hasReceipts = true
 	}
 
-	// Generate plain language summary
+	// Compute calibration stats from stored diffs
 	summary := "No shadow comparisons yet."
 	agreementPct := "0%"
 	noveltyPct := "0%"
 	conflictPct := "0%"
 	usefulnessPct := "0%"
 	hasVotes := false
+
+	if s.shadowCalibrationStore != nil {
+		diffs := s.shadowCalibrationStore.ListDiffsByPeriod(periodBucket)
+		if len(diffs) > 0 {
+			// Build votes map from store
+			votes := make(map[string]shadowdiff.CalibrationVote)
+			for _, diff := range diffs {
+				if vote, ok := s.shadowCalibrationStore.GetVoteForDiff(diff.DiffID); ok {
+					votes[diff.DiffID] = vote
+				}
+			}
+
+			// Compute stats using calibration engine
+			stats := shadowcalibration.ComputeStats(periodBucket, diffs, votes)
+
+			// Generate summary
+			summary = shadowcalibration.OverallSummary(stats)
+			agreementPct = fmt.Sprintf("%.0f%%", stats.AgreementRate*100)
+			noveltyPct = fmt.Sprintf("%.0f%%", stats.NoveltyRate*100)
+			conflictPct = fmt.Sprintf("%.0f%%", stats.ConflictRate*100)
+
+			if stats.VotedCount > 0 {
+				hasVotes = true
+				usefulnessPct = fmt.Sprintf("%.0f%%", stats.UsefulnessScore*100)
+			}
+		}
+	}
 
 	// Emit report rendered event
 	s.eventEmitter.Emit(events.Event{
