@@ -34,3 +34,6 @@ Thumbs.db
 
 # Dependency directories
 /vendor/
+.env
+client_secret_*.json
+*.png

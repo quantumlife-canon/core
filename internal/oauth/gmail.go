@@ -23,7 +23,8 @@ import (
 
 // GmailScopes defines the only allowed scopes for Gmail OAuth.
 // CRITICAL: Read-only only. No write scopes.
-var GmailScopes = []string{"gmail.readonly"}
+// Uses QuantumLife scope names which are mapped to Google scopes by the broker.
+var GmailScopes = []string{"email:read"}
 
 // GmailHandler handles Gmail OAuth flows.
 type GmailHandler struct {
@@ -166,9 +167,10 @@ func (h *GmailHandler) Callback(ctx context.Context, code, stateParam string) (*
 // validateReadOnlyScopes ensures only read-only scopes are present.
 func validateReadOnlyScopes(scopes []string) error {
 	for _, scope := range scopes {
-		// Only gmail.readonly is allowed
+		// Only gmail.readonly is allowed (in various formats)
 		if scope != "gmail.readonly" &&
-			scope != "https://www.googleapis.com/auth/gmail.readonly" {
+			scope != "https://www.googleapis.com/auth/gmail.readonly" &&
+			scope != "email:read" {
 			return fmt.Errorf("forbidden scope: %s", scope)
 		}
 	}

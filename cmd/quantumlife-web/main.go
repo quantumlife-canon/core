@@ -1159,11 +1159,32 @@ func (s *Server) handleConnections(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 
+	// Get circle ID from query or use default
+	circleID := r.URL.Query().Get("circle_id")
+	if circleID == "" {
+		// Check if we have a Gmail connection - use that circle
+		// This handles the case where OAuth was done with a specific circle
+		if s.gmailHandler != nil {
+			// Try demo-circle first (common for testing)
+			if hasConn, _ := s.gmailHandler.HasConnection(r.Context(), "demo-circle"); hasConn {
+				circleID = "demo-circle"
+			}
+		}
+		// Fall back to first configured circle
+		if circleID == "" {
+			circleIDs := s.multiCircleConfig.CircleIDs()
+			if len(circleIDs) > 0 {
+				circleID = string(circleIDs[0])
+			}
+		}
+	}
+
 	data := templateData{
 		Title:           "Connections",
 		CurrentTime:     s.clk.Now().Format("2006-01-02 15:04"),
 		ConnectionState: state,
 		MockMode:        *mockData,
+		CircleID:        circleID,
 	}
 
 	s.render(w, "connections", data)
