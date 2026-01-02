@@ -1298,6 +1298,26 @@
   color: var(--color-text-secondary);
 }
 
+/* Phase 18.5.1: Proof link on /surface - whisper style */
+.surface-proof-link {
+  text-align: center;
+  margin-top: var(--space-4);
+  padding: var(--space-2);
+}
+
+.surface-proof-link-text {
+  font-size: var(--text-xs);
+  color: var(--color-text-quaternary);
+  text-decoration: none;
+  border-bottom: 1px dotted var(--color-text-quaternary);
+  transition: color var(--duration-fast) var(--easing-default);
+}
+
+.surface-proof-link-text:hover {
+  color: var(--color-text-tertiary);
+  border-bottom-style: solid;
+}
+
 /* ═══════════════════════════════════════════════════════════════
    PHASE 18.5: QUIET PROOF - RESTRAINT LEDGER
    ═══════════════════════════════════════════════════════════════ */

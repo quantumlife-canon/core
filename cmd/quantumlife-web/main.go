@@ -689,12 +689,25 @@ func (s *Server) handleToday(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 
+	// Phase 18.5.1: Single whisper rule
+	// Show at most ONE whisper cue on /today.
+	// Priority: surface cue > proof cue
+	// If surface is available, hide proof cue (proof accessible via /surface).
+	var displaySurfaceCue *surface.SurfaceCue
+	var displayProofCue *proof.ProofCue
+	if surfaceCue.Available {
+		displaySurfaceCue = &surfaceCue
+		// Proof cue hidden - accessible via /surface link
+	} else if proofCue.Available {
+		displayProofCue = &proofCue
+	}
+
 	data := templateData{
 		Title:       "Today, quietly.",
 		CurrentTime: s.clk.Now().Format("2006-01-02 15:04"),
 		TodayPage:   &page,
-		SurfaceCue:  &surfaceCue,
-		ProofCue:    &proofCue,
+		SurfaceCue:  displaySurfaceCue,
+		ProofCue:    displayProofCue,
 	}
 
 	s.render(w, "today", data)
@@ -2107,6 +2120,11 @@ const templates = `
             <input type="hidden" name="item_key_hash" value="{{.SurfacePage.Item.ItemKeyHash}}">
             <button type="submit" class="surface-action-button surface-action-prefer">I want to see everything</button>
         </form>
+    </section>
+
+    {{/* Phase 18.5.1: Subtle proof link - routes proof from /surface */}}
+    <section class="surface-proof-link">
+        <a href="/proof" class="surface-proof-link-text">Quiet, kept.</a>
     </section>
 
     <footer class="surface-footer">

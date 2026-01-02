@@ -130,7 +130,7 @@ func (e *Engine) BuildCue(proof ProofSummary, hasRecentAck bool) ProofCue {
 
 	return ProofCue{
 		Available: true,
-		CueText:   "If you ever wondered—silence is intentional.",
+		CueText:   "If you ever wondered—quiet is being kept.",
 		LinkText:  "Proof, if you want it.",
 		ProofHash: proof.Hash,
 	}

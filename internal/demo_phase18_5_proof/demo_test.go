@@ -415,3 +415,60 @@ func TestNoRawCountsExposed(t *testing.T) {
 		}
 	}
 }
+
+// ═══════════════════════════════════════════════════════════════
+// PHASE 18.5.1: SUBTLETY PASS TESTS
+// ═══════════════════════════════════════════════════════════════
+
+// TestCueTextSoftened verifies cue text uses softened "quiet is being kept" language.
+// Phase 18.5.1: Changed from "silence is intentional" to "quiet is being kept".
+func TestCueTextSoftened(t *testing.T) {
+	engine := proof.NewEngine()
+
+	summary := proof.ProofSummary{
+		Magnitude: proof.MagnitudeAFew,
+		Hash:      "test_hash",
+	}
+
+	cue := engine.BuildCue(summary, false)
+
+	// Verify cue is available
+	if !cue.Available {
+		t.Fatal("Cue should be available")
+	}
+
+	// Verify softened text - must contain "quiet is being kept"
+	if !strings.Contains(cue.CueText, "quiet is being kept") {
+		t.Errorf("CueText should contain 'quiet is being kept', got: %q", cue.CueText)
+	}
+
+	// Should NOT contain old "silence is intentional" text
+	if strings.Contains(cue.CueText, "silence is intentional") {
+		t.Error("CueText should not contain old 'silence is intentional' text")
+	}
+
+	// Verify link text unchanged
+	if cue.LinkText != "Proof, if you want it." {
+		t.Errorf("LinkText should be 'Proof, if you want it.', got: %q", cue.LinkText)
+	}
+}
+
+// TestCueLinkTextUnchanged verifies cue link text is still "Proof, if you want it."
+func TestCueLinkTextUnchanged(t *testing.T) {
+	engine := proof.NewEngine()
+
+	summary := proof.ProofSummary{
+		Magnitude: proof.MagnitudeSeveral,
+		Hash:      "test_hash_2",
+	}
+
+	cue := engine.BuildCue(summary, false)
+
+	if !cue.Available {
+		t.Fatal("Cue should be available")
+	}
+
+	if cue.LinkText != "Proof, if you want it." {
+		t.Errorf("Expected 'Proof, if you want it.', got %q", cue.LinkText)
+	}
+}
