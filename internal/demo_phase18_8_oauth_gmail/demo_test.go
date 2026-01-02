@@ -196,10 +196,10 @@ func TestReadOnlyScopeEnforcement(t *testing.T) {
 	if len(oauth.GmailScopes) != 1 {
 		t.Errorf("Expected 1 scope, got %d", len(oauth.GmailScopes))
 	}
-	if oauth.GmailScopes[0] != "gmail.readonly" {
-		t.Errorf("Expected gmail.readonly, got %s", oauth.GmailScopes[0])
+	if oauth.GmailScopes[0] != "email:read" {
+		t.Errorf("Expected email:read, got %s", oauth.GmailScopes[0])
 	}
-	t.Log("GmailScopes correctly contains only gmail.readonly")
+	t.Log("GmailScopes correctly contains only email:read (QuantumLife scope name)")
 
 	t.Log("\n=== Read-Only Scope Enforcement Demo Complete ===")
 }
