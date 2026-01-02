@@ -1083,6 +1083,21 @@ const (
 
 	// Proof dismissed event - emitted when user dismisses the proof
 	Phase18_5ProofDismissed EventType = "phase18_5.proof.dismissed"
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	// Phase 18.6: First Connect - Consent-first Onboarding
+	// Reference: docs/ADR/ADR-0038-phase18-6-first-connect.md
+	// ═══════════════════════════════════════════════════════════════════════════
+
+	// Connection intent events - emitted when connection intents are recorded
+	Phase18_6ConnectionIntentRecorded EventType = "phase18_6.connection.intent.recorded"
+
+	// Connection state events - emitted when state is computed
+	Phase18_6ConnectionStateComputed EventType = "phase18_6.connection.state.computed"
+
+	// Connection request events - emitted when user initiates connect/disconnect
+	Phase18_6ConnectionConnectRequested    EventType = "phase18_6.connection.connect.requested"
+	Phase18_6ConnectionDisconnectRequested EventType = "phase18_6.connection.disconnect.requested"
 )
 
 // Event represents a system event for audit and observability.

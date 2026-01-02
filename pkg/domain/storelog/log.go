@@ -60,6 +60,9 @@ const (
 	RecordTypeFinanceEnvelopeStatus = "FINANCE_ENVELOPE_STATUS"
 	RecordTypeFinanceAttempt        = "FINANCE_ATTEMPT"
 	RecordTypeFinanceAttemptStatus  = "FINANCE_ATTEMPT_STATUS"
+
+	// Connection record types (Phase 18.6)
+	RecordTypeConnectionIntent = "CONNECTION_INTENT"
 )
 
 // Common errors

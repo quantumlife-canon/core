@@ -35,8 +35,10 @@ import (
 	"quantumlife/internal/execrouter"
 	"quantumlife/internal/held"
 	"quantumlife/internal/interest"
+	"quantumlife/internal/persist"
 	"quantumlife/internal/proof"
 	"quantumlife/internal/surface"
+	"quantumlife/pkg/domain/connection"
 	"quantumlife/internal/interruptions"
 	"quantumlife/internal/loop"
 	"quantumlife/internal/obligations"
@@ -74,8 +76,9 @@ type Server struct {
 	heldStore         *held.SummaryStore            // Phase 18.3: Summary store
 	surfaceEngine     *surface.Engine               // Phase 18.4: Quiet Shift
 	surfaceStore      *surface.ActionStore          // Phase 18.4: Action store
-	proofEngine       *proof.Engine                 // Phase 18.5: Quiet Proof
-	proofAckStore     *proof.AckStore               // Phase 18.5: Ack store
+	proofEngine       *proof.Engine                    // Phase 18.5: Quiet Proof
+	proofAckStore     *proof.AckStore                  // Phase 18.5: Ack store
+	connectionStore   *persist.InMemoryConnectionStore // Phase 18.6: First Connect
 }
 
 // eventLogger logs events.
@@ -133,6 +136,11 @@ type templateData struct {
 	// Phase 18.5: Quiet Proof
 	ProofSummary *proof.ProofSummary
 	ProofCue     *proof.ProofCue
+	// Phase 18.6: First Connect
+	ConnectionState     *connection.ConnectionStateSet
+	ConnectionKind      connection.ConnectionKind
+	ConnectionKindState *connection.ConnectionState
+	MockMode            bool
 }
 
 // personInfo contains person data for display. Phase 13.1.
@@ -355,6 +363,9 @@ func main() {
 	proofEngine := proof.NewEngine()
 	proofAckStore := proof.NewAckStore(128)
 
+	// Create connection store (Phase 18.6)
+	connectionStore := persist.NewInMemoryConnectionStore()
+
 	// Create server
 	server := &Server{
 		engine:            engine,
@@ -372,8 +383,9 @@ func main() {
 		heldStore:         heldStore,       // Phase 18.3
 		surfaceEngine:     surfaceEngine,   // Phase 18.4
 		surfaceStore:      surfaceStore,    // Phase 18.4
-		proofEngine:       proofEngine,     // Phase 18.5
-		proofAckStore:     proofAckStore,   // Phase 18.5
+		proofEngine:       proofEngine,       // Phase 18.5
+		proofAckStore:     proofAckStore,     // Phase 18.5
+		connectionStore:   connectionStore,   // Phase 18.6
 	}
 
 	// Set up routes
@@ -394,6 +406,10 @@ func main() {
 	mux.HandleFunc("/surface/prefer", server.handleSurfacePrefer) // Phase 18.4: Prefer show_all
 	mux.HandleFunc("/proof", server.handleProof)                  // Phase 18.5: Quiet Proof
 	mux.HandleFunc("/proof/dismiss", server.handleProofDismiss)   // Phase 18.5: Dismiss proof
+	mux.HandleFunc("/start", server.handleStart)                  // Phase 18.6: First Connect
+	mux.HandleFunc("/connections", server.handleConnections)      // Phase 18.6: Connections
+	mux.HandleFunc("/connect/", server.handleConnect)             // Phase 18.6: Connect action
+	mux.HandleFunc("/disconnect/", server.handleDisconnect)       // Phase 18.6: Disconnect action
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18: App routes (authenticated)
@@ -1027,6 +1043,196 @@ func (s *Server) handleProofDismiss(w http.ResponseWriter, r *http.Request) {
 
 	// Redirect to /today
 	http.Redirect(w, r, "/today", http.StatusFound)
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 18.6: First Connect - Consent-first Onboarding
+// Reference: docs/ADR/ADR-0038-phase18-6-first-connect.md
+// ═══════════════════════════════════════════════════════════════════════════
+
+// handleStart serves the consent page.
+// GET /start - Calm consent page with connect options.
+func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get current connection state
+	state := s.connectionStore.State()
+
+	data := templateData{
+		Title:           "First, consent.",
+		CurrentTime:     s.clk.Now().Format("2006-01-02 15:04"),
+		ConnectionState: state,
+		MockMode:        *mockData,
+	}
+
+	s.render(w, "start", data)
+}
+
+// handleConnections serves the connections list page.
+// GET /connections - Shows connected sources.
+func (s *Server) handleConnections(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get current connection state
+	state := s.connectionStore.State()
+
+	// Emit state computed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase18_6ConnectionStateComputed,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"state_hash": state.Hash,
+		},
+	})
+
+	data := templateData{
+		Title:           "Connections",
+		CurrentTime:     s.clk.Now().Format("2006-01-02 15:04"),
+		ConnectionState: state,
+		MockMode:        *mockData,
+	}
+
+	s.render(w, "connections", data)
+}
+
+// handleConnect handles connect actions.
+// POST /connect/:kind - Creates a connect intent.
+// GET /connect/:kind - Shows stub connector page (optional).
+func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
+	// Extract kind from URL path
+	path := strings.TrimPrefix(r.URL.Path, "/connect/")
+	kind := connection.ConnectionKind(path)
+
+	if !kind.Valid() {
+		http.Error(w, "Invalid connection kind", http.StatusBadRequest)
+		return
+	}
+
+	if r.Method == http.MethodGet {
+		// Show stub connector page
+		state := s.connectionStore.State()
+		kindState := state.Get(kind)
+
+		data := templateData{
+			Title:              "Connect " + string(kind),
+			CurrentTime:        s.clk.Now().Format("2006-01-02 15:04"),
+			ConnectionKind:     kind,
+			ConnectionKindState: kindState,
+			MockMode:           *mockData,
+		}
+
+		s.render(w, "connect-stub", data)
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Determine mode based on mock flag
+	mode := connection.ModeReal
+	if *mockData {
+		mode = connection.ModeMock
+	}
+
+	// Create connect intent
+	intent := connection.NewConnectIntent(kind, mode, s.clk.Now(), connection.NoteUserInitiated)
+
+	// Append to store
+	if err := s.connectionStore.AppendIntent(intent); err != nil {
+		log.Printf("Connection store error: %v", err)
+		http.Error(w, "Failed to record intent", http.StatusInternalServerError)
+		return
+	}
+
+	// Emit events
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase18_6ConnectionConnectRequested,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"kind": string(kind),
+			"mode": string(mode),
+		},
+	})
+
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase18_6ConnectionIntentRecorded,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"intent_id": intent.ID,
+			"kind":      string(kind),
+			"action":    string(intent.Action),
+			"mode":      string(mode),
+		},
+	})
+
+	// Redirect to connections
+	http.Redirect(w, r, "/connections", http.StatusFound)
+}
+
+// handleDisconnect handles disconnect actions.
+// POST /disconnect/:kind - Creates a disconnect intent.
+func (s *Server) handleDisconnect(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract kind from URL path
+	path := strings.TrimPrefix(r.URL.Path, "/disconnect/")
+	kind := connection.ConnectionKind(path)
+
+	if !kind.Valid() {
+		http.Error(w, "Invalid connection kind", http.StatusBadRequest)
+		return
+	}
+
+	// Determine mode based on mock flag
+	mode := connection.ModeReal
+	if *mockData {
+		mode = connection.ModeMock
+	}
+
+	// Create disconnect intent
+	intent := connection.NewDisconnectIntent(kind, mode, s.clk.Now(), connection.NoteUserInitiated)
+
+	// Append to store
+	if err := s.connectionStore.AppendIntent(intent); err != nil {
+		log.Printf("Connection store error: %v", err)
+		http.Error(w, "Failed to record intent", http.StatusInternalServerError)
+		return
+	}
+
+	// Emit events
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase18_6ConnectionDisconnectRequested,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"kind": string(kind),
+			"mode": string(mode),
+		},
+	})
+
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase18_6ConnectionIntentRecorded,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"intent_id": intent.ID,
+			"kind":      string(kind),
+			"action":    string(intent.Action),
+			"mode":      string(mode),
+		},
+	})
+
+	// Redirect to connections
+	http.Redirect(w, r, "/connections", http.StatusFound)
 }
 
 // handleDemo serves the deterministic demo page.
@@ -1873,6 +2079,9 @@ const templates = `
 <p class="category-line">
     Not a todo list. Not an inbox. Not an assistant. A system that handles, so you don't have to.
 </p>
+<p class="landing-subtle-link">
+    <a href="/start">Start</a>
+</p>
 {{end}}
 
 {{/* ================================================================
@@ -2193,6 +2402,12 @@ const templates = `
     {{template "surface-content" .}}
 {{else if eq .Title "Quiet, kept."}}
     {{template "proof-content" .}}
+{{else if eq .Title "First, consent."}}
+    {{template "start-content" .}}
+{{else if eq .Title "Connections"}}
+    {{template "connections-content" .}}
+{{else if hasPrefix .Title "Connect "}}
+    {{template "connect-stub-content" .}}
 {{else if eq .Title "Today, quietly."}}
     {{template "today-content" .}}
 {{else if eq .Title "The Moment"}}
@@ -2973,5 +3188,126 @@ const templates = `
     <p>Policy not found.</p>
 </div>
 {{end}}
+{{end}}
+
+{{/* ================================================================
+     PHASE 18.6: FIRST CONNECT - CONSENT-FIRST ONBOARDING
+     ================================================================ */}}
+{{define "start"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "start-content"}}
+<div class="start">
+    <header class="start-header">
+        <h1 class="start-title">First, consent.</h1>
+        <p class="start-subtitle">QuantumLife stays quiet by default.</p>
+    </header>
+
+    <section class="start-section">
+        <h2 class="start-section-title">What we can read</h2>
+        <p class="start-section-text">Email headers, calendar events, commerce receipts — the shape of your day, not the details.</p>
+    </section>
+
+    <section class="start-section">
+        <h2 class="start-section-title">What we can do</h2>
+        <p class="start-section-text">Draft replies, draft responses, suggest actions — proposals, not commands.</p>
+    </section>
+
+    <section class="start-section">
+        <h2 class="start-section-title">What we never do</h2>
+        <p class="start-section-text">No auto-send, no auto-pay, no background actions. You approve everything.</p>
+    </section>
+
+    <section class="start-connect">
+        <h3 class="start-connect-title">Connect one circle.</h3>
+        <div class="start-connect-options">
+            <form action="/connect/email" method="POST" class="start-connect-form">
+                <button type="submit" class="start-connect-button">Connect Email</button>
+            </form>
+            <form action="/connect/calendar" method="POST" class="start-connect-form">
+                <button type="submit" class="start-connect-button">Connect Calendar</button>
+            </form>
+            <form action="/connect/finance" method="POST" class="start-connect-form">
+                <button type="submit" class="start-connect-button">Connect Finance</button>
+            </form>
+        </div>
+    </section>
+
+    <footer class="start-footer">
+        <a href="/connections" class="start-connections-link">See connected sources</a>
+    </footer>
+</div>
+{{end}}
+
+{{define "connections"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "connections-content"}}
+<div class="connections">
+    <header class="connections-header">
+        <h1 class="connections-title">Connections</h1>
+        <p class="connections-subtitle">Connections change what QuantumLife can read. Not what it can do without you.</p>
+    </header>
+
+    <section class="connections-list">
+        {{range .ConnectionState.List}}
+        <div class="connection-item">
+            <div class="connection-kind">{{.Kind}}</div>
+            <div class="connection-status connection-status-{{.Status}}">{{.Status.DisplayText}}</div>
+            <div class="connection-actions">
+                {{if eq .Status.String "not_connected"}}
+                <form action="/connect/{{.Kind}}" method="POST" class="connection-action-form">
+                    <button type="submit" class="connection-action-button connection-action-connect">Connect</button>
+                </form>
+                {{else}}
+                <form action="/disconnect/{{.Kind}}" method="POST" class="connection-action-form">
+                    <button type="submit" class="connection-action-button connection-action-disconnect">Disconnect</button>
+                </form>
+                {{end}}
+            </div>
+        </div>
+        {{end}}
+    </section>
+
+    <section class="connections-mode">
+        <p class="connections-mode-label">Mode: {{if .MockMode}}mock{{else}}real{{end}}</p>
+    </section>
+
+    <footer class="connections-footer">
+        <a href="/start" class="connections-back-link">Back to start</a>
+        <span class="connections-divider">·</span>
+        <a href="/today" class="connections-today-link">Go to today</a>
+    </footer>
+</div>
+{{end}}
+
+{{define "connect-stub"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "connect-stub-content"}}
+<div class="connect-stub">
+    <header class="connect-stub-header">
+        <h1 class="connect-stub-title">Connect {{.ConnectionKind}}</h1>
+    </header>
+
+    <section class="connect-stub-status">
+        {{if .MockMode}}
+        <p class="connect-stub-text">Mock mode enabled. Click connect to simulate.</p>
+        <form action="/connect/{{.ConnectionKind}}" method="POST" class="connect-stub-form">
+            <button type="submit" class="connect-stub-button">Connect (Mock)</button>
+        </form>
+        {{else}}
+        <p class="connect-stub-text">Not live yet. This is the UI contract.</p>
+        <p class="connect-stub-note">Real connection requires configuration.</p>
+        {{end}}
+    </section>
+
+    <footer class="connect-stub-footer">
+        <a href="/connections" class="connect-stub-back-link">Back to connections</a>
+    </footer>
+</div>
 {{end}}
 `
