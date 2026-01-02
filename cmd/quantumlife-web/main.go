@@ -2398,8 +2398,34 @@ func (s *Server) handleShadowVote(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 
-	// In a full implementation, would persist the vote here
-	// For now, just acknowledge
+	// Get the diff to look up its hash
+	now := s.clk.Now()
+	periodBucket := now.Format("2006-01-02")
+	var diffHash string
+	if s.shadowCalibrationStore != nil {
+		diffs := s.shadowCalibrationStore.ListDiffsByPeriod(periodBucket)
+		for _, diff := range diffs {
+			if diff.DiffID == diffID {
+				diffHash = diff.Hash()
+				break
+			}
+		}
+	}
+
+	// Persist the vote
+	if s.shadowCalibrationStore != nil && diffHash != "" {
+		record := &shadowdiff.CalibrationRecord{
+			RecordID:     fmt.Sprintf("vote-%s-%d", diffID[:8], now.UnixNano()),
+			DiffID:       diffID,
+			DiffHash:     diffHash,
+			Vote:         vote,
+			PeriodBucket: periodBucket,
+			CreatedAt:    now,
+		}
+		if err := s.shadowCalibrationStore.AppendCalibration(record); err != nil {
+			log.Printf("Failed to persist vote: %v", err)
+		}
+	}
 
 	// Emit vote persisted event
 	s.eventEmitter.Emit(events.Event{
