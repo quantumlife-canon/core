@@ -1284,6 +1284,23 @@ const (
 	// Report events
 	Phase19_4ReportRequested EventType = "phase19_4.report.requested"
 	Phase19_4ReportRendered  EventType = "phase19_4.report.rendered"
+
+	// =============================================================================
+	// Phase 19.5: Shadow Gating + Promotion Candidates
+	// CRITICAL: Shadow does NOT affect behavior. Candidates are observational only.
+	// Reference: docs/ADR/ADR-0046-phase19-5-shadow-gating-and-promotion-candidates.md
+	// =============================================================================
+
+	// Candidate computation events
+	Phase19_5CandidatesRefreshRequested EventType = "phase19_5.candidates.refresh_requested"
+	Phase19_5CandidatesComputed         EventType = "phase19_5.candidates.computed"
+	Phase19_5CandidatesPersisted        EventType = "phase19_5.candidates.persisted"
+	Phase19_5CandidatesViewed           EventType = "phase19_5.candidates.viewed"
+
+	// Promotion intent events
+	// CRITICAL: Intent only. Does NOT change behavior.
+	Phase19_5PromotionProposed  EventType = "phase19_5.promotion.proposed"
+	Phase19_5PromotionPersisted EventType = "phase19_5.promotion.persisted"
 )
 
 // Event represents a system event for audit and observability.

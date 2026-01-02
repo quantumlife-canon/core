@@ -58,6 +58,7 @@ help:
 	@echo "  make demo-phase19-2 - Run Phase 19.2 shadow mode demo"
 	@echo "  make demo-phase19-3 - Run Phase 19.3 Azure shadow provider demo"
 	@echo "  make demo-phase19-4 - Run Phase 19.4 shadow diff + calibration demo"
+	@echo "  make demo-phase19-5 - Run Phase 19.5 shadow gating demo"
 	@echo ""
 	@echo "Web Server:"
 	@echo "  make web          - Run web server on :8080 (real mode)"
@@ -95,6 +96,7 @@ help:
 	@echo "  make check-shadow-mode - Check shadow mode constraints (Phase 19.2)"
 	@echo "  make check-shadow-azure - Check Azure shadow constraints (Phase 19.3)"
 	@echo "  make check-shadow-diff - Check shadow diff constraints (Phase 19.4)"
+	@echo "  make check-shadow-gating - Check shadow gating constraints (Phase 19.5)"
 	@echo ""
 	@echo "iOS (Phase 19):"
 	@echo "  make ios-open   - Open iOS project in Xcode (macOS only)"
@@ -505,6 +507,17 @@ demo-phase19-4:
 check-shadow-diff:
 	@echo "Checking shadow diff constraints (Phase 19.4)..."
 	@./scripts/guardrails/shadow_diff_enforced.sh
+
+# Phase 19.5 Demo: Shadow Gating + Promotion Candidates
+# Reference: docs/ADR/ADR-0046-phase19-5-shadow-gating-and-promotion-candidates.md
+demo-phase19-5:
+	@echo "Running Phase 19.5 Demo: Shadow Gating + Promotion Candidates..."
+	go test -v ./internal/demo_phase19_5_shadow_gating/...
+
+# Check shadow gating constraints (Phase 19.5)
+check-shadow-gating:
+	@echo "Checking shadow gating constraints (Phase 19.5)..."
+	@./scripts/guardrails/shadow_gating_enforced.sh
 
 # =============================================================================
 # Web Server Targets

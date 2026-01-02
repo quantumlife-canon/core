@@ -61,8 +61,10 @@ import (
 	"quantumlife/pkg/domain/obligation"
 	"quantumlife/pkg/domain/policy"
 	"quantumlife/pkg/domain/shadowdiff"
+	domainshadowgate "quantumlife/pkg/domain/shadowgate"
 	domainshadow "quantumlife/pkg/domain/shadowllm"
 	"quantumlife/pkg/events"
+	shadowgate "quantumlife/internal/shadowgate"
 )
 
 var (
@@ -100,6 +102,7 @@ type Server struct {
 	shadowEngine           *shadowllm.Engine                // Phase 19.2: Shadow mode engine
 	shadowReceiptStore     *persist.ShadowReceiptStore      // Phase 19.2: Shadow receipt store
 	shadowCalibrationStore *persist.ShadowCalibrationStore  // Phase 19.4: Shadow calibration store
+	shadowGateStore        *persist.ShadowGateStore         // Phase 19.5: Shadow gating store
 }
 
 // eventLogger logs events.
@@ -436,6 +439,7 @@ func main() {
 	shadowEngine := shadowllm.NewEngine(clk, shadowProvider)
 	shadowReceiptStore := persist.NewShadowReceiptStore(clk.Now)
 	shadowCalibrationStore := persist.NewShadowCalibrationStore(clk.Now)
+	shadowGateStore := persist.NewShadowGateStore(clk.Now)
 
 	// Create server
 	server := &Server{
@@ -466,6 +470,7 @@ func main() {
 		shadowEngine:       shadowEngine,       // Phase 19.2
 		shadowReceiptStore:     shadowReceiptStore,     // Phase 19.2
 		shadowCalibrationStore: shadowCalibrationStore, // Phase 19.4
+		shadowGateStore:        shadowGateStore,        // Phase 19.5
 	}
 
 	// Set up routes
@@ -501,6 +506,9 @@ func main() {
 	mux.HandleFunc("/run/shadow-diff", server.handleShadowDiff)               // Phase 19.4: Compute shadow diffs
 	mux.HandleFunc("/shadow/report", server.handleShadowReport)                // Phase 19.4: Shadow calibration report
 	mux.HandleFunc("/shadow/vote", server.handleShadowVote)                    // Phase 19.4: Shadow calibration vote
+	mux.HandleFunc("/shadow/candidates", server.handleShadowCandidates)       // Phase 19.5: Shadow candidates
+	mux.HandleFunc("/shadow/candidates/refresh", server.handleShadowCandidatesRefresh)   // Phase 19.5: Refresh candidates
+	mux.HandleFunc("/shadow/candidates/propose", server.handleShadowCandidatesPropose)   // Phase 19.5: Propose promotion
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18: App routes (authenticated)
@@ -2337,7 +2345,11 @@ func (s *Server) handleShadowReport(w http.ResponseWriter, r *http.Request) {
         <div class="stat">Conflict: %s</div>
         %s
     </div>
-    <div class="back"><a href="/today">&larr; Back to today</a></div>
+    <div class="back">
+        <a href="/shadow/candidates">View candidates &rarr;</a>
+        <span style="margin: 0 10px; color: #ddd;">|</span>
+        <a href="/today">&larr; Back to today</a>
+    </div>
     <p class="whisper">Period: %s</p>
 </body>
 </html>`, summary, agreementPct, noveltyPct, conflictPct,
@@ -2439,6 +2451,331 @@ func (s *Server) handleShadowVote(w http.ResponseWriter, r *http.Request) {
 
 	// Redirect back to report
 	http.Redirect(w, r, "/shadow/report", http.StatusFound)
+}
+
+// =============================================================================
+// Phase 19.5: Shadow Gating + Promotion Candidates
+// =============================================================================
+
+// diffSourceAdapter adapts ShadowCalibrationStore to shadowgate.DiffSource.
+type diffSourceAdapter struct {
+	store *persist.ShadowCalibrationStore
+}
+
+func (a *diffSourceAdapter) ListDiffsByPeriod(periodKey string) []*shadowdiff.DiffResult {
+	diffs := a.store.ListDiffsByPeriod(periodKey)
+	result := make([]*shadowdiff.DiffResult, len(diffs))
+	for i := range diffs {
+		result[i] = diffs[i]
+	}
+	return result
+}
+
+func (a *diffSourceAdapter) GetVoteForDiff(diffID string) (shadowdiff.CalibrationVote, bool) {
+	return a.store.GetVoteForDiff(diffID)
+}
+
+// handleShadowCandidates shows the shadow candidates page (whisper-style).
+//
+// Phase 19.5: Shadow Gating + Promotion Candidates
+// CRITICAL: Shadow does NOT affect any behavior. This is measurement ONLY.
+func (s *Server) handleShadowCandidates(w http.ResponseWriter, r *http.Request) {
+	// GET only
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Emit candidates viewed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase19_5CandidatesViewed,
+		Timestamp: s.clk.Now(),
+	})
+
+	// Get current period
+	periodKey := domainshadowgate.PeriodKeyFromTime(s.clk.Now())
+
+	// Get candidates from store
+	candidates := s.shadowGateStore.GetCandidates(periodKey)
+	candidateCount := len(candidates)
+
+	// Get promotion intents
+	intents := s.shadowGateStore.GetPromotionIntents(periodKey)
+	intentCount := len(intents)
+
+	// Render whisper-style page
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shadow Candidates</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; color: #333; }
+        h1 { font-size: 1.2rem; font-weight: normal; color: #666; }
+        .summary { font-size: 0.9rem; color: #888; margin: 20px 0; }
+        .candidates { margin: 30px 0; }
+        .candidate { border-left: 2px solid #ddd; padding: 10px 15px; margin: 15px 0; }
+        .candidate-header { font-size: 0.85rem; color: #666; }
+        .candidate-why { font-size: 0.8rem; color: #888; margin-top: 5px; }
+        .candidate-stats { font-size: 0.75rem; color: #aaa; margin-top: 5px; }
+        .candidate-origin-shadow { border-left-color: #9b59b6; }
+        .candidate-origin-conflict { border-left-color: #e74c3c; }
+        .candidate-origin-canon { border-left-color: #3498db; }
+        .actions { margin-top: 15px; }
+        .action-btn { padding: 4px 10px; font-size: 0.75rem; border: 1px solid #ddd; background: white; color: #666; cursor: pointer; margin-right: 5px; }
+        .action-btn:hover { background: #f5f5f5; }
+        .refresh-form { margin: 20px 0; }
+        .refresh-btn { padding: 6px 12px; font-size: 0.8rem; border: 1px solid #ddd; background: white; color: #666; cursor: pointer; }
+        .refresh-btn:hover { background: #f5f5f5; }
+        .nav { margin-top: 30px; }
+        .nav a { color: #999; text-decoration: none; font-size: 0.8rem; margin-right: 15px; }
+        .nav a:hover { color: #666; }
+        .whisper { font-size: 0.75rem; color: #aaa; margin-top: 40px; }
+        .intent-badge { font-size: 0.7rem; color: #27ae60; margin-left: 10px; }
+    </style>
+</head>
+<body>
+    <h1>Shadow candidates</h1>
+    <p class="summary">Patterns that shadow detected but canon didn't surface.</p>
+
+    <form class="refresh-form" action="/shadow/candidates/refresh" method="POST">
+        <button type="submit" class="refresh-btn">Refresh candidates</button>
+    </form>
+
+    <div class="candidates">`)
+
+	if candidateCount == 0 {
+		fmt.Fprintf(w, `        <p class="summary">No candidates yet. Run shadow mode and compute diffs first.</p>`)
+	} else {
+		for _, c := range candidates {
+			// Determine origin class
+			originClass := "candidate-origin-shadow"
+			originLabel := "shadow only"
+			switch c.Origin {
+			case domainshadowgate.OriginConflict:
+				originClass = "candidate-origin-conflict"
+				originLabel = "conflict"
+			case domainshadowgate.OriginCanonOnly:
+				originClass = "candidate-origin-canon"
+				originLabel = "canon only"
+			}
+
+			// Check if has intent
+			hasIntent := s.shadowGateStore.HasIntentForCandidate(c.ID)
+			intentBadge := ""
+			if hasIntent {
+				intentBadge = `<span class="intent-badge">⬆ proposed</span>`
+			}
+
+			fmt.Fprintf(w, `
+        <div class="candidate %s">
+            <div class="candidate-header">%s • %s%s</div>
+            <div class="candidate-why">%s</div>
+            <div class="candidate-stats">
+                Usefulness: %s (%d/%d votes) • Horizon: %s • Magnitude: %s
+            </div>`,
+				originClass,
+				string(c.Category),
+				originLabel,
+				intentBadge,
+				c.WhyGeneric,
+				string(c.UsefulnessBucket),
+				c.VotesUseful,
+				c.VotesUseful+c.VotesUnnecessary,
+				string(c.HorizonBucket),
+				string(c.MagnitudeBucket),
+			)
+
+			// Only show propose button if no intent yet
+			if !hasIntent {
+				fmt.Fprintf(w, `
+            <div class="actions">
+                <form action="/shadow/candidates/propose" method="POST" style="display: inline;">
+                    <input type="hidden" name="candidate_id" value="%s">
+                    <input type="hidden" name="note_code" value="promote_rule">
+                    <button type="submit" class="action-btn">Propose promotion</button>
+                </form>
+                <form action="/shadow/candidates/propose" method="POST" style="display: inline;">
+                    <input type="hidden" name="candidate_id" value="%s">
+                    <input type="hidden" name="note_code" value="needs_more_votes">
+                    <button type="submit" class="action-btn">Needs more votes</button>
+                </form>
+                <form action="/shadow/candidates/propose" method="POST" style="display: inline;">
+                    <input type="hidden" name="candidate_id" value="%s">
+                    <input type="hidden" name="note_code" value="ignore_for_now">
+                    <button type="submit" class="action-btn">Ignore</button>
+                </form>
+            </div>`, c.ID, c.ID, c.ID)
+			}
+
+			fmt.Fprintf(w, `
+        </div>`)
+		}
+	}
+
+	fmt.Fprintf(w, `
+    </div>
+
+    <div class="nav">
+        <a href="/shadow/report">&larr; Back to report</a>
+        <a href="/today">&larr; Back to today</a>
+    </div>
+    <p class="whisper">Period: %s • Candidates: %d • Intents: %d</p>
+</body>
+</html>`, periodKey, candidateCount, intentCount)
+}
+
+// handleShadowCandidatesRefresh recomputes candidates from diffs.
+//
+// Phase 19.5: Shadow Gating + Promotion Candidates
+// CRITICAL: Shadow does NOT affect any behavior. This is measurement ONLY.
+func (s *Server) handleShadowCandidatesRefresh(w http.ResponseWriter, r *http.Request) {
+	// POST only
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed - POST required", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Emit refresh requested event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase19_5CandidatesRefreshRequested,
+		Timestamp: s.clk.Now(),
+	})
+
+	// Get current period
+	periodKey := domainshadowgate.PeriodKeyFromTime(s.clk.Now())
+
+	// Create candidate engine
+	engine := shadowgate.NewEngine(s.clk)
+
+	// Create diff source adapter
+	diffSource := &diffSourceAdapter{store: s.shadowCalibrationStore}
+
+	// Compute candidates
+	input := shadowgate.ComputeInput{
+		PeriodKey:  periodKey,
+		DiffSource: diffSource,
+	}
+
+	output, err := engine.Compute(input)
+	if err != nil {
+		log.Printf("Failed to compute candidates: %v", err)
+		http.Redirect(w, r, "/shadow/candidates", http.StatusFound)
+		return
+	}
+
+	// Emit computed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase19_5CandidatesComputed,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"period_key":      periodKey,
+			"candidate_count": fmt.Sprintf("%d", len(output.Candidates)),
+			"total_diffs":     fmt.Sprintf("%d", output.TotalDiffs),
+			"total_votes":     fmt.Sprintf("%d", output.TotalVotes),
+		},
+	})
+
+	// Persist candidates (refresh semantics - clears old candidates for period)
+	if err := s.shadowGateStore.AppendCandidates(periodKey, output.Candidates); err != nil {
+		log.Printf("Failed to persist candidates: %v", err)
+	} else {
+		// Emit persisted event
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase19_5CandidatesPersisted,
+			Timestamp: s.clk.Now(),
+			Metadata: map[string]string{
+				"period_key":      periodKey,
+				"candidate_count": fmt.Sprintf("%d", len(output.Candidates)),
+			},
+		})
+	}
+
+	// Redirect back to candidates page
+	http.Redirect(w, r, "/shadow/candidates", http.StatusFound)
+}
+
+// handleShadowCandidatesPropose records a promotion intent for a candidate.
+//
+// Phase 19.5: Shadow Gating + Promotion Candidates
+// CRITICAL: Does NOT change any canon thresholds or rules. Intent only.
+func (s *Server) handleShadowCandidatesPropose(w http.ResponseWriter, r *http.Request) {
+	// POST only
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed - POST required", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse form
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form", http.StatusBadRequest)
+		return
+	}
+
+	candidateID := r.FormValue("candidate_id")
+	noteCodeStr := r.FormValue("note_code")
+
+	if candidateID == "" || noteCodeStr == "" {
+		http.Error(w, "Missing candidate_id or note_code", http.StatusBadRequest)
+		return
+	}
+
+	// Validate note code
+	noteCode := domainshadowgate.NoteCode(noteCodeStr)
+	if !noteCode.IsValid() {
+		http.Error(w, "Invalid note_code", http.StatusBadRequest)
+		return
+	}
+
+	// Get the candidate
+	candidate, ok := s.shadowGateStore.GetCandidate(candidateID)
+	if !ok {
+		http.Error(w, "Candidate not found", http.StatusNotFound)
+		return
+	}
+
+	// Emit promotion proposed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase19_5PromotionProposed,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"candidate_id": candidateID,
+			"note_code":    string(noteCode),
+		},
+	})
+
+	// Create promotion intent
+	now := s.clk.Now()
+	intent := &domainshadowgate.PromotionIntent{
+		CandidateID:   candidate.ID,
+		CandidateHash: candidate.Hash,
+		PeriodKey:     candidate.PeriodKey,
+		NoteCode:      noteCode,
+		CreatedBucket: domainshadowgate.PeriodKeyFromTime(now),
+		CreatedAt:     now,
+	}
+
+	// Persist intent
+	if err := s.shadowGateStore.AppendPromotionIntent(intent); err != nil {
+		log.Printf("Failed to persist promotion intent: %v", err)
+	} else {
+		// Emit persisted event
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase19_5PromotionPersisted,
+			Timestamp: s.clk.Now(),
+			Metadata: map[string]string{
+				"candidate_id": candidateID,
+				"intent_id":    intent.IntentID,
+				"intent_hash":  intent.IntentHash,
+				"note_code":    string(noteCode),
+			},
+		})
+	}
+
+	// Redirect back to candidates page
+	http.Redirect(w, r, "/shadow/candidates", http.StatusFound)
 }
 
 // handleDemo serves the deterministic demo page.
