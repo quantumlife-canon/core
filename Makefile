@@ -7,7 +7,7 @@
 #
 # Guardrails enforce Canon invariants at build time.
 
-.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 demo-phase9 demo-phase10 demo-phase11 demo-phase12 demo-phase13 demo-phase13-1 demo-phase14 demo-phase15 demo-phase16 demo-phase18 demo-phase18-2 demo-phase18-3 demo-phase18-4 demo-phase18-5 demo-phase18-6 demo-phase18-9 demo-phase19-shadow demo-phase19-1 demo-phase19-4 web web-mock web-demo web-app web-stop web-status check-today-quietly check-held check-quiet-shift check-proof check-connection-onboarding check-shadow-mode check-shadow-diff check-real-gmail-quiet ios-open ios-build ios-test ios-clean
+.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 demo-phase9 demo-phase10 demo-phase11 demo-phase12 demo-phase13 demo-phase13-1 demo-phase14 demo-phase15 demo-phase16 demo-phase18 demo-phase18-2 demo-phase18-3 demo-phase18-4 demo-phase18-5 demo-phase18-6 demo-phase18-9 demo-phase19-shadow demo-phase19-1 demo-phase19-4 demo-phase20 web web-mock web-demo web-app web-stop web-status check-today-quietly check-held check-quiet-shift check-proof check-connection-onboarding check-shadow-mode check-shadow-diff check-real-gmail-quiet check-trust-accrual ios-open ios-build ios-test ios-clean
 
 # Default target
 all: ci
@@ -60,6 +60,7 @@ help:
 	@echo "  make demo-phase19-4 - Run Phase 19.4 shadow diff + calibration demo"
 	@echo "  make demo-phase19-5 - Run Phase 19.5 shadow gating demo"
 	@echo "  make demo-phase19-6 - Run Phase 19.6 rule pack export demo"
+	@echo "  make demo-phase20 - Run Phase 20 trust accrual demo"
 	@echo ""
 	@echo "Web Server:"
 	@echo "  make web          - Run web server on :8080 (real mode)"
@@ -99,6 +100,7 @@ help:
 	@echo "  make check-shadow-diff - Check shadow diff constraints (Phase 19.4)"
 	@echo "  make check-shadow-gating - Check shadow gating constraints (Phase 19.5)"
 	@echo "  make check-rulepack-export - Check rule pack export constraints (Phase 19.6)"
+	@echo "  make check-trust-accrual - Check trust accrual constraints (Phase 20)"
 	@echo ""
 	@echo "iOS (Phase 19):"
 	@echo "  make ios-open   - Open iOS project in Xcode (macOS only)"
@@ -531,6 +533,17 @@ demo-phase19-6:
 check-rulepack-export:
 	@echo "Checking rule pack export constraints (Phase 19.6)..."
 	@./scripts/guardrails/rulepack_export_enforced.sh
+
+# Phase 20 Demo: Trust Accrual Layer (Proof Over Time)
+# Reference: docs/ADR/ADR-0048-phase20-trust-accrual-layer.md
+demo-phase20:
+	@echo "Running Phase 20 Demo: Trust Accrual Layer..."
+	go test -v ./internal/demo_phase20_trust_accrual/...
+
+# Check trust accrual constraints (Phase 20)
+check-trust-accrual:
+	@echo "Checking trust accrual constraints (Phase 20)..."
+	@./scripts/guardrails/trust_accrual_enforced.sh
 
 # =============================================================================
 # Web Server Targets

@@ -1316,6 +1316,24 @@ const (
 	Phase19_6PackViewed         EventType = "phase19_6.pack.viewed"
 	Phase19_6PackExported       EventType = "phase19_6.pack.exported"
 	Phase19_6PackDismissed      EventType = "phase19_6.pack.dismissed"
+
+	// =========================================================================
+	// Phase 20: Trust Accrual Layer (Proof Over Time)
+	// =========================================================================
+	//
+	// Reference: docs/ADR/ADR-0048-phase20-trust-accrual-layer.md
+	//
+	// CRITICAL INVARIANTS:
+	//   - Trust signals are NEVER pushed
+	//   - Trust signals are NEVER frequent
+	//   - Trust signals are NEVER actionable
+	//   - Events include canonical hashes only
+
+	// Trust summary lifecycle events
+	Phase20TrustComputed  EventType = "phase20.trust.computed"
+	Phase20TrustPersisted EventType = "phase20.trust.persisted"
+	Phase20TrustViewed    EventType = "phase20.trust.viewed"
+	Phase20TrustDismissed EventType = "phase20.trust.dismissed"
 )
 
 // Event represents a system event for audit and observability.

@@ -64,9 +64,11 @@ import (
 	domainshadowgate "quantumlife/pkg/domain/shadowgate"
 	domainshadow "quantumlife/pkg/domain/shadowllm"
 	domainrulepack "quantumlife/pkg/domain/rulepack"
+	domaintrust "quantumlife/pkg/domain/trust"
 	"quantumlife/pkg/events"
 	shadowgate "quantumlife/internal/shadowgate"
 	rulepackengine "quantumlife/internal/rulepack"
+	trustengine "quantumlife/internal/trust"
 )
 
 var (
@@ -106,6 +108,8 @@ type Server struct {
 	shadowCalibrationStore *persist.ShadowCalibrationStore  // Phase 19.4: Shadow calibration store
 	shadowGateStore        *persist.ShadowGateStore         // Phase 19.5: Shadow gating store
 	rulepackStore          *persist.RulePackStore           // Phase 19.6: Rule pack store
+	trustStore             *persist.TrustStore              // Phase 20: Trust store
+	trustEngine            *trustengine.Engine              // Phase 20: Trust engine
 }
 
 // eventLogger logs events.
@@ -174,6 +178,9 @@ type templateData struct {
 	CircleID string
 	// Phase 19.1: Quiet check
 	QuietCheckStatus *persist.QuietCheckStatus
+	// Phase 20: Trust accrual
+	TrustSummary  *domaintrust.TrustSummary
+	TrustCueShown bool
 }
 
 // personInfo contains person data for display. Phase 13.1.
@@ -444,6 +451,8 @@ func main() {
 	shadowCalibrationStore := persist.NewShadowCalibrationStore(clk.Now)
 	shadowGateStore := persist.NewShadowGateStore(clk.Now)
 	rulepackStore := persist.NewRulePackStore(clk.Now)
+	trustStore := persist.NewTrustStore(clk.Now)
+	trustEng := trustengine.NewEngine(clk)
 
 	// Create server
 	server := &Server{
@@ -476,6 +485,8 @@ func main() {
 		shadowCalibrationStore: shadowCalibrationStore, // Phase 19.4
 		shadowGateStore:        shadowGateStore,        // Phase 19.5
 		rulepackStore:          rulepackStore,          // Phase 19.6
+		trustStore:             trustStore,             // Phase 20
+		trustEngine:            trustEng,               // Phase 20
 	}
 
 	// Set up routes
@@ -517,6 +528,8 @@ func main() {
 	mux.HandleFunc("/shadow/packs", server.handleRulePackList)           // Phase 19.6: List packs
 	mux.HandleFunc("/shadow/packs/", server.handleRulePackDetail)        // Phase 19.6: Pack detail
 	mux.HandleFunc("/shadow/packs/build", server.handleRulePackBuild)    // Phase 19.6: Build pack
+	mux.HandleFunc("/trust", server.handleTrust)                        // Phase 20: Trust accrual
+	mux.HandleFunc("/trust/dismiss", server.handleTrustDismiss)         // Phase 20: Dismiss trust cue
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18: App routes (authenticated)
@@ -3188,6 +3201,208 @@ func (s *Server) handleRulePackBuild(w http.ResponseWriter, r *http.Request) {
 
 	// Redirect to the new pack
 	http.Redirect(w, r, "/shadow/packs/"+output.Pack.PackID, http.StatusFound)
+}
+
+// =============================================================================
+// Phase 20: Trust Accrual Layer
+// =============================================================================
+//
+// CRITICAL INVARIANTS:
+//   - Trust signals are NEVER pushed
+//   - Trust signals are NEVER frequent
+//   - Trust signals are NEVER actionable
+//   - Once dismissed, must not reappear for that period
+//   - No buttons styled as buttons
+//   - Whisper-style only
+
+// handleTrust shows the trust accrual page.
+// Shows 1-3 recent undismissed, meaningful trust summaries.
+// CRITICAL: Fully optional, never pushed.
+func (s *Server) handleTrust(w http.ResponseWriter, r *http.Request) {
+	// Get undismissed summaries
+	summaries := s.trustStore.ListUndismissedSummaries()
+
+	// Emit viewed event if there are any summaries
+	if len(summaries) > 0 {
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase20TrustViewed,
+			Timestamp: s.clk.Now(),
+			Metadata: map[string]string{
+				"summary_count": fmt.Sprintf("%d", len(summaries)),
+			},
+		})
+	}
+
+	// Limit to 3 recent summaries
+	if len(summaries) > 3 {
+		summaries = summaries[:3]
+	}
+
+	// Filter to meaningful only
+	var meaningful []domaintrust.TrustSummary
+	for _, s := range summaries {
+		if s.IsMeaningful() {
+			meaningful = append(meaningful, s)
+		}
+	}
+
+	// Render page
+	const trustHTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Proof over time</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #fafafa;
+            color: #333;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+        }
+        .container {
+            max-width: 480px;
+            width: 100%;
+        }
+        h1 {
+            font-size: 1.1rem;
+            font-weight: 400;
+            color: #666;
+            margin-bottom: 2rem;
+            text-align: center;
+        }
+        .empty {
+            text-align: center;
+            color: #999;
+            font-size: 0.9rem;
+            padding: 3rem 0;
+        }
+        .summary {
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+        }
+        .summary-signal {
+            font-size: 0.95rem;
+            color: #555;
+            margin-bottom: 0.75rem;
+        }
+        .summary-chips {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        .chip {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            background: #f0f0f0;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            color: #666;
+        }
+        .dismiss {
+            display: block;
+            text-align: center;
+            margin-top: 0.75rem;
+            font-size: 0.8rem;
+            color: #999;
+            text-decoration: none;
+            opacity: 0.6;
+        }
+        .dismiss:hover { opacity: 1; }
+        .back {
+            display: block;
+            text-align: center;
+            margin-top: 2rem;
+            font-size: 0.85rem;
+            color: #999;
+            text-decoration: none;
+        }
+        .back:hover { color: #666; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Proof over time</h1>
+        {{if not .Summaries}}
+        <div class="empty">
+            Nothing to show.<br>
+            Silence is the default.
+        </div>
+        {{else}}
+        {{range .Summaries}}
+        <div class="summary">
+            <div class="summary-signal">{{.SignalKind.HumanReadable}}</div>
+            <div class="summary-chips">
+                <span class="chip">{{.Period}}</span>
+                <span class="chip">{{.MagnitudeBucket}}</span>
+            </div>
+            <a class="dismiss" href="/trust/dismiss?id={{.SummaryID}}">dismiss</a>
+        </div>
+        {{end}}
+        {{end}}
+        <a class="back" href="/today">← back</a>
+    </div>
+</body>
+</html>`
+
+	tmpl, err := template.New("trust").Parse(trustHTML)
+	if err != nil {
+		http.Error(w, "Template error", http.StatusInternalServerError)
+		return
+	}
+
+	data := struct {
+		Summaries []domaintrust.TrustSummary
+	}{
+		Summaries: meaningful,
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := tmpl.Execute(w, data); err != nil {
+		log.Printf("Template execution error: %v", err)
+	}
+}
+
+// handleTrustDismiss handles dismissal of a trust summary.
+// Once dismissed, must not reappear for that period.
+func (s *Server) handleTrustDismiss(w http.ResponseWriter, r *http.Request) {
+	summaryID := r.URL.Query().Get("id")
+	if summaryID == "" {
+		http.Redirect(w, r, "/trust", http.StatusFound)
+		return
+	}
+
+	// Dismiss the summary
+	if err := s.trustStore.DismissSummary(summaryID); err != nil {
+		log.Printf("Failed to dismiss trust summary: %v", err)
+	} else {
+		// Emit dismissed event
+		summary, _ := s.trustStore.GetSummary(summaryID)
+		hash := ""
+		if summary != nil {
+			hash = summary.SummaryHash
+		}
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase20TrustDismissed,
+			Timestamp: s.clk.Now(),
+			Metadata: map[string]string{
+				"summary_id":   summaryID,
+				"summary_hash": hash,
+			},
+		})
+	}
+
+	// Redirect back to trust page
+	http.Redirect(w, r, "/trust", http.StatusFound)
 }
 
 // handleDemo serves the deterministic demo page.
