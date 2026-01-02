@@ -1113,6 +1113,38 @@ const (
 
 	// Mirror acknowledged event - emitted when user acknowledges the mirror
 	Phase18_7MirrorAcknowledged EventType = "phase18_7.mirror.acknowledged"
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	// PHASE 18.8: Real OAuth (Gmail Read-Only)
+	// Reference: docs/ADR/ADR-0041-phase18-8-real-oauth-gmail-readonly.md
+	//
+	// CRITICAL: These events audit the OAuth flow and Gmail sync.
+	// CRITICAL: No tokens or secrets are ever included in events.
+	// ═══════════════════════════════════════════════════════════════════════════
+
+	// OAuth start event - emitted when OAuth flow is initiated
+	Phase18_8OAuthStarted EventType = "phase18_8.oauth.started"
+
+	// OAuth callback event - emitted when OAuth callback is received
+	Phase18_8OAuthCallback EventType = "phase18_8.oauth.callback"
+
+	// OAuth token minted event - emitted when token is stored
+	Phase18_8OAuthTokenMinted EventType = "phase18_8.oauth.token_minted"
+
+	// OAuth revoke requested event - emitted when revocation is requested
+	Phase18_8OAuthRevokeRequested EventType = "phase18_8.oauth.revoke_requested"
+
+	// OAuth revoke completed event - emitted when revocation completes
+	Phase18_8OAuthRevokeCompleted EventType = "phase18_8.oauth.revoke_completed"
+
+	// Gmail sync started event - emitted when sync begins
+	Phase18_8GmailSyncStarted EventType = "phase18_8.gmail.sync_started"
+
+	// Gmail sync completed event - emitted when sync completes
+	Phase18_8GmailSyncCompleted EventType = "phase18_8.gmail.sync_completed"
+
+	// Gmail sync failed event - emitted when sync fails
+	Phase18_8GmailSyncFailed EventType = "phase18_8.gmail.sync_failed"
 )
 
 // Event represents a system event for audit and observability.

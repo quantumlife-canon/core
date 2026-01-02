@@ -51,6 +51,7 @@ help:
 	@echo "  make demo-phase18-5 - Run Phase 18.5 quiet proof demo"
 	@echo "  make demo-phase18-6 - Run Phase 18.6 first connect demo"
 	@echo "  make demo-phase18-7 - Run Phase 18.7 mirror proof demo"
+	@echo "  make demo-phase18-8 - Run Phase 18.8 OAuth Gmail demo"
 	@echo ""
 	@echo "Web Server:"
 	@echo "  make web          - Run web server on :8080 (real mode)"
@@ -234,6 +235,10 @@ check-connection-onboarding:
 check-mirror-proof:
 	@echo "Checking mirror proof constraints (Phase 18.7)..."
 	@./scripts/guardrails/mirror_proof_enforced.sh
+
+check-oauth-gmail:
+	@echo "Checking OAuth Gmail read-only constraints (Phase 18.8)..."
+	@./scripts/guardrails/oauth_gmail_readonly_enforced.sh
 
 # All guardrails
 guardrails: check-terms check-imports check-deps check-time-now check-background-async check-no-auto-retry check-single-trace-final check-write-provider-reg check-free-text-recipient check-policy-snapshot check-finance-execution
@@ -426,6 +431,12 @@ demo-phase18-6:
 demo-phase18-7:
 	@echo "Running Phase 18.7 Demo: Mirror Proof..."
 	go test -v ./internal/demo_phase18_7_mirror/...
+
+# Phase 18.8 Demo: OAuth Gmail Read-Only
+# Reference: docs/ADR/ADR-0041-phase18-8-real-oauth-gmail-readonly.md
+demo-phase18-8:
+	@echo "Running Phase 18.8 Demo: OAuth Gmail Read-Only..."
+	go test -v ./internal/demo_phase18_8_oauth_gmail/...
 
 # =============================================================================
 # Web Server Targets

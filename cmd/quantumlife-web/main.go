@@ -23,6 +23,8 @@ import (
 
 	calexec "quantumlife/internal/calendar/execution"
 	"quantumlife/internal/config"
+	"quantumlife/internal/connectors/auth"
+	"quantumlife/internal/connectors/auth/impl_inmem"
 	mockcal "quantumlife/internal/connectors/calendar/write/providers/mock"
 	mockemail "quantumlife/internal/connectors/email/write/providers/mock"
 	"quantumlife/internal/drafts"
@@ -34,10 +36,12 @@ import (
 	"quantumlife/internal/execexecutor"
 	"quantumlife/internal/execrouter"
 	"quantumlife/internal/held"
+	gmailread "quantumlife/internal/integrations/gmail_read"
 	"quantumlife/internal/interest"
 	"quantumlife/internal/interruptions"
 	"quantumlife/internal/loop"
 	"quantumlife/internal/mirror"
+	"quantumlife/internal/oauth"
 	"quantumlife/internal/obligations"
 	"quantumlife/internal/persist"
 	"quantumlife/internal/proof"
@@ -83,6 +87,9 @@ type Server struct {
 	connectionStore   *persist.InMemoryConnectionStore // Phase 18.6: First Connect
 	mirrorEngine      *mirror.Engine                   // Phase 18.7: Mirror Proof
 	mirrorAckStore    *mirror.AckStore                 // Phase 18.7: Mirror Ack store
+	tokenBroker       auth.TokenBroker                 // Phase 18.8: OAuth token broker
+	oauthStateManager *oauth.StateManager              // Phase 18.8: OAuth state management
+	gmailHandler      *oauth.GmailHandler              // Phase 18.8: Gmail OAuth handler
 }
 
 // eventLogger logs events.
@@ -376,6 +383,36 @@ func main() {
 	mirrorEngine := mirror.NewEngine(clk.Now)
 	mirrorAckStore := mirror.NewAckStore(128)
 
+	// Create OAuth components (Phase 18.8)
+	// Token broker with persistence (reads from env: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, TOKEN_ENC_KEY)
+	authConfig := auth.LoadConfigFromEnv()
+	tokenBroker, err := impl_inmem.NewBrokerWithPersistence(authConfig, nil, impl_inmem.WithClock(clk.Now))
+	if err != nil {
+		// Fall back to non-persistent broker if persistence fails
+		log.Printf("Warning: OAuth token persistence disabled: %v", err)
+		tokenBroker = impl_inmem.NewBroker(authConfig, nil, impl_inmem.WithClock(clk.Now))
+	}
+
+	// OAuth state manager with secret from env
+	oauthSecret := os.Getenv("OAUTH_STATE_SECRET")
+	if oauthSecret == "" {
+		oauthSecret = "dev-secret-not-for-production-32b" // 32 bytes for HMAC-SHA256
+	}
+	oauthStateManager := oauth.NewStateManager([]byte(oauthSecret), clk.Now)
+
+	// Gmail OAuth handler
+	gmailRedirectBase := os.Getenv("OAUTH_REDIRECT_BASE")
+	if gmailRedirectBase == "" {
+		gmailRedirectBase = "http://localhost:8080"
+	}
+	gmailHandler := oauth.NewGmailHandler(
+		oauthStateManager,
+		tokenBroker,
+		nil, // Use default HTTP client
+		gmailRedirectBase,
+		clk.Now,
+	)
+
 	// Create server
 	server := &Server{
 		engine:            engine,
@@ -385,19 +422,22 @@ func main() {
 		execRouter:        execRouter,
 		execExecutor:      execExecutor,
 		multiCircleConfig: multiCfg,
-		identityRepo:      identityRepo,    // Phase 13.1
-		interestStore:     interestStore,   // Phase 18.1
-		todayEngine:       todayEngine,     // Phase 18.2
-		preferenceStore:   preferenceStore, // Phase 18.2
-		heldEngine:        heldEngine,      // Phase 18.3
-		heldStore:         heldStore,       // Phase 18.3
-		surfaceEngine:     surfaceEngine,   // Phase 18.4
-		surfaceStore:      surfaceStore,    // Phase 18.4
-		proofEngine:       proofEngine,     // Phase 18.5
-		proofAckStore:     proofAckStore,   // Phase 18.5
-		connectionStore:   connectionStore, // Phase 18.6
-		mirrorEngine:      mirrorEngine,    // Phase 18.7
-		mirrorAckStore:    mirrorAckStore,  // Phase 18.7
+		identityRepo:      identityRepo,      // Phase 13.1
+		interestStore:     interestStore,     // Phase 18.1
+		todayEngine:       todayEngine,       // Phase 18.2
+		preferenceStore:   preferenceStore,   // Phase 18.2
+		heldEngine:        heldEngine,        // Phase 18.3
+		heldStore:         heldStore,         // Phase 18.3
+		surfaceEngine:     surfaceEngine,     // Phase 18.4
+		surfaceStore:      surfaceStore,      // Phase 18.4
+		proofEngine:       proofEngine,       // Phase 18.5
+		proofAckStore:     proofAckStore,     // Phase 18.5
+		connectionStore:   connectionStore,   // Phase 18.6
+		mirrorEngine:      mirrorEngine,      // Phase 18.7
+		mirrorAckStore:    mirrorAckStore,    // Phase 18.7
+		tokenBroker:       tokenBroker,       // Phase 18.8
+		oauthStateManager: oauthStateManager, // Phase 18.8
+		gmailHandler:      gmailHandler,      // Phase 18.8
 	}
 
 	// Set up routes
@@ -408,21 +448,25 @@ func main() {
 
 	// Phase 18: Public routes
 	mux.HandleFunc("/", server.handleLanding)
-	mux.HandleFunc("/interest", server.handleInterest)            // Phase 18.1: Interest capture
-	mux.HandleFunc("/today", server.handleToday)                  // Phase 18.2: Today, quietly
-	mux.HandleFunc("/today/preference", server.handlePreference)  // Phase 18.2: Preference capture
-	mux.HandleFunc("/held", server.handleHeld)                    // Phase 18.3: Held, not shown
-	mux.HandleFunc("/surface", server.handleSurface)              // Phase 18.4: Quiet Shift
-	mux.HandleFunc("/surface/hold", server.handleSurfaceHold)     // Phase 18.4: Hold action
-	mux.HandleFunc("/surface/why", server.handleSurfaceWhy)       // Phase 18.4: Why action
-	mux.HandleFunc("/surface/prefer", server.handleSurfacePrefer) // Phase 18.4: Prefer show_all
-	mux.HandleFunc("/proof", server.handleProof)                  // Phase 18.5: Quiet Proof
-	mux.HandleFunc("/proof/dismiss", server.handleProofDismiss)   // Phase 18.5: Dismiss proof
-	mux.HandleFunc("/start", server.handleStart)                  // Phase 18.6: First Connect
-	mux.HandleFunc("/connections", server.handleConnections)      // Phase 18.6: Connections
-	mux.HandleFunc("/connect/", server.handleConnect)             // Phase 18.6: Connect action
-	mux.HandleFunc("/disconnect/", server.handleDisconnect)       // Phase 18.6: Disconnect action
-	mux.HandleFunc("/mirror", server.handleMirror)                // Phase 18.7: Mirror Proof
+	mux.HandleFunc("/interest", server.handleInterest)                         // Phase 18.1: Interest capture
+	mux.HandleFunc("/today", server.handleToday)                               // Phase 18.2: Today, quietly
+	mux.HandleFunc("/today/preference", server.handlePreference)               // Phase 18.2: Preference capture
+	mux.HandleFunc("/held", server.handleHeld)                                 // Phase 18.3: Held, not shown
+	mux.HandleFunc("/surface", server.handleSurface)                           // Phase 18.4: Quiet Shift
+	mux.HandleFunc("/surface/hold", server.handleSurfaceHold)                  // Phase 18.4: Hold action
+	mux.HandleFunc("/surface/why", server.handleSurfaceWhy)                    // Phase 18.4: Why action
+	mux.HandleFunc("/surface/prefer", server.handleSurfacePrefer)              // Phase 18.4: Prefer show_all
+	mux.HandleFunc("/proof", server.handleProof)                               // Phase 18.5: Quiet Proof
+	mux.HandleFunc("/proof/dismiss", server.handleProofDismiss)                // Phase 18.5: Dismiss proof
+	mux.HandleFunc("/start", server.handleStart)                               // Phase 18.6: First Connect
+	mux.HandleFunc("/connections", server.handleConnections)                   // Phase 18.6: Connections
+	mux.HandleFunc("/connect/", server.handleConnect)                          // Phase 18.6: Connect action
+	mux.HandleFunc("/disconnect/", server.handleDisconnect)                    // Phase 18.6: Disconnect action
+	mux.HandleFunc("/mirror", server.handleMirror)                             // Phase 18.7: Mirror Proof
+	mux.HandleFunc("/connect/gmail/start", server.handleGmailOAuthStart)       // Phase 18.8: Gmail OAuth start
+	mux.HandleFunc("/connect/gmail/callback", server.handleGmailOAuthCallback) // Phase 18.8: Gmail OAuth callback
+	mux.HandleFunc("/disconnect/gmail", server.handleGmailDisconnect)          // Phase 18.8: Gmail disconnect
+	mux.HandleFunc("/run/gmail-sync", server.handleGmailSync)                  // Phase 18.8: Gmail sync
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18: App routes (authenticated)
@@ -1346,6 +1390,261 @@ func (s *Server) handleMirror(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.render(w, "mirror", data)
+}
+
+// handleGmailOAuthStart starts the Gmail OAuth flow.
+// Phase 18.8: Real OAuth (Gmail Read-Only).
+func (s *Server) handleGmailOAuthStart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get circle ID from query
+	circleID := r.URL.Query().Get("circle_id")
+	if circleID == "" {
+		http.Error(w, "circle_id required", http.StatusBadRequest)
+		return
+	}
+
+	// Start OAuth flow
+	result, err := s.gmailHandler.Start(circleID)
+	if err != nil {
+		log.Printf("Gmail OAuth start failed: %v", err)
+		http.Error(w, "OAuth initialization failed", http.StatusInternalServerError)
+		return
+	}
+
+	// Emit OAuth started event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase18_8OAuthStarted,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"circle_id":    circleID,
+			"provider":     "google",
+			"product":      "gmail",
+			"receipt_hash": result.Receipt.Hash(),
+		},
+	})
+
+	// Redirect to Google authorization URL
+	http.Redirect(w, r, result.AuthURL, http.StatusFound)
+}
+
+// handleGmailOAuthCallback handles the OAuth callback from Google.
+// Phase 18.8: Real OAuth (Gmail Read-Only).
+func (s *Server) handleGmailOAuthCallback(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Check for OAuth error
+	if errParam := r.URL.Query().Get("error"); errParam != "" {
+		log.Printf("Gmail OAuth error from Google: %s", errParam)
+		http.Redirect(w, r, "/connections?error=oauth_denied", http.StatusFound)
+		return
+	}
+
+	// Get code and state from query
+	code := r.URL.Query().Get("code")
+	state := r.URL.Query().Get("state")
+	if code == "" || state == "" {
+		http.Error(w, "Missing code or state", http.StatusBadRequest)
+		return
+	}
+
+	// Handle callback
+	result, err := s.gmailHandler.Callback(r.Context(), code, state)
+	if err != nil {
+		log.Printf("Gmail OAuth callback failed: %v", err)
+
+		// Emit callback failure event
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase18_8OAuthCallback,
+			Timestamp: s.clk.Now(),
+			Metadata: map[string]string{
+				"success":     "false",
+				"fail_reason": "callback_failed",
+			},
+		})
+
+		http.Redirect(w, r, "/connections?error=oauth_failed", http.StatusFound)
+		return
+	}
+
+	// Emit callback success event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase18_8OAuthCallback,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"circle_id":    result.CircleID,
+			"success":      "true",
+			"receipt_hash": result.Receipt.Hash(),
+		},
+	})
+
+	// Update connection store to show real connection via intent
+	intent := connection.NewConnectIntent(connection.KindEmail, connection.ModeReal, s.clk.Now(), connection.NoteOAuthCallback)
+	if err := s.connectionStore.AppendIntent(intent); err != nil {
+		log.Printf("Failed to record connection intent: %v", err)
+	}
+
+	// Redirect to connections page with success
+	http.Redirect(w, r, "/connections?connected=gmail", http.StatusFound)
+}
+
+// handleGmailDisconnect disconnects Gmail.
+// Phase 18.8: Real OAuth (Gmail Read-Only).
+func (s *Server) handleGmailDisconnect(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get circle ID from query or form
+	circleID := r.URL.Query().Get("circle_id")
+	if circleID == "" {
+		circleID = r.FormValue("circle_id")
+	}
+	if circleID == "" {
+		http.Error(w, "circle_id required", http.StatusBadRequest)
+		return
+	}
+
+	// Emit revoke requested event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase18_8OAuthRevokeRequested,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"circle_id": circleID,
+			"provider":  "google",
+			"product":   "gmail",
+		},
+	})
+
+	// Revoke connection
+	result, err := s.gmailHandler.Revoke(r.Context(), circleID)
+	if err != nil {
+		log.Printf("Gmail disconnect failed: %v", err)
+		// Still successful - revoke is idempotent
+	}
+
+	// Emit revoke completed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase18_8OAuthRevokeCompleted,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"circle_id":        circleID,
+			"success":          fmt.Sprintf("%v", result.Receipt.Success),
+			"provider_revoked": fmt.Sprintf("%v", result.Receipt.ProviderRevoked),
+			"local_removed":    fmt.Sprintf("%v", result.Receipt.LocalRemoved),
+			"receipt_hash":     result.Receipt.Hash(),
+		},
+	})
+
+	// Update connection store via disconnect intent
+	disconnectIntent := connection.NewDisconnectIntent(connection.KindEmail, connection.ModeReal, s.clk.Now(), connection.NoteOAuthRevoke)
+	if err := s.connectionStore.AppendIntent(disconnectIntent); err != nil {
+		log.Printf("Failed to record disconnect intent: %v", err)
+	}
+
+	// Redirect to connections page
+	http.Redirect(w, r, "/connections?disconnected=gmail", http.StatusFound)
+}
+
+// handleGmailSync performs a Gmail sync.
+// Phase 18.8: Real OAuth (Gmail Read-Only).
+// CRITICAL: Only called explicitly by browsing human. No background polling.
+func (s *Server) handleGmailSync(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get circle ID from query or form
+	circleID := r.URL.Query().Get("circle_id")
+	if circleID == "" {
+		circleID = r.FormValue("circle_id")
+	}
+	if circleID == "" {
+		http.Error(w, "circle_id required", http.StatusBadRequest)
+		return
+	}
+
+	// Check if connected
+	hasConnection, err := s.gmailHandler.HasConnection(r.Context(), circleID)
+	if err != nil || !hasConnection {
+		http.Error(w, "Not connected to Gmail", http.StatusPreconditionFailed)
+		return
+	}
+
+	// Emit sync started event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase18_8GmailSyncStarted,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"circle_id": circleID,
+		},
+	})
+
+	// Get account email from circle config (for now, use placeholder)
+	// In production, this would come from the circle's email configuration
+	accountEmail := "me" // Gmail API uses "me" for authenticated party
+
+	// Create a real adapter with the broker for this sync
+	// The adapter uses the broker to mint tokens as needed
+	broker, ok := s.tokenBroker.(*impl_inmem.Broker)
+	if !ok {
+		log.Printf("Gmail sync failed: invalid broker type")
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase18_8GmailSyncFailed,
+			Timestamp: s.clk.Now(),
+			Metadata: map[string]string{
+				"circle_id":   circleID,
+				"fail_reason": "invalid_broker",
+			},
+		})
+		http.Error(w, "Internal configuration error", http.StatusInternalServerError)
+		return
+	}
+
+	adapter := gmailread.NewRealAdapter(broker, s.clk, circleID)
+
+	// Perform sync using Gmail adapter
+	since := s.clk.Now().Add(-24 * time.Hour) // Last 24 hours
+	messages, err := adapter.FetchMessages(accountEmail, since, 50)
+	if err != nil {
+		log.Printf("Gmail sync failed: %v", err)
+
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase18_8GmailSyncFailed,
+			Timestamp: s.clk.Now(),
+			Metadata: map[string]string{
+				"circle_id":   circleID,
+				"fail_reason": "sync_failed",
+			},
+		})
+
+		http.Error(w, "Sync failed", http.StatusInternalServerError)
+		return
+	}
+
+	messageCount := len(messages)
+
+	// Emit sync completed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase18_8GmailSyncCompleted,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"circle_id":        circleID,
+			"message_count":    fmt.Sprintf("%d", messageCount),
+			"magnitude_bucket": oauth.MagnitudeBucket(messageCount),
+		},
+	})
+
+	// Return success page or redirect
+	http.Redirect(w, r, "/connections?synced=gmail", http.StatusFound)
 }
 
 // handleDemo serves the deterministic demo page.

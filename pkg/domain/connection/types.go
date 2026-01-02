@@ -112,6 +112,8 @@ const (
 	NoteUserInitiated  IntentNote = "user_initiated"
 	NoteSystemReset    IntentNote = "system_reset"
 	NoteConfigRequired IntentNote = "config_required"
+	NoteOAuthCallback  IntentNote = "oauth_callback" // Phase 18.8: OAuth callback
+	NoteOAuthRevoke    IntentNote = "oauth_revoke"   // Phase 18.8: OAuth revocation
 )
 
 // String returns the string representation of the note.

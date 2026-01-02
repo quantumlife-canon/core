@@ -77,6 +77,18 @@ type TokenBroker interface {
 	// Returns a TokenHandle that can be used to mint access tokens.
 	ExchangeCode(ctx context.Context, provider ProviderID, code string, redirectURI string) (TokenHandle, error)
 
+	// ExchangeCodeForCircle exchanges an authorization code for a specific circle.
+	// This is the web callback version that binds the token to a circle.
+	//
+	// Parameters:
+	//   - circleID: The circle to bind the token to
+	//   - provider: The OAuth provider
+	//   - code: The authorization code from the OAuth callback
+	//   - redirectURI: Must match the original request
+	//
+	// Returns a TokenHandle that can be used to mint access tokens.
+	ExchangeCodeForCircle(ctx context.Context, circleID string, provider ProviderID, code string, redirectURI string) (TokenHandle, error)
+
 	// MintAccessToken mints an access token for a specific operation.
 	// The token is minted from the stored refresh token.
 	//
@@ -90,6 +102,19 @@ type TokenBroker interface {
 	//
 	// Returns an AccessToken with the actual provider token.
 	MintAccessToken(ctx context.Context, envelope primitives.ExecutionEnvelope, provider ProviderID, requiredScopes []string) (AccessToken, error)
+
+	// MintReadOnlyAccessToken mints an access token for read-only operations.
+	// This is a simpler path for ingestion pipelines that don't require full authorization.
+	//
+	// CRITICAL: Only read scopes are allowed. Write scopes are rejected.
+	//
+	// Parameters:
+	//   - circleID: The circle that owns the token
+	//   - provider: The OAuth provider
+	//   - requiredScopes: QuantumLife scopes needed (e.g., "email:read")
+	//
+	// Returns an AccessToken with the actual provider token.
+	MintReadOnlyAccessToken(ctx context.Context, circleID string, provider ProviderID, requiredScopes []string) (AccessToken, error)
 
 	// RevokeToken revokes the stored refresh token for a circle/provider.
 	RevokeToken(ctx context.Context, circleID string, provider ProviderID) error
