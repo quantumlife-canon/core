@@ -7,7 +7,7 @@
 #
 # Guardrails enforce Canon invariants at build time.
 
-.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 demo-phase9 demo-phase10 demo-phase11 demo-phase12 demo-phase13 demo-phase13-1 demo-phase14 demo-phase15 demo-phase16 demo-phase18 demo-phase18-2 demo-phase18-3 demo-phase18-4 demo-phase18-5 demo-phase18-6 web web-mock web-demo web-app web-stop web-status check-today-quietly check-held check-quiet-shift check-proof check-connection-onboarding ios-open ios-build ios-test ios-clean
+.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 demo-phase9 demo-phase10 demo-phase11 demo-phase12 demo-phase13 demo-phase13-1 demo-phase14 demo-phase15 demo-phase16 demo-phase18 demo-phase18-2 demo-phase18-3 demo-phase18-4 demo-phase18-5 demo-phase18-6 demo-phase18-9 demo-phase19-shadow web web-mock web-demo web-app web-stop web-status check-today-quietly check-held check-quiet-shift check-proof check-connection-onboarding check-shadow-mode ios-open ios-build ios-test ios-clean
 
 # Default target
 all: ci
@@ -52,6 +52,8 @@ help:
 	@echo "  make demo-phase18-6 - Run Phase 18.6 first connect demo"
 	@echo "  make demo-phase18-7 - Run Phase 18.7 mirror proof demo"
 	@echo "  make demo-phase18-8 - Run Phase 18.8 OAuth Gmail demo"
+	@echo "  make demo-phase18-9 - Run Phase 18.9 quiet verification demo"
+	@echo "  make demo-phase19-shadow - Run Phase 19 shadow mode demo"
 	@echo ""
 	@echo "Web Server:"
 	@echo "  make web          - Run web server on :8080 (real mode)"
@@ -239,6 +241,14 @@ check-mirror-proof:
 check-oauth-gmail:
 	@echo "Checking OAuth Gmail read-only constraints (Phase 18.8)..."
 	@./scripts/guardrails/oauth_gmail_readonly_enforced.sh
+
+check-quiet-verification:
+	@echo "Checking quiet verification constraints (Phase 18.9)..."
+	@./scripts/guardrails/quiet_verification_enforced.sh
+
+check-shadow-mode:
+	@echo "Checking shadow mode constraints (Phase 19)..."
+	@./scripts/guardrails/shadow_mode_enforced.sh
 
 # All guardrails
 guardrails: check-terms check-imports check-deps check-time-now check-background-async check-no-auto-retry check-single-trace-final check-write-provider-reg check-free-text-recipient check-policy-snapshot check-finance-execution
@@ -437,6 +447,18 @@ demo-phase18-7:
 demo-phase18-8:
 	@echo "Running Phase 18.8 Demo: OAuth Gmail Read-Only..."
 	go test -v ./internal/demo_phase18_8_oauth_gmail/...
+
+# Phase 18.9 Demo: Quiet Verification
+# Reference: docs/ADR/ADR-0042-phase18-9-real-data-quiet-verification.md
+demo-phase18-9:
+	@echo "Running Phase 18.9 Demo: Quiet Verification..."
+	go test -v ./internal/demo_phase18_9_quiet_verification/...
+
+# Phase 19 Demo: LLM Shadow-Mode Contract
+# Reference: docs/ADR/ADR-0043-phase19-shadow-mode-contract.md
+demo-phase19-shadow:
+	@echo "Running Phase 19 Demo: Shadow Mode Contract..."
+	go test -v ./internal/demo_phase19_shadow_contract/...
 
 # =============================================================================
 # Web Server Targets

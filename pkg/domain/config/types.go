@@ -123,6 +123,9 @@ type MultiCircleConfig struct {
 	// Routing contains event routing rules.
 	Routing RoutingConfig
 
+	// Shadow contains shadow-mode configuration (Phase 19).
+	Shadow ShadowConfig
+
 	// LoadedAt is when the config was loaded.
 	LoadedAt time.Time
 
@@ -131,6 +134,32 @@ type MultiCircleConfig struct {
 
 	// canonicalHash is the deterministic hash of the config.
 	canonicalHash string
+}
+
+// ShadowConfig contains shadow-mode configuration.
+//
+// Phase 19: LLM Shadow-Mode Contract
+//
+// CRITICAL: Shadow mode is OFF by default.
+// CRITICAL: Shadow mode emits METADATA ONLY - never content.
+// CRITICAL: Shadow mode NEVER affects UI, obligations, drafts, or execution.
+type ShadowConfig struct {
+	// Mode is the shadow-mode operation mode.
+	// Valid values: "off" (default), "observe"
+	Mode string
+
+	// ModelName is the shadow model to use.
+	// Valid values: "stub" (default)
+	ModelName string
+}
+
+// DefaultShadowConfig returns the default shadow configuration.
+// CRITICAL: Mode is OFF by default.
+func DefaultShadowConfig() ShadowConfig {
+	return ShadowConfig{
+		Mode:      "off",
+		ModelName: "stub",
+	}
 }
 
 // CircleIDs returns circle IDs in deterministic sorted order.
@@ -224,6 +253,12 @@ func (c *MultiCircleConfig) CanonicalString() string {
 	copy(sortedFamily, c.Routing.FamilyMembers)
 	sort.Strings(sortedFamily)
 	b.WriteString(strings.Join(sortedFamily, ","))
+
+	// Shadow config (Phase 19)
+	b.WriteString("\nshadow|mode:")
+	b.WriteString(c.Shadow.Mode)
+	b.WriteString("|model:")
+	b.WriteString(c.Shadow.ModelName)
 
 	return b.String()
 }

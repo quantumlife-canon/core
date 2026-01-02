@@ -63,6 +63,11 @@ const (
 
 	// Connection record types (Phase 18.6)
 	RecordTypeConnectionIntent = "CONNECTION_INTENT"
+
+	// Shadow LLM record types (Phase 19)
+	// CRITICAL: These records contain METADATA ONLY - never content.
+	RecordTypeShadowLLMRun    = "SHADOWLLM_RUN"
+	RecordTypeShadowLLMSignal = "SHADOWLLM_SIGNAL"
 )
 
 // Common errors

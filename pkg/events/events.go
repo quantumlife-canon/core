@@ -1145,6 +1145,37 @@ const (
 
 	// Gmail sync failed event - emitted when sync fails
 	Phase18_8GmailSyncFailed EventType = "phase18_8.gmail.sync_failed"
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	// PHASE 19: LLM Shadow-Mode Contract
+	// Reference: docs/ADR/ADR-0043-phase19-shadow-mode-contract.md
+	//
+	// CRITICAL: Shadow mode emits METADATA ONLY - never content.
+	// CRITICAL: Shadow mode is OFF by default.
+	// CRITICAL: Shadow mode NEVER affects UI, obligations, drafts, or execution.
+	// ═══════════════════════════════════════════════════════════════════════════
+
+	// Shadow run lifecycle events
+	Phase19ShadowRunStarted   EventType = "phase19.shadow.run.started"
+	Phase19ShadowRunCompleted EventType = "phase19.shadow.run.completed"
+	Phase19ShadowRunPersisted EventType = "phase19.shadow.run.persisted"
+	Phase19ShadowRunBlocked   EventType = "phase19.shadow.run.blocked"
+	Phase19ShadowRunFailed    EventType = "phase19.shadow.run.failed"
+
+	// Shadow mode configuration events
+	Phase19ShadowModeOff     EventType = "phase19.shadow.mode.off"
+	Phase19ShadowModeObserve EventType = "phase19.shadow.mode.observe"
+
+	// Shadow signal events
+	Phase19ShadowSignalEmitted EventType = "phase19.shadow.signal.emitted"
+
+	// Shadow violation events - emitted when invariants would be violated
+	Phase19ShadowViolationDetected EventType = "phase19.shadow.violation.detected"
+
+	// Shadow replay events
+	Phase19ShadowReplayStarted   EventType = "phase19.shadow.replay.started"
+	Phase19ShadowReplayCompleted EventType = "phase19.shadow.replay.completed"
+	Phase19ShadowReplayMismatch  EventType = "phase19.shadow.replay.mismatch"
 )
 
 // Event represents a system event for audit and observability.

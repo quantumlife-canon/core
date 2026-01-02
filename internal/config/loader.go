@@ -39,6 +39,7 @@ func LoadFromFile(path string, loadedAt time.Time) (*MultiCircleConfig, error) {
 
 	config := &MultiCircleConfig{
 		Circles:    make(map[identity.EntityID]*CircleConfig),
+		Shadow:     pkgconfig.DefaultShadowConfig(), // CRITICAL: OFF by default
 		SourcePath: path,
 		LoadedAt:   loadedAt,
 	}
@@ -72,6 +73,9 @@ func LoadFromFile(path string, loadedAt time.Time) (*MultiCircleConfig, error) {
 				}
 			} else if header == "routing" {
 				currentSection = "routing"
+				currentCircleID = ""
+			} else if header == "shadow" {
+				currentSection = "shadow"
 				currentCircleID = ""
 			} else {
 				return nil, &ParseError{Line: lineNum, Message: "unknown section: " + header}
@@ -136,6 +140,24 @@ func LoadFromFile(path string, loadedAt time.Time) (*MultiCircleConfig, error) {
 				config.Routing.FamilyMembers = parseCSV(value)
 			default:
 				return nil, &ParseError{Line: lineNum, Message: "unknown routing key: " + key}
+			}
+
+		case "shadow":
+			switch key {
+			case "mode":
+				// Validate mode value
+				if value != "off" && value != "observe" {
+					return nil, &ParseError{Line: lineNum, Message: "invalid shadow mode: " + value + " (must be 'off' or 'observe')"}
+				}
+				config.Shadow.Mode = value
+			case "model":
+				// Validate model value
+				if value != "stub" {
+					return nil, &ParseError{Line: lineNum, Message: "invalid shadow model: " + value + " (must be 'stub')"}
+				}
+				config.Shadow.ModelName = value
+			default:
+				return nil, &ParseError{Line: lineNum, Message: "unknown shadow key: " + key}
 			}
 
 		default:
@@ -276,6 +298,7 @@ func DefaultConfig(loadedAt time.Time) *MultiCircleConfig {
 				Name: "Personal",
 			},
 		},
+		Shadow:     pkgconfig.DefaultShadowConfig(), // CRITICAL: OFF by default
 		LoadedAt:   loadedAt,
 		SourcePath: "(default)",
 	}
