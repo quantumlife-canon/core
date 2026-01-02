@@ -1211,6 +1211,30 @@ const (
 	Phase19_1QuietCheckRequested EventType = "phase19_1.quiet_check.requested"
 	Phase19_1QuietCheckComputed  EventType = "phase19_1.quiet_check.computed"
 	Phase19_1QuietCheckVerified  EventType = "phase19_1.quiet_check.verified"
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	// PHASE 19.2: LLM Shadow Mode Contract
+	// Reference: docs/ADR/ADR-0043-phase19-2-shadow-mode-contract.md
+	//
+	// CRITICAL: Shadow mode produces METADATA ONLY - never content.
+	// CRITICAL: Shadow mode does NOT affect behavior - observation only.
+	// CRITICAL: Shadow mode is OFF by default, explicit user action required.
+	// CRITICAL: No goroutines. No background polling. Explicit trigger only.
+	// ═══════════════════════════════════════════════════════════════════════════
+
+	// Shadow mode request/run lifecycle events
+	Phase19_2ShadowRequested EventType = "phase19_2.shadow.requested"
+	Phase19_2ShadowComputed  EventType = "phase19_2.shadow.computed"
+	Phase19_2ShadowPersisted EventType = "phase19_2.shadow.persisted"
+	Phase19_2ShadowBlocked   EventType = "phase19_2.shadow.blocked"
+	Phase19_2ShadowFailed    EventType = "phase19_2.shadow.failed"
+
+	// Shadow receipt events
+	Phase19_2ShadowReceiptCreated  EventType = "phase19_2.shadow.receipt.created"
+	Phase19_2ShadowReceiptVerified EventType = "phase19_2.shadow.receipt.verified"
+
+	// Shadow suggestion events (aggregated, no per-suggestion events for privacy)
+	Phase19_2ShadowSuggestionsComputed EventType = "phase19_2.shadow.suggestions.computed"
 )
 
 // Event represents a system event for audit and observability.

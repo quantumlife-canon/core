@@ -55,6 +55,7 @@ help:
 	@echo "  make demo-phase18-9 - Run Phase 18.9 quiet verification demo"
 	@echo "  make demo-phase19-shadow - Run Phase 19 shadow mode demo"
 	@echo "  make demo-phase19-1 - Run Phase 19.1 real Gmail connection demo"
+	@echo "  make demo-phase19-2 - Run Phase 19.2 shadow mode demo"
 	@echo ""
 	@echo "Web Server:"
 	@echo "  make web          - Run web server on :8080 (real mode)"
@@ -89,6 +90,7 @@ help:
 	@echo "  make check-held - Check held projection constraints (Phase 18.3)"
 	@echo "  make check-quiet-shift - Check quiet shift constraints (Phase 18.4)"
 	@echo "  make check-real-gmail-quiet - Check real Gmail quiet constraints (Phase 19.1)"
+	@echo "  make check-shadow-mode - Check shadow mode constraints (Phase 19.2)"
 	@echo ""
 	@echo "iOS (Phase 19):"
 	@echo "  make ios-open   - Open iOS project in Xcode (macOS only)"
@@ -247,10 +249,6 @@ check-oauth-gmail:
 check-quiet-verification:
 	@echo "Checking quiet verification constraints (Phase 18.9)..."
 	@./scripts/guardrails/quiet_verification_enforced.sh
-
-check-shadow-mode:
-	@echo "Checking shadow mode constraints (Phase 19)..."
-	@./scripts/guardrails/shadow_mode_enforced.sh
 
 # All guardrails
 guardrails: check-terms check-imports check-deps check-time-now check-background-async check-no-auto-retry check-single-trace-final check-write-provider-reg check-free-text-recipient check-policy-snapshot check-finance-execution
@@ -472,6 +470,17 @@ demo-phase19-1:
 check-real-gmail-quiet:
 	@echo "Checking real Gmail quiet constraints (Phase 19.1)..."
 	@./scripts/guardrails/real_gmail_quiet_enforced.sh
+
+# Phase 19.2 Demo: Shadow Mode Contract
+# Reference: docs/ADR/ADR-0043-phase19-2-shadow-mode-contract.md
+demo-phase19-2:
+	@echo "Running Phase 19.2 Demo: Shadow Mode Contract..."
+	go test -v ./internal/demo_phase19_2_shadow_mode/...
+
+# Check shadow mode constraints (Phase 19.2)
+check-shadow-mode:
+	@echo "Checking shadow mode constraints (Phase 19.2)..."
+	@./scripts/guardrails/shadow_mode_enforced.sh
 
 # =============================================================================
 # Web Server Targets

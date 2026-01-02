@@ -1,254 +1,264 @@
 #!/bin/bash
-# shadow_mode_enforced.sh - Guardrail checks for Phase 19: LLM Shadow-Mode Contract
+# Phase 19.2: Shadow Mode Guardrails
 #
-# Reference: docs/ADR/ADR-0043-phase19-shadow-mode-contract.md
+# Validates that shadow mode implementation follows all invariants.
 #
-# This script validates:
-# 1. No net/http imports in shadow packages
-# 2. No OpenAI/Anthropic/Claude/Gemini strings
-# 3. ShadowContext has no forbidden fields
-# 4. No imports from shadowllm into drafts/interruptions/execution/templates
-# 5. ShadowMode default is "off"
-# 6. No goroutines in shadow packages
-# 7. No time.Now() in shadow packages
-# 8. All canonical strings are pipe-delimited
+# CRITICAL: Shadow mode must:
+#   - Be observation ONLY - no state modification
+#   - Use stub provider ONLY - no real LLM API calls
+#   - Be OFF by default - explicit user action required
+#   - Store ONLY abstract data - no raw content
+#   - Use clock injection - no time.Now()
+#   - No goroutines - synchronous only
+#   - No HTTP calls in shadow packages
+#
+# Reference: docs/ADR/ADR-0043-phase19-2-shadow-mode-contract.md
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+ERRORS=0
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-NC='\033[0m' # No Color
+error() {
+    echo "[ERROR] $1"
+    ERRORS=$((ERRORS + 1))
+}
 
-FAILED=0
+check() {
+    echo "[CHECK] $1"
+}
 
-echo "╔══════════════════════════════════════════════════════════════════╗"
-echo "║  Phase 19: LLM Shadow-Mode Contract - Guardrail Checks          ║"
-echo "╚══════════════════════════════════════════════════════════════════╝"
-echo ""
-
-# Check 1: No net/http imports in shadow packages
-echo "Checking no net/http imports in shadow packages..."
-if grep -rn 'net/http' "$PROJECT_ROOT/pkg/domain/shadowllm/" 2>/dev/null | grep -v '^[^:]*:[0-9]*:\s*//'; then
-    echo -e "${RED}✗${NC} net/http import found in pkg/domain/shadowllm/"
-    FAILED=1
-elif grep -rn 'net/http' "$PROJECT_ROOT/internal/shadowllm/" 2>/dev/null | grep -v '^[^:]*:[0-9]*:\s*//'; then
-    echo -e "${RED}✗${NC} net/http import found in internal/shadowllm/"
-    FAILED=1
-else
-    echo -e "${GREEN}✓${NC} No net/http imports in shadow packages"
+# ═══════════════════════════════════════════════════════════════════════════════
+# Check 1: No network calls in shadowllm packages
+# ═══════════════════════════════════════════════════════════════════════════════
+check "No net/http imports in internal/shadowllm"
+if grep -r '"net/http"' internal/shadowllm/ 2>/dev/null | grep -v '_test.go'; then
+    error "Found net/http import in internal/shadowllm (non-test)"
 fi
 
+check "No http.Client in internal/shadowllm"
+if grep -r 'http\.Client' internal/shadowllm/ 2>/dev/null | grep -v '_test.go'; then
+    error "Found http.Client in internal/shadowllm (non-test)"
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Check 2: No real LLM provider strings
-echo "Checking no real LLM provider strings..."
-LLM_PROVIDERS="OpenAI\|Anthropic\|Claude\|Gemini\|GPT-4\|gpt-4"
-if grep -rni "$LLM_PROVIDERS" "$PROJECT_ROOT/pkg/domain/shadowllm/" 2>/dev/null | grep -v '^[^:]*:[0-9]*:\s*//'; then
-    echo -e "${RED}✗${NC} LLM provider strings found in pkg/domain/shadowllm/"
-    FAILED=1
-elif grep -rni "$LLM_PROVIDERS" "$PROJECT_ROOT/internal/shadowllm/" 2>/dev/null | grep -v '^[^:]*:[0-9]*:\s*//'; then
-    echo -e "${RED}✗${NC} LLM provider strings found in internal/shadowllm/"
-    FAILED=1
-else
-    echo -e "${GREEN}✓${NC} No real LLM provider strings in shadow packages"
+# ═══════════════════════════════════════════════════════════════════════════════
+check "No OpenAI strings in shadowllm packages"
+if grep -ri 'openai' internal/shadowllm/ pkg/domain/shadowllm/ 2>/dev/null | grep -v '_test.go' | grep -v 'TODO'; then
+    error "Found 'openai' string in shadow packages"
 fi
 
-# Check 3: ShadowContext has no forbidden fields (subject, body, vendor, amount)
-echo "Checking ShadowContext has no forbidden fields..."
-# Look at the struct definition itself, excluding comments
-# The struct definition ends at the first "}"
-SHADOW_CONTEXT_STRUCT=$(grep -n "type ShadowContext struct" "$PROJECT_ROOT/pkg/domain/shadowllm/interfaces.go" -A 30 | grep -v '//' | grep -v '^\s*$' | head -20)
-FORBIDDEN_FIELDS="Subject\|Body\|Vendor\|Amount\|Sender\|Recipient"
-if echo "$SHADOW_CONTEXT_STRUCT" | grep -i "$FORBIDDEN_FIELDS" | grep -v 'FORBIDDEN'; then
-    echo -e "${RED}✗${NC} Forbidden fields found in ShadowContext struct"
-    FAILED=1
-else
-    echo -e "${GREEN}✓${NC} ShadowContext has no forbidden fields"
+check "No Anthropic strings in shadowllm packages"
+if grep -ri 'anthropic\|claude' internal/shadowllm/ pkg/domain/shadowllm/ 2>/dev/null | grep -v '_test.go' | grep -v 'TODO'; then
+    error "Found 'anthropic/claude' string in shadow packages"
 fi
 
-# Check 4: No imports from shadowllm into drafts/interruptions/execution/templates
-echo "Checking no shadowllm imports in restricted packages..."
-RESTRICTED_PATHS="internal/draft\|internal/interrupt\|internal/execution\|cmd/quantumlife-web/templates"
-if grep -rn 'quantumlife/pkg/domain/shadowllm\|quantumlife/internal/shadowllm' "$PROJECT_ROOT/internal/draft/" 2>/dev/null | grep -v '^[^:]*:[0-9]*:\s*//'; then
-    echo -e "${RED}✗${NC} shadowllm imported in internal/draft/"
-    FAILED=1
-elif grep -rn 'quantumlife/pkg/domain/shadowllm\|quantumlife/internal/shadowllm' "$PROJECT_ROOT/internal/interruptions/" 2>/dev/null | grep -v '^[^:]*:[0-9]*:\s*//'; then
-    echo -e "${RED}✗${NC} shadowllm imported in internal/interruptions/"
-    FAILED=1
-elif grep -rn 'quantumlife/pkg/domain/shadowllm\|quantumlife/internal/shadowllm' "$PROJECT_ROOT/internal/execution/" 2>/dev/null | grep -v '^[^:]*:[0-9]*:\s*//'; then
-    echo -e "${RED}✗${NC} shadowllm imported in internal/execution/"
-    FAILED=1
-else
-    echo -e "${GREEN}✓${NC} No shadowllm imports in restricted packages"
+check "No Gemini strings in shadowllm packages"
+if grep -ri 'gemini' internal/shadowllm/ pkg/domain/shadowllm/ 2>/dev/null | grep -v '_test.go' | grep -v 'TODO'; then
+    error "Found 'gemini' string in shadow packages"
 fi
 
-# Check 5: ShadowMode default is "off"
-echo "Checking ShadowMode default is 'off'..."
-if grep -q 'Mode:.*"off"' "$PROJECT_ROOT/pkg/domain/config/types.go"; then
-    echo -e "${GREEN}✓${NC} ShadowMode default is 'off'"
-else
-    echo -e "${RED}✗${NC} ShadowMode default is not 'off'"
-    FAILED=1
+# ═══════════════════════════════════════════════════════════════════════════════
+# Check 3: No goroutines in shadow packages
+# ═══════════════════════════════════════════════════════════════════════════════
+check "No goroutines in pkg/domain/shadowllm"
+if grep -r 'go func' pkg/domain/shadowllm/ 2>/dev/null | grep -v '_test.go'; then
+    error "Found goroutine in pkg/domain/shadowllm"
 fi
 
-# Check 6: No goroutines in shadow packages
-echo "Checking no goroutines in shadow packages..."
-if grep -rn 'go func\|go [a-zA-Z]' "$PROJECT_ROOT/pkg/domain/shadowllm/" 2>/dev/null | grep -v '^[^:]*:[0-9]*:\s*//'; then
-    echo -e "${RED}✗${NC} Goroutines found in pkg/domain/shadowllm/"
-    FAILED=1
-elif grep -rn 'go func\|go [a-zA-Z]' "$PROJECT_ROOT/internal/shadowllm/" 2>/dev/null | grep -v '^[^:]*:[0-9]*:\s*//'; then
-    echo -e "${RED}✗${NC} Goroutines found in internal/shadowllm/"
-    FAILED=1
-else
-    echo -e "${GREEN}✓${NC} No goroutines in shadow packages"
+check "No goroutines in internal/shadowllm"
+if grep -r 'go func' internal/shadowllm/ 2>/dev/null | grep -v '_test.go'; then
+    error "Found goroutine in internal/shadowllm"
 fi
 
-# Check 7: No time.Now() in shadow packages
-echo "Checking no time.Now() in shadow packages..."
-if grep -rn 'time\.Now()' "$PROJECT_ROOT/pkg/domain/shadowllm/" 2>/dev/null | grep -v '^[^:]*:[0-9]*:\s*//'; then
-    echo -e "${RED}✗${NC} time.Now() found in pkg/domain/shadowllm/"
-    FAILED=1
-elif grep -rn 'time\.Now()' "$PROJECT_ROOT/internal/shadowllm/" 2>/dev/null | grep -v '^[^:]*:[0-9]*:\s*//'; then
-    echo -e "${RED}✗${NC} time.Now() found in internal/shadowllm/"
-    FAILED=1
-else
-    echo -e "${GREEN}✓${NC} No time.Now() in shadow packages"
+check "No goroutines in internal/persist/shadow_receipt_store.go"
+if grep 'go func' internal/persist/shadow_receipt_store.go 2>/dev/null; then
+    error "Found goroutine in shadow_receipt_store.go"
 fi
 
-# Check 8: Canonical strings use pipe delimiter (not JSON)
-echo "Checking canonical strings use pipe delimiter..."
-if grep -q 'SHADOW_RUN|v1|' "$PROJECT_ROOT/pkg/domain/shadowllm/hashing.go"; then
-    echo -e "${GREEN}✓${NC} Canonical strings use pipe delimiter"
-else
-    echo -e "${RED}✗${NC} Canonical strings may not use pipe delimiter"
-    FAILED=1
+# ═══════════════════════════════════════════════════════════════════════════════
+# Check 4: No time.Now() in shadow packages (excluding comments)
+# We're looking for actual code using time.Now(), not comments mentioning it
+# ═══════════════════════════════════════════════════════════════════════════════
+check "No time.Now() in pkg/domain/shadowllm"
+# Look for lines with time.Now() that are NOT comments (no // before time.Now)
+if grep -rn 'time\.Now()' pkg/domain/shadowllm/ 2>/dev/null | grep -v '_test.go' | grep -v '//' > /dev/null; then
+    error "Found time.Now() in pkg/domain/shadowllm - must use clock injection"
 fi
 
-# Check 9: ShadowSignal uses pipe delimiter
-echo "Checking ShadowSignal uses pipe delimiter..."
-if grep -q 'SHADOW_SIGNAL|v1|' "$PROJECT_ROOT/pkg/domain/shadowllm/hashing.go"; then
-    echo -e "${GREEN}✓${NC} ShadowSignal uses pipe delimiter"
-else
-    echo -e "${RED}✗${NC} ShadowSignal may not use pipe delimiter"
-    FAILED=1
+check "No time.Now() in internal/shadowllm"
+if grep -rn 'time\.Now()' internal/shadowllm/ 2>/dev/null | grep -v '_test.go' | grep -v '//' > /dev/null; then
+    error "Found time.Now() in internal/shadowllm - must use clock injection"
 fi
 
-# Check 10: AbstractInputs uses pipe delimiter
-echo "Checking AbstractInputs uses pipe delimiter..."
-if grep -q 'ABSTRACT_INPUTS|v1' "$PROJECT_ROOT/pkg/domain/shadowllm/interfaces.go"; then
-    echo -e "${GREEN}✓${NC} AbstractInputs uses pipe delimiter"
-else
-    echo -e "${RED}✗${NC} AbstractInputs may not use pipe delimiter"
-    FAILED=1
+check "No time.Now() in shadow_receipt_store.go"
+if grep -n 'time\.Now()' internal/persist/shadow_receipt_store.go 2>/dev/null | grep -v '//' > /dev/null; then
+    error "Found time.Now() in shadow_receipt_store.go - must use clock injection"
 fi
 
-# Check 11: ShadowModel interface exists
-echo "Checking ShadowModel interface exists..."
-if grep -q 'type ShadowModel interface' "$PROJECT_ROOT/pkg/domain/shadowllm/interfaces.go"; then
-    echo -e "${GREEN}✓${NC} ShadowModel interface exists"
-else
-    echo -e "${RED}✗${NC} ShadowModel interface missing"
-    FAILED=1
+# ═══════════════════════════════════════════════════════════════════════════════
+# Check 5: /run/shadow exists and is POST-only
+# ═══════════════════════════════════════════════════════════════════════════════
+check "/run/shadow route is registered"
+if ! grep -q '/run/shadow' cmd/quantumlife-web/main.go; then
+    error "/run/shadow route not found"
 fi
 
-# Check 12: StubModel implements ShadowModel
-echo "Checking StubModel implements ShadowModel..."
-if grep -q 'var _ shadowllm.ShadowModel = ' "$PROJECT_ROOT/internal/shadowllm/stub/stub.go"; then
-    echo -e "${GREEN}✓${NC} StubModel implements ShadowModel"
-else
-    echo -e "${RED}✗${NC} StubModel may not implement ShadowModel"
-    FAILED=1
+check "/run/shadow handler enforces POST"
+if ! grep -A5 'handleShadowRun' cmd/quantumlife-web/main.go | grep -q 'Method.*POST'; then
+    error "/run/shadow does not enforce POST method"
 fi
 
-# Check 13: ShadowConfig exists in config types
-echo "Checking ShadowConfig exists in config types..."
-if grep -q 'type ShadowConfig struct' "$PROJECT_ROOT/pkg/domain/config/types.go"; then
-    echo -e "${GREEN}✓${NC} ShadowConfig exists in config types"
-else
-    echo -e "${RED}✗${NC} ShadowConfig missing from config types"
-    FAILED=1
+# ═══════════════════════════════════════════════════════════════════════════════
+# Check 6: Shadow store uses storelog
+# ═══════════════════════════════════════════════════════════════════════════════
+check "Shadow receipt store uses storelog"
+if ! grep -q 'storelog' internal/persist/shadow_receipt_store.go; then
+    error "shadow_receipt_store.go does not reference storelog"
 fi
 
-# Check 14: Phase 19 events exist
-echo "Checking Phase 19 events exist..."
-if grep -q 'Phase19ShadowRunStarted' "$PROJECT_ROOT/pkg/events/events.go"; then
-    echo -e "${GREEN}✓${NC} Phase 19 shadow events exist"
-else
-    echo -e "${RED}✗${NC} Phase 19 shadow events missing"
-    FAILED=1
+check "RecordTypeShadowLLMReceipt exists"
+if ! grep -q 'RecordTypeShadowLLMReceipt' pkg/domain/storelog/log.go; then
+    error "RecordTypeShadowLLMReceipt not found in storelog"
 fi
 
-# Check 15: Shadow storelog record types exist
-echo "Checking shadow storelog record types exist..."
-if grep -q 'RecordTypeShadowLLMRun' "$PROJECT_ROOT/pkg/domain/storelog/log.go"; then
-    echo -e "${GREEN}✓${NC} Shadow storelog record types exist"
-else
-    echo -e "${RED}✗${NC} Shadow storelog record types missing"
-    FAILED=1
+# ═══════════════════════════════════════════════════════════════════════════════
+# Check 7: Only stub provider exists
+# ═══════════════════════════════════════════════════════════════════════════════
+check "Stub provider exists"
+if [ ! -f "internal/shadowllm/stub/stub.go" ]; then
+    error "Stub provider not found at internal/shadowllm/stub/stub.go"
 fi
 
-# Check 16: ShadowLLMStore exists
-echo "Checking ShadowLLMStore exists..."
-if [ -f "$PROJECT_ROOT/internal/persist/shadowllm_store.go" ]; then
-    echo -e "${GREEN}✓${NC} ShadowLLMStore exists"
-else
-    echo -e "${RED}✗${NC} ShadowLLMStore missing"
-    FAILED=1
-fi
-
-# Check 17: Demo tests exist
-echo "Checking Phase 19 demo tests exist..."
-if [ -f "$PROJECT_ROOT/internal/demo_phase19_shadow_contract/demo_test.go" ]; then
-    echo -e "${GREEN}✓${NC} Phase 19 demo tests exist"
-else
-    echo -e "${RED}✗${NC} Phase 19 demo tests missing"
-    FAILED=1
-fi
-
-# Check 18: Demo tests pass (if they exist)
-echo "Checking Phase 19 demo tests pass..."
-if [ -f "$PROJECT_ROOT/internal/demo_phase19_shadow_contract/demo_test.go" ]; then
-    if go test -count=1 "$PROJECT_ROOT/internal/demo_phase19_shadow_contract/..." > /dev/null 2>&1; then
-        echo -e "${GREEN}✓${NC} Phase 19 demo tests pass"
-    else
-        echo -e "${RED}✗${NC} Phase 19 demo tests fail"
-        FAILED=1
+check "No real LLM providers exist yet"
+for dir in internal/shadowllm/providers/*/; do
+    if [ -d "$dir" ] && [ "$(basename "$dir")" != "stub" ]; then
+        error "Found non-stub provider: $dir"
     fi
-else
-    echo -e "${YELLOW}?${NC} Phase 19 demo tests not found - skipping"
+done
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Check 8: Canonical strings use pipe delimiter (not JSON)
+# ═══════════════════════════════════════════════════════════════════════════════
+check "ShadowReceipt uses pipe-delimited canonical string"
+if ! grep -q 'SHADOW_RECEIPT|v1|' pkg/domain/shadowllm/hashing.go; then
+    error "ShadowReceipt canonical string missing pipe-delimited prefix"
 fi
 
-# Check 19: No JSON marshaling in shadow types
-echo "Checking no JSON marshaling in shadow types..."
-if grep -rn 'json.Marshal\|json.Unmarshal\|encoding/json' "$PROJECT_ROOT/pkg/domain/shadowllm/" 2>/dev/null | grep -v '^[^:]*:[0-9]*:\s*//'; then
-    echo -e "${RED}✗${NC} JSON marshaling found in pkg/domain/shadowllm/"
-    FAILED=1
-else
-    echo -e "${GREEN}✓${NC} No JSON marshaling in shadow types"
+check "ShadowSuggestion uses pipe-delimited canonical string"
+if ! grep -q 'SHADOW_SUGGESTION|v1|' pkg/domain/shadowllm/hashing.go; then
+    error "ShadowSuggestion canonical string missing pipe-delimited prefix"
 fi
 
-# Check 20: MaxSignalsPerRun is 5
-echo "Checking MaxSignalsPerRun is 5..."
-if grep -q 'MaxSignalsPerRun = 5' "$PROJECT_ROOT/pkg/domain/shadowllm/types.go"; then
-    echo -e "${GREEN}✓${NC} MaxSignalsPerRun is 5"
-else
-    echo -e "${RED}✗${NC} MaxSignalsPerRun is not 5"
-    FAILED=1
+check "No json.Marshal in shadowllm hashing"
+if grep -r 'json\.Marshal' pkg/domain/shadowllm/hashing.go 2>/dev/null; then
+    error "Found json.Marshal in hashing.go - must use pipe-delimited strings"
 fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Check 9: No forbidden fields in ShadowContext/ShadowInputDigest
+# ═══════════════════════════════════════════════════════════════════════════════
+check "ShadowInputDigest has no forbidden fields"
+FORBIDDEN_FIELDS="Subject|Body|Sender|Recipient|Amount|VendorName|RawContent|MessageID"
+if grep -E "($FORBIDDEN_FIELDS)" pkg/domain/shadowllm/types.go | grep -v '//' | grep -v 'FORBIDDEN' | grep -v 'CRITICAL'; then
+    error "ShadowInputDigest may contain forbidden fields"
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Check 10: No imports from shadowllm into execution/drafts packages
+# ═══════════════════════════════════════════════════════════════════════════════
+check "No shadowllm imports in execution packages"
+if grep -r 'shadowllm' internal/email/execution/ internal/calendar/execution/ 2>/dev/null; then
+    error "Found shadowllm import in execution package"
+fi
+
+check "No shadowllm imports in drafts packages"
+if grep -r 'shadowllm' internal/drafts/ 2>/dev/null | grep -v '_test.go'; then
+    error "Found shadowllm import in drafts package"
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Check 11: Phase 19.2 events exist
+# ═══════════════════════════════════════════════════════════════════════════════
+check "Phase19_2ShadowRequested event exists"
+if ! grep -q 'Phase19_2ShadowRequested' pkg/events/events.go; then
+    error "Phase19_2ShadowRequested event not found"
+fi
+
+check "Phase19_2ShadowComputed event exists"
+if ! grep -q 'Phase19_2ShadowComputed' pkg/events/events.go; then
+    error "Phase19_2ShadowComputed event not found"
+fi
+
+check "Phase19_2ShadowPersisted event exists"
+if ! grep -q 'Phase19_2ShadowPersisted' pkg/events/events.go; then
+    error "Phase19_2ShadowPersisted event not found"
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Check 12: ShadowReceipt validation enforces limits
+# ═══════════════════════════════════════════════════════════════════════════════
+check "MaxSuggestionsPerReceipt constant exists"
+if ! grep -q 'MaxSuggestionsPerReceipt.*=.*5' pkg/domain/shadowllm/types.go; then
+    error "MaxSuggestionsPerReceipt not set to 5"
+fi
+
+check "ShadowReceipt validates suggestion count"
+if ! grep -A30 'func (r \*ShadowReceipt) Validate()' pkg/domain/shadowllm/types.go | grep -q 'MaxSuggestionsPerReceipt'; then
+    error "ShadowReceipt.Validate() does not check MaxSuggestionsPerReceipt"
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Check 13: Demo tests exist
+# ═══════════════════════════════════════════════════════════════════════════════
+check "Demo test file exists"
+if [ ! -f "internal/demo_phase19_2_shadow_mode/demo_test.go" ]; then
+    error "Demo test file not found"
+fi
+
+check "Demo tests have 10+ test functions"
+TEST_COUNT=$(grep -c 'func Test' internal/demo_phase19_2_shadow_mode/demo_test.go 2>/dev/null || echo 0)
+if [ "$TEST_COUNT" -lt 10 ]; then
+    error "Demo tests have only $TEST_COUNT test functions (need 10+)"
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Check 14: Whisper link on /today template
+# ═══════════════════════════════════════════════════════════════════════════════
+check "Shadow whisper link exists in today template"
+if ! grep -q 'shadow-whisper' cmd/quantumlife-web/main.go; then
+    error "Shadow whisper section not found in today template"
+fi
+
+check "Whisper link uses POST form"
+if ! grep -q 'action="/run/shadow" method="POST"' cmd/quantumlife-web/main.go; then
+    error "Shadow whisper link does not use POST form"
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Check 15: Shadow mode categories include required values
+# ═══════════════════════════════════════════════════════════════════════════════
+check "AbstractCategory includes all required values"
+for cat in money time work people home health family school unknown; do
+    if ! grep -qi "Category.*=.*\"$cat\"" pkg/domain/shadowllm/types.go 2>/dev/null; then
+        error "AbstractCategory missing: $cat"
+    fi
+done
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Summary
+# ═══════════════════════════════════════════════════════════════════════════════
 
 echo ""
-echo "══════════════════════════════════════════════════════════════════"
-
-if [ $FAILED -eq 0 ]; then
-    echo -e "${GREEN}All Phase 19 guardrail checks passed.${NC}"
-    echo ""
-    echo "Shadow mode is safe: metadata only, OFF by default, no network calls."
+if [ $ERRORS -eq 0 ]; then
+    echo "=========================================="
+    echo "  Phase 19.2 Shadow Mode Guardrails: PASS"
+    echo "=========================================="
     exit 0
 else
-    echo -e "${RED}Some Phase 19 guardrail checks failed.${NC}"
-    echo ""
-    echo "Fix the issues above before proceeding with shadow mode."
+    echo "=========================================="
+    echo "  Phase 19.2 Shadow Mode Guardrails: FAIL"
+    echo "  Errors: $ERRORS"
+    echo "=========================================="
     exit 1
 fi

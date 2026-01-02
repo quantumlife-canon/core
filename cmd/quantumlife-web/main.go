@@ -45,6 +45,8 @@ import (
 	"quantumlife/internal/obligations"
 	"quantumlife/internal/persist"
 	"quantumlife/internal/proof"
+	"quantumlife/internal/shadowllm"
+	"quantumlife/internal/shadowllm/stub"
 	"quantumlife/internal/surface"
 	"quantumlife/internal/todayquietly"
 	"quantumlife/pkg/clock"
@@ -56,6 +58,7 @@ import (
 	domainmirror "quantumlife/pkg/domain/mirror"
 	"quantumlife/pkg/domain/obligation"
 	"quantumlife/pkg/domain/policy"
+	domainshadow "quantumlife/pkg/domain/shadowllm"
 	"quantumlife/pkg/events"
 )
 
@@ -67,30 +70,32 @@ var (
 
 // Server handles HTTP requests.
 type Server struct {
-	engine            *loop.Engine
-	templates         *template.Template
-	eventEmitter      *eventLogger
-	clk               clock.Clock
-	execRouter        *execrouter.Router
-	execExecutor      *execexecutor.Executor
-	multiCircleConfig *config.MultiCircleConfig
-	identityRepo      *identity.InMemoryRepository     // Phase 13.1: Identity graph
-	interestStore     *interest.Store                  // Phase 18.1: Interest capture
-	todayEngine       *todayquietly.Engine             // Phase 18.2: Today, quietly
-	preferenceStore   *todayquietly.PreferenceStore    // Phase 18.2: Preference capture
-	heldEngine        *held.Engine                     // Phase 18.3: Held, not shown
-	heldStore         *held.SummaryStore               // Phase 18.3: Summary store
-	surfaceEngine     *surface.Engine                  // Phase 18.4: Quiet Shift
-	surfaceStore      *surface.ActionStore             // Phase 18.4: Action store
-	proofEngine       *proof.Engine                    // Phase 18.5: Quiet Proof
-	proofAckStore     *proof.AckStore                  // Phase 18.5: Ack store
-	connectionStore   *persist.InMemoryConnectionStore // Phase 18.6: First Connect
-	mirrorEngine      *mirror.Engine                   // Phase 18.7: Mirror Proof
-	mirrorAckStore    *mirror.AckStore                 // Phase 18.7: Mirror Ack store
-	tokenBroker       auth.TokenBroker                 // Phase 18.8: OAuth token broker
-	oauthStateManager *oauth.StateManager              // Phase 18.8: OAuth state management
-	gmailHandler      *oauth.GmailHandler              // Phase 18.8: Gmail OAuth handler
-	syncReceiptStore  *persist.SyncReceiptStore        // Phase 19.1: Sync receipt store
+	engine             *loop.Engine
+	templates          *template.Template
+	eventEmitter       *eventLogger
+	clk                clock.Clock
+	execRouter         *execrouter.Router
+	execExecutor       *execexecutor.Executor
+	multiCircleConfig  *config.MultiCircleConfig
+	identityRepo       *identity.InMemoryRepository     // Phase 13.1: Identity graph
+	interestStore      *interest.Store                  // Phase 18.1: Interest capture
+	todayEngine        *todayquietly.Engine             // Phase 18.2: Today, quietly
+	preferenceStore    *todayquietly.PreferenceStore    // Phase 18.2: Preference capture
+	heldEngine         *held.Engine                     // Phase 18.3: Held, not shown
+	heldStore          *held.SummaryStore               // Phase 18.3: Summary store
+	surfaceEngine      *surface.Engine                  // Phase 18.4: Quiet Shift
+	surfaceStore       *surface.ActionStore             // Phase 18.4: Action store
+	proofEngine        *proof.Engine                    // Phase 18.5: Quiet Proof
+	proofAckStore      *proof.AckStore                  // Phase 18.5: Ack store
+	connectionStore    *persist.InMemoryConnectionStore // Phase 18.6: First Connect
+	mirrorEngine       *mirror.Engine                   // Phase 18.7: Mirror Proof
+	mirrorAckStore     *mirror.AckStore                 // Phase 18.7: Mirror Ack store
+	tokenBroker        auth.TokenBroker                 // Phase 18.8: OAuth token broker
+	oauthStateManager  *oauth.StateManager              // Phase 18.8: OAuth state management
+	gmailHandler       *oauth.GmailHandler              // Phase 18.8: Gmail OAuth handler
+	syncReceiptStore   *persist.SyncReceiptStore        // Phase 19.1: Sync receipt store
+	shadowEngine       *shadowllm.Engine                // Phase 19.2: Shadow mode engine
+	shadowReceiptStore *persist.ShadowReceiptStore      // Phase 19.2: Shadow receipt store
 }
 
 // eventLogger logs events.
@@ -421,32 +426,40 @@ func main() {
 	// Create sync receipt store (Phase 19.1)
 	syncReceiptStore := persist.NewSyncReceiptStore(clk.Now)
 
+	// Create shadow mode engine and store (Phase 19.2)
+	// CRITICAL: Uses stub provider - no real LLM API calls
+	shadowProvider := stub.NewStubModel()
+	shadowEngine := shadowllm.NewEngine(clk, shadowProvider)
+	shadowReceiptStore := persist.NewShadowReceiptStore(clk.Now)
+
 	// Create server
 	server := &Server{
-		engine:            engine,
-		templates:         tmpl,
-		eventEmitter:      emitter,
-		clk:               clk,
-		execRouter:        execRouter,
-		execExecutor:      execExecutor,
-		multiCircleConfig: multiCfg,
-		identityRepo:      identityRepo,      // Phase 13.1
-		interestStore:     interestStore,     // Phase 18.1
-		todayEngine:       todayEngine,       // Phase 18.2
-		preferenceStore:   preferenceStore,   // Phase 18.2
-		heldEngine:        heldEngine,        // Phase 18.3
-		heldStore:         heldStore,         // Phase 18.3
-		surfaceEngine:     surfaceEngine,     // Phase 18.4
-		surfaceStore:      surfaceStore,      // Phase 18.4
-		proofEngine:       proofEngine,       // Phase 18.5
-		proofAckStore:     proofAckStore,     // Phase 18.5
-		connectionStore:   connectionStore,   // Phase 18.6
-		mirrorEngine:      mirrorEngine,      // Phase 18.7
-		mirrorAckStore:    mirrorAckStore,    // Phase 18.7
-		tokenBroker:       tokenBroker,       // Phase 18.8
-		oauthStateManager: oauthStateManager, // Phase 18.8
-		gmailHandler:      gmailHandler,      // Phase 18.8
-		syncReceiptStore:  syncReceiptStore,  // Phase 19.1
+		engine:             engine,
+		templates:          tmpl,
+		eventEmitter:       emitter,
+		clk:                clk,
+		execRouter:         execRouter,
+		execExecutor:       execExecutor,
+		multiCircleConfig:  multiCfg,
+		identityRepo:       identityRepo,       // Phase 13.1
+		interestStore:      interestStore,      // Phase 18.1
+		todayEngine:        todayEngine,        // Phase 18.2
+		preferenceStore:    preferenceStore,    // Phase 18.2
+		heldEngine:         heldEngine,         // Phase 18.3
+		heldStore:          heldStore,          // Phase 18.3
+		surfaceEngine:      surfaceEngine,      // Phase 18.4
+		surfaceStore:       surfaceStore,       // Phase 18.4
+		proofEngine:        proofEngine,        // Phase 18.5
+		proofAckStore:      proofAckStore,      // Phase 18.5
+		connectionStore:    connectionStore,    // Phase 18.6
+		mirrorEngine:       mirrorEngine,       // Phase 18.7
+		mirrorAckStore:     mirrorAckStore,     // Phase 18.7
+		tokenBroker:        tokenBroker,        // Phase 18.8
+		oauthStateManager:  oauthStateManager,  // Phase 18.8
+		gmailHandler:       gmailHandler,       // Phase 18.8
+		syncReceiptStore:   syncReceiptStore,   // Phase 19.1
+		shadowEngine:       shadowEngine,       // Phase 19.2
+		shadowReceiptStore: shadowReceiptStore, // Phase 19.2
 	}
 
 	// Set up routes
@@ -478,6 +491,7 @@ func main() {
 	mux.HandleFunc("/disconnect/gmail", server.handleGmailDisconnect)          // Phase 18.8: Gmail disconnect
 	mux.HandleFunc("/run/gmail-sync", server.handleGmailSync)                  // Phase 18.8: Gmail sync
 	mux.HandleFunc("/quiet-check", server.handleQuietCheck)                    // Phase 19.1: Quiet baseline verification
+	mux.HandleFunc("/run/shadow", server.handleShadowRun)                      // Phase 19.2: Shadow mode run
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18: App routes (authenticated)
@@ -1871,6 +1885,152 @@ func (s *Server) handleQuietCheck(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "quiet-check", data)
 }
 
+// handleShadowRun runs a shadow-mode analysis.
+//
+// Phase 19.2: LLM Shadow Mode Contract
+//
+// CRITICAL: This is POST-only - explicit user action required.
+// CRITICAL: This does NOT affect any other state - observation ONLY.
+// CRITICAL: Results are stored but do NOT influence behavior.
+// CRITICAL: Uses stub provider - no real LLM API calls.
+func (s *Server) handleShadowRun(w http.ResponseWriter, r *http.Request) {
+	// POST only - explicit user action required
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed - POST required", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Emit shadow requested event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase19_2ShadowRequested,
+		Timestamp: s.clk.Now(),
+	})
+
+	// Get circle ID
+	circleID := r.URL.Query().Get("circle_id")
+	if circleID == "" {
+		// Use first circle from config
+		circleIDs := s.multiCircleConfig.CircleIDs()
+		if len(circleIDs) > 0 {
+			circleID = string(circleIDs[0])
+		}
+	}
+
+	if circleID == "" {
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase19_2ShadowFailed,
+			Timestamp: s.clk.Now(),
+			Metadata: map[string]string{
+				"fail_reason": "no_circle_id",
+			},
+		})
+		http.Redirect(w, r, "/today", http.StatusFound)
+		return
+	}
+
+	// Build abstract input digest from current state
+	// CRITICAL: All data is already abstracted/bucketed - no raw content
+	digest := s.buildShadowInputDigest(circleID)
+
+	// Run shadow analysis
+	input := shadowllm.RunInput{
+		CircleID: identity.EntityID(circleID),
+		Digest:   digest,
+	}
+
+	output, err := s.shadowEngine.Run(input)
+	if err != nil {
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase19_2ShadowFailed,
+			Timestamp: s.clk.Now(),
+			Metadata: map[string]string{
+				"circle_id":   circleID,
+				"fail_reason": "engine_error",
+			},
+		})
+		http.Redirect(w, r, "/today", http.StatusFound)
+		return
+	}
+
+	// Emit shadow computed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase19_2ShadowComputed,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"circle_id":        circleID,
+			"receipt_id":       output.Receipt.ReceiptID,
+			"receipt_hash":     output.Receipt.Hash(),
+			"suggestion_count": fmt.Sprintf("%d", len(output.Receipt.Suggestions)),
+			"model_spec":       output.Receipt.ModelSpec,
+		},
+	})
+
+	// Persist receipt
+	if err := s.shadowReceiptStore.Append(&output.Receipt); err != nil {
+		log.Printf("Shadow receipt store error: %v", err)
+	} else {
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase19_2ShadowPersisted,
+			Timestamp: s.clk.Now(),
+			Metadata: map[string]string{
+				"circle_id":    circleID,
+				"receipt_id":   output.Receipt.ReceiptID,
+				"receipt_hash": output.Receipt.Hash(),
+			},
+		})
+	}
+
+	// Redirect back to /today (no new UI page)
+	http.Redirect(w, r, "/today", http.StatusFound)
+}
+
+// buildShadowInputDigest builds an abstract input digest from current state.
+//
+// CRITICAL: All data must already be abstract/bucketed.
+// NO raw content is allowed.
+func (s *Server) buildShadowInputDigest(circleID string) domainshadow.ShadowInputDigest {
+	// Initialize with defaults
+	digest := domainshadow.ShadowInputDigest{
+		CircleID:                  identity.EntityID(circleID),
+		ObligationCountByCategory: make(map[domainshadow.AbstractCategory]domainshadow.MagnitudeBucket),
+		HeldCountByCategory:       make(map[domainshadow.AbstractCategory]domainshadow.MagnitudeBucket),
+		SurfaceCandidateCount:     domainshadow.MagnitudeNothing,
+		DraftCandidateCount:       domainshadow.MagnitudeNothing,
+		TriggersSeen:              false,
+		MirrorBucket:              domainshadow.MagnitudeNothing,
+	}
+
+	// Check if we have sync receipts (triggers seen)
+	if s.syncReceiptStore != nil {
+		receipt := s.syncReceiptStore.GetLatestByCircle(identity.EntityID(circleID))
+		if receipt != nil && receipt.Success {
+			digest.TriggersSeen = true
+			// Convert sync magnitude to shadow magnitude
+			switch receipt.MagnitudeBucket {
+			case persist.MagnitudeMany:
+				digest.MirrorBucket = domainshadow.MagnitudeSeveral
+			case persist.MagnitudeSeveral:
+				digest.MirrorBucket = domainshadow.MagnitudeSeveral
+			case persist.MagnitudeHandful:
+				digest.MirrorBucket = domainshadow.MagnitudeAFew
+			default:
+				digest.MirrorBucket = domainshadow.MagnitudeNothing
+			}
+		}
+	}
+
+	// Set some default obligation estimates (abstract only)
+	// In a real implementation, would query the obligation store with abstract queries
+	if digest.TriggersSeen {
+		digest.ObligationCountByCategory[domainshadow.CategoryWork] = domainshadow.MagnitudeAFew
+		digest.ObligationCountByCategory[domainshadow.CategoryMoney] = domainshadow.MagnitudeAFew
+		digest.HeldCountByCategory[domainshadow.CategoryWork] = domainshadow.MagnitudeAFew
+		digest.HeldCountByCategory[domainshadow.CategoryMoney] = domainshadow.MagnitudeAFew
+	}
+
+	return digest
+}
+
 // handleDemo serves the deterministic demo page.
 // Same seed = same output, always.
 func (s *Server) handleDemo(w http.ResponseWriter, r *http.Request) {
@@ -2868,6 +3028,16 @@ const templates = `
     <section class="quiet-proof-cue">
         <p class="quiet-proof-cue-text">{{.ProofCue.CueText}}</p>
         <a href="/proof" class="quiet-proof-cue-link">{{.ProofCue.LinkText}}</a>
+    </section>
+    {{end}}
+
+    {{/* Phase 19.2: Shadow mode whisper link (very subtle) */}}
+    {{/* Only show if no other whisper is active */}}
+    {{if and (not .SurfaceCue) (not .ProofCue)}}
+    <section class="shadow-whisper">
+        <form action="/run/shadow" method="POST" class="shadow-whisper-form">
+            <button type="submit" class="shadow-whisper-link">If you wanted to, we could sanity-check this day.</button>
+        </form>
     </section>
     {{end}}
 

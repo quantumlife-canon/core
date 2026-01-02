@@ -68,6 +68,10 @@ const (
 	// CRITICAL: These records contain METADATA ONLY - never content.
 	RecordTypeShadowLLMRun    = "SHADOWLLM_RUN"
 	RecordTypeShadowLLMSignal = "SHADOWLLM_SIGNAL"
+
+	// Phase 19.2: Shadow Receipt record type
+	// CRITICAL: Contains ONLY abstract data (buckets, hashes) - never content.
+	RecordTypeShadowLLMReceipt = "SHADOWLLM_RECEIPT"
 )
 
 // Common errors

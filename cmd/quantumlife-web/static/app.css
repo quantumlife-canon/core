@@ -2066,3 +2066,35 @@
 .mirror-back-link:hover {
   color: var(--color-text-secondary);
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   PHASE 19.2: SHADOW WHISPER
+   Extremely subtle - "If you wanted to, we could sanity-check this day."
+   ═══════════════════════════════════════════════════════════════ */
+
+.shadow-whisper {
+  text-align: center;
+  margin-top: var(--space-6);
+  padding: var(--space-2);
+}
+
+.shadow-whisper-form {
+  display: inline;
+}
+
+.shadow-whisper-link {
+  font-size: var(--text-xs);
+  font-family: inherit;
+  color: var(--color-text-quaternary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  border-bottom: 1px dotted transparent;
+  transition: color var(--duration-fast) var(--easing-default);
+}
+
+.shadow-whisper-link:hover {
+  color: var(--color-text-tertiary);
+  border-bottom: 1px dotted var(--color-text-quaternary);
+}
