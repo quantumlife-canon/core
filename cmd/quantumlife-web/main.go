@@ -454,6 +454,11 @@ func main() {
 	trustStore := persist.NewTrustStore(clk.Now)
 	trustEng := trustengine.NewEngine(clk)
 
+	// Populate mock trust summaries if requested
+	if *mockData {
+		populateMockTrustSummaries(trustStore, now)
+	}
+
 	// Create server
 	server := &Server{
 		engine:             engine,
@@ -642,6 +647,56 @@ func populateMockEvents(store *domainevents.InMemoryEventStore, now time.Time, p
 	store.Store(balance)
 
 	log.Printf("Populated %d mock events", 4)
+}
+
+// populateMockTrustSummaries creates realistic mock trust summaries.
+// CRITICAL: Uses abstract magnitude buckets only, never raw counts.
+func populateMockTrustSummaries(store *persist.TrustStore, now time.Time) {
+	// Create summaries for recent periods showing evidence of restraint
+
+	// Last week: Several obligations were held quietly
+	lastWeek := now.AddDate(0, 0, -7)
+	summary1 := &domaintrust.TrustSummary{
+		Period:          domaintrust.PeriodWeek,
+		PeriodKey:       domaintrust.WeekKey(lastWeek),
+		SignalKind:      domaintrust.SignalQuietHeld,
+		MagnitudeBucket: domainshadow.MagnitudeSeveral,
+		CreatedBucket:   domaintrust.FiveMinuteBucket(lastWeek),
+		CreatedAt:       lastWeek,
+	}
+	summary1.SummaryID = summary1.ComputeID()
+	summary1.SummaryHash = summary1.ComputeHash()
+	_ = store.AppendSummary(summary1)
+
+	// Two weeks ago: A few interruptions were prevented
+	twoWeeksAgo := now.AddDate(0, 0, -14)
+	summary2 := &domaintrust.TrustSummary{
+		Period:          domaintrust.PeriodWeek,
+		PeriodKey:       domaintrust.WeekKey(twoWeeksAgo),
+		SignalKind:      domaintrust.SignalInterruptionPrevented,
+		MagnitudeBucket: domainshadow.MagnitudeAFew,
+		CreatedBucket:   domaintrust.FiveMinuteBucket(twoWeeksAgo),
+		CreatedAt:       twoWeeksAgo,
+	}
+	summary2.SummaryID = summary2.ComputeID()
+	summary2.SummaryHash = summary2.ComputeHash()
+	_ = store.AppendSummary(summary2)
+
+	// Last month: Several items held quietly
+	lastMonth := now.AddDate(0, -1, 0)
+	summary3 := &domaintrust.TrustSummary{
+		Period:          domaintrust.PeriodMonth,
+		PeriodKey:       domaintrust.MonthKey(lastMonth),
+		SignalKind:      domaintrust.SignalQuietHeld,
+		MagnitudeBucket: domainshadow.MagnitudeSeveral,
+		CreatedBucket:   domaintrust.FiveMinuteBucket(lastMonth),
+		CreatedAt:       lastMonth,
+	}
+	summary3.SummaryID = summary3.ComputeID()
+	summary3.SummaryHash = summary3.ComputeHash()
+	_ = store.AppendSummary(summary3)
+
+	log.Printf("Populated %d mock trust summaries", 3)
 }
 
 // ============================================================================
