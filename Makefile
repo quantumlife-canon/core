@@ -7,7 +7,7 @@
 #
 # Guardrails enforce Canon invariants at build time.
 
-.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 demo-phase9 demo-phase10 demo-phase11 demo-phase12 demo-phase13 demo-phase13-1 demo-phase14 demo-phase15 demo-phase16 demo-phase18 demo-phase18-2 demo-phase18-3 demo-phase18-4 demo-phase18-5 demo-phase18-6 web web-mock web-demo web-app web-stop web-status check-today-quietly check-held check-quiet-shift check-proof check-connection-onboarding
+.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 demo-phase9 demo-phase10 demo-phase11 demo-phase12 demo-phase13 demo-phase13-1 demo-phase14 demo-phase15 demo-phase16 demo-phase18 demo-phase18-2 demo-phase18-3 demo-phase18-4 demo-phase18-5 demo-phase18-6 web web-mock web-demo web-app web-stop web-status check-today-quietly check-held check-quiet-shift check-proof check-connection-onboarding ios-open ios-build ios-test ios-clean
 
 # Default target
 all: ci
@@ -84,6 +84,12 @@ help:
 	@echo "  make check-today-quietly - Check today quietly constraints (Phase 18.2)"
 	@echo "  make check-held - Check held projection constraints (Phase 18.3)"
 	@echo "  make check-quiet-shift - Check quiet shift constraints (Phase 18.4)"
+	@echo ""
+	@echo "iOS (Phase 19):"
+	@echo "  make ios-open   - Open iOS project in Xcode (macOS only)"
+	@echo "  make ios-build  - Build iOS project (macOS only)"
+	@echo "  make ios-test   - Run iOS tests (macOS only)"
+	@echo "  make ios-clean  - Clean iOS build artifacts"
 	@echo ""
 
 # Build
@@ -466,3 +472,62 @@ web-status:
 	else \
 		echo "Port 8080: FREE"; \
 	fi
+
+# =============================================================================
+# iOS Targets (Phase 19)
+# =============================================================================
+# Reference: docs/ADR/ADR-0040-phase19-ios-shell.md
+#
+# CRITICAL: Requires macOS with Xcode installed.
+# These targets will fail on non-macOS systems.
+
+# Open iOS project in Xcode
+ios-open:
+	@echo "Opening QuantumLife iOS project..."
+	@if [ -d "ios/QuantumLife/QuantumLife.xcodeproj" ]; then \
+		open ios/QuantumLife/QuantumLife.xcodeproj; \
+	else \
+		echo "ERROR: iOS project not found at ios/QuantumLife/"; \
+		exit 1; \
+	fi
+
+# Build iOS project (requires Xcode)
+ios-build:
+	@echo "Building QuantumLife iOS..."
+	@if command -v xcodebuild >/dev/null 2>&1; then \
+		xcodebuild -project ios/QuantumLife/QuantumLife.xcodeproj \
+			-scheme QuantumLife \
+			-destination 'platform=iOS Simulator,name=iPhone 15' \
+			-configuration Debug \
+			build; \
+	else \
+		echo "ERROR: xcodebuild not found. Install Xcode on macOS."; \
+		exit 1; \
+	fi
+
+# Run iOS tests (requires Xcode)
+ios-test:
+	@echo "Running QuantumLife iOS tests..."
+	@if command -v xcodebuild >/dev/null 2>&1; then \
+		xcodebuild -project ios/QuantumLife/QuantumLife.xcodeproj \
+			-scheme QuantumLife \
+			-destination 'platform=iOS Simulator,name=iPhone 15' \
+			-configuration Debug \
+			test; \
+	else \
+		echo "ERROR: xcodebuild not found. Install Xcode on macOS."; \
+		exit 1; \
+	fi
+
+# Clean iOS build artifacts
+ios-clean:
+	@echo "Cleaning QuantumLife iOS..."
+	@if command -v xcodebuild >/dev/null 2>&1; then \
+		xcodebuild -project ios/QuantumLife/QuantumLife.xcodeproj \
+			-scheme QuantumLife \
+			clean; \
+	else \
+		echo "Skipping xcodebuild clean (not on macOS)"; \
+	fi
+	@rm -rf ios/QuantumLife/build
+	@echo "Done."

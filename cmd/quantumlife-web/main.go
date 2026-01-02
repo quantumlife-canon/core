@@ -35,21 +35,21 @@ import (
 	"quantumlife/internal/execrouter"
 	"quantumlife/internal/held"
 	"quantumlife/internal/interest"
+	"quantumlife/internal/interruptions"
+	"quantumlife/internal/loop"
 	"quantumlife/internal/mirror"
+	"quantumlife/internal/obligations"
 	"quantumlife/internal/persist"
 	"quantumlife/internal/proof"
 	"quantumlife/internal/surface"
-	"quantumlife/pkg/domain/connection"
-	domainmirror "quantumlife/pkg/domain/mirror"
-	"quantumlife/internal/interruptions"
-	"quantumlife/internal/loop"
-	"quantumlife/internal/obligations"
 	"quantumlife/internal/todayquietly"
 	"quantumlife/pkg/clock"
+	"quantumlife/pkg/domain/connection"
 	"quantumlife/pkg/domain/draft"
 	domainevents "quantumlife/pkg/domain/events"
 	"quantumlife/pkg/domain/feedback"
 	"quantumlife/pkg/domain/identity"
+	domainmirror "quantumlife/pkg/domain/mirror"
 	"quantumlife/pkg/domain/obligation"
 	"quantumlife/pkg/domain/policy"
 	"quantumlife/pkg/events"
@@ -70,19 +70,19 @@ type Server struct {
 	execRouter        *execrouter.Router
 	execExecutor      *execexecutor.Executor
 	multiCircleConfig *config.MultiCircleConfig
-	identityRepo      *identity.InMemoryRepository  // Phase 13.1: Identity graph
-	interestStore     *interest.Store               // Phase 18.1: Interest capture
-	todayEngine       *todayquietly.Engine          // Phase 18.2: Today, quietly
-	preferenceStore   *todayquietly.PreferenceStore // Phase 18.2: Preference capture
-	heldEngine        *held.Engine                  // Phase 18.3: Held, not shown
-	heldStore         *held.SummaryStore            // Phase 18.3: Summary store
-	surfaceEngine     *surface.Engine               // Phase 18.4: Quiet Shift
-	surfaceStore      *surface.ActionStore          // Phase 18.4: Action store
+	identityRepo      *identity.InMemoryRepository     // Phase 13.1: Identity graph
+	interestStore     *interest.Store                  // Phase 18.1: Interest capture
+	todayEngine       *todayquietly.Engine             // Phase 18.2: Today, quietly
+	preferenceStore   *todayquietly.PreferenceStore    // Phase 18.2: Preference capture
+	heldEngine        *held.Engine                     // Phase 18.3: Held, not shown
+	heldStore         *held.SummaryStore               // Phase 18.3: Summary store
+	surfaceEngine     *surface.Engine                  // Phase 18.4: Quiet Shift
+	surfaceStore      *surface.ActionStore             // Phase 18.4: Action store
 	proofEngine       *proof.Engine                    // Phase 18.5: Quiet Proof
 	proofAckStore     *proof.AckStore                  // Phase 18.5: Ack store
 	connectionStore   *persist.InMemoryConnectionStore // Phase 18.6: First Connect
-	mirrorEngine      *mirror.Engine                    // Phase 18.7: Mirror Proof
-	mirrorAckStore    *mirror.AckStore                  // Phase 18.7: Mirror Ack store
+	mirrorEngine      *mirror.Engine                   // Phase 18.7: Mirror Proof
+	mirrorAckStore    *mirror.AckStore                 // Phase 18.7: Mirror Ack store
 }
 
 // eventLogger logs events.
@@ -129,13 +129,13 @@ type templateData struct {
 	// Phase 18.2: Today, quietly
 	TodayPage           *todayquietly.TodayQuietlyPage
 	PreferenceSubmitted bool
-	PreferenceMessage string
+	PreferenceMessage   string
 	// Phase 18.3: Held, not shown
 	HeldSummary *held.HeldSummary
 	// Phase 18.4: Quiet Shift
-	SurfaceCue         *surface.SurfaceCue
-	SurfacePage        *surface.SurfacePage
-	SurfaceActionDone  bool
+	SurfaceCue           *surface.SurfaceCue
+	SurfacePage          *surface.SurfacePage
+	SurfaceActionDone    bool
 	SurfaceActionMessage string
 	// Phase 18.5: Quiet Proof
 	ProofSummary *proof.ProofSummary
@@ -393,11 +393,11 @@ func main() {
 		heldStore:         heldStore,       // Phase 18.3
 		surfaceEngine:     surfaceEngine,   // Phase 18.4
 		surfaceStore:      surfaceStore,    // Phase 18.4
-		proofEngine:       proofEngine,       // Phase 18.5
-		proofAckStore:     proofAckStore,     // Phase 18.5
-		connectionStore:   connectionStore,   // Phase 18.6
-		mirrorEngine:      mirrorEngine,       // Phase 18.7
-		mirrorAckStore:    mirrorAckStore,     // Phase 18.7
+		proofEngine:       proofEngine,     // Phase 18.5
+		proofAckStore:     proofAckStore,   // Phase 18.5
+		connectionStore:   connectionStore, // Phase 18.6
+		mirrorEngine:      mirrorEngine,    // Phase 18.7
+		mirrorAckStore:    mirrorAckStore,  // Phase 18.7
 	}
 
 	// Set up routes
@@ -408,13 +408,13 @@ func main() {
 
 	// Phase 18: Public routes
 	mux.HandleFunc("/", server.handleLanding)
-	mux.HandleFunc("/interest", server.handleInterest)           // Phase 18.1: Interest capture
-	mux.HandleFunc("/today", server.handleToday)                 // Phase 18.2: Today, quietly
-	mux.HandleFunc("/today/preference", server.handlePreference) // Phase 18.2: Preference capture
-	mux.HandleFunc("/held", server.handleHeld)                   // Phase 18.3: Held, not shown
-	mux.HandleFunc("/surface", server.handleSurface)             // Phase 18.4: Quiet Shift
-	mux.HandleFunc("/surface/hold", server.handleSurfaceHold)    // Phase 18.4: Hold action
-	mux.HandleFunc("/surface/why", server.handleSurfaceWhy)      // Phase 18.4: Why action
+	mux.HandleFunc("/interest", server.handleInterest)            // Phase 18.1: Interest capture
+	mux.HandleFunc("/today", server.handleToday)                  // Phase 18.2: Today, quietly
+	mux.HandleFunc("/today/preference", server.handlePreference)  // Phase 18.2: Preference capture
+	mux.HandleFunc("/held", server.handleHeld)                    // Phase 18.3: Held, not shown
+	mux.HandleFunc("/surface", server.handleSurface)              // Phase 18.4: Quiet Shift
+	mux.HandleFunc("/surface/hold", server.handleSurfaceHold)     // Phase 18.4: Hold action
+	mux.HandleFunc("/surface/why", server.handleSurfaceWhy)       // Phase 18.4: Why action
 	mux.HandleFunc("/surface/prefer", server.handleSurfacePrefer) // Phase 18.4: Prefer show_all
 	mux.HandleFunc("/proof", server.handleProof)                  // Phase 18.5: Quiet Proof
 	mux.HandleFunc("/proof/dismiss", server.handleProofDismiss)   // Phase 18.5: Dismiss proof
@@ -1133,11 +1133,11 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 		kindState := state.Get(kind)
 
 		data := templateData{
-			Title:              "Connect " + string(kind),
-			CurrentTime:        s.clk.Now().Format("2006-01-02 15:04"),
-			ConnectionKind:     kind,
+			Title:               "Connect " + string(kind),
+			CurrentTime:         s.clk.Now().Format("2006-01-02 15:04"),
+			ConnectionKind:      kind,
 			ConnectionKindState: kindState,
-			MockMode:           *mockData,
+			MockMode:            *mockData,
 		}
 
 		s.render(w, "connect-stub", data)
@@ -1324,9 +1324,9 @@ func (s *Server) handleMirror(w http.ResponseWriter, r *http.Request) {
 		Type:      events.Phase18_7MirrorComputed,
 		Timestamp: s.clk.Now(),
 		Metadata: map[string]string{
-			"mirror_hash":   mirrorPage.Hash,
-			"source_count":  fmt.Sprintf("%d", len(mirrorPage.Sources)),
-			"held_quietly":  fmt.Sprintf("%v", mirrorPage.Outcome.HeldQuietly),
+			"mirror_hash":  mirrorPage.Hash,
+			"source_count": fmt.Sprintf("%d", len(mirrorPage.Sources)),
+			"held_quietly": fmt.Sprintf("%v", mirrorPage.Outcome.HeldQuietly),
 		},
 	})
 

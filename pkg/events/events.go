@@ -1064,9 +1064,9 @@ const (
 	Phase18_4SurfacePageRendered EventType = "phase18_4.surface.page.rendered"
 
 	// Surface action events - emitted when user interacts with surfaced item
-	Phase18_4SurfaceActionViewed       EventType = "phase18_4.surface.action.viewed"
-	Phase18_4SurfaceActionHeld         EventType = "phase18_4.surface.action.held"
-	Phase18_4SurfaceActionWhy          EventType = "phase18_4.surface.action.why"
+	Phase18_4SurfaceActionViewed        EventType = "phase18_4.surface.action.viewed"
+	Phase18_4SurfaceActionHeld          EventType = "phase18_4.surface.action.held"
+	Phase18_4SurfaceActionWhy           EventType = "phase18_4.surface.action.why"
 	Phase18_4SurfaceActionPreferShowAll EventType = "phase18_4.surface.action.prefer_show_all"
 
 	// ═══════════════════════════════════════════════════════════════════════════

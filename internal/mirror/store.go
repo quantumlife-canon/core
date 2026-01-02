@@ -19,8 +19,8 @@ import (
 // CRITICAL: No goroutines.
 type AckStore struct {
 	mu          sync.RWMutex
-	records     []string          // Only record hashes
-	mirrorIndex map[string]bool   // Index of acknowledged mirror hashes
+	records     []string        // Only record hashes
+	mirrorIndex map[string]bool // Index of acknowledged mirror hashes
 	maxRecords  int
 }
 

@@ -62,8 +62,8 @@ func TestAbstractOnlyEnforcement(t *testing.T) {
 	// Forbidden patterns that should never appear in user-facing content
 	// Note: timestamps in canonical strings are acceptable for determinism
 	forbidden := []string{
-		"@", // email addresses
-		"$", // amounts
+		"@",    // email addresses
+		"$",    // amounts
 		"http", // URLs
 		// Month and day names indicate human-readable dates
 		"January", "February", "March", "April", "May", "June",

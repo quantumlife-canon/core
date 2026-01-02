@@ -205,3 +205,18 @@ internal/demo_phase17_finance_execution/*.go
 # QuantumLife core uses "circle" for identity - these are UI/documentation components.
 internal/demo_phase18_product_language/*.go
 cmd/quantumlife-web/main.go
+
+# Phase 18.2-18.7: Today Quietly, Held, Surface, Proof, Mirror
+# These files use "user" in comments about user preferences and interactions
+# (e.g., "user prefers quiet mode", "user actions on surfaced items").
+# "account numbers" appears in the not-stored list for mirror proof.
+# Demo tests document "forbidden patterns in user-facing content".
+# QuantumLife core uses "circle" for identity - these describe the UI behavior.
+pkg/domain/mirror/types.go
+internal/surface/model.go
+internal/surface/store.go
+internal/surface/engine.go
+internal/proof/model.go
+internal/proof/engine.go
+internal/mirror/engine.go
+internal/demo_phase18_7_mirror/*.go

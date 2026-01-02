@@ -9,7 +9,7 @@ import (
 // AckStore is an append-only bounded store for acknowledgement records.
 // Only hashes are stored, never raw content.
 type AckStore struct {
-	records    []string // Only record hashes
+	records    []string        // Only record hashes
 	proofIndex map[string]bool // Index of acknowledged proof hashes
 	maxRecords int
 }

@@ -85,10 +85,10 @@ func TestMagnitudeBucketing(t *testing.T) {
 	engine := held.NewEngine(clock)
 
 	tests := []struct {
-		name              string
-		suppressedCount   int
+		name               string
+		suppressedCount    int
 		policyBlockedCount int
-		expectedMagnitude string
+		expectedMagnitude  string
 	}{
 		{"nothing", 0, 0, "nothing"},
 		{"a_few_1", 1, 0, "a_few"},

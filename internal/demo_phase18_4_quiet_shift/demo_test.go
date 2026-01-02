@@ -81,21 +81,21 @@ func TestNoIdentifiersInOutput(t *testing.T) {
 
 	// Forbidden patterns that would indicate data leakage
 	forbiddenPatterns := []string{
-		"@",        // Email addresses
-		"$",        // Currency amounts
-		"£",        // UK currency
-		"€",        // Euro
-		"http",     // URLs
-		"amazon",   // Vendor names
-		"uber",     // Vendor names
-		"dpd",      // Vendor names
-		"netflix",  // Vendor names
-		"spotify",  // Vendor names
-		"paypal",   // Vendor names
-		"2025-01",  // Specific dates
-		"January",  // Month names
-		"Monday",   // Day names
-		"10:00",    // Specific times
+		"@",       // Email addresses
+		"$",       // Currency amounts
+		"£",       // UK currency
+		"€",       // Euro
+		"http",    // URLs
+		"amazon",  // Vendor names
+		"uber",    // Vendor names
+		"dpd",     // Vendor names
+		"netflix", // Vendor names
+		"spotify", // Vendor names
+		"paypal",  // Vendor names
+		"2025-01", // Specific dates
+		"January", // Month names
+		"Monday",  // Day names
+		"10:00",   // Specific times
 	}
 
 	// Check title
