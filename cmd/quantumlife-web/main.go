@@ -154,6 +154,8 @@ type templateData struct {
 	MockMode            bool
 	// Phase 18.7: Mirror Proof
 	MirrorPage *domainmirror.MirrorPage
+	// Phase 18.9: Gmail OAuth
+	CircleID string
 }
 
 // personInfo contains person data for display. Phase 13.1.
@@ -463,6 +465,7 @@ func main() {
 	mux.HandleFunc("/connect/", server.handleConnect)                          // Phase 18.6: Connect action
 	mux.HandleFunc("/disconnect/", server.handleDisconnect)                    // Phase 18.6: Disconnect action
 	mux.HandleFunc("/mirror", server.handleMirror)                             // Phase 18.7: Mirror Proof
+	mux.HandleFunc("/connect/gmail", server.handleGmailConsent)                 // Phase 18.9: Gmail consent page
 	mux.HandleFunc("/connect/gmail/start", server.handleGmailOAuthStart)       // Phase 18.8: Gmail OAuth start
 	mux.HandleFunc("/connect/gmail/callback", server.handleGmailOAuthCallback) // Phase 18.8: Gmail OAuth callback
 	mux.HandleFunc("/disconnect/gmail", server.handleGmailDisconnect)          // Phase 18.8: Gmail disconnect
@@ -1390,6 +1393,30 @@ func (s *Server) handleMirror(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.render(w, "mirror", data)
+}
+
+// handleGmailConsent shows the Gmail consent page with restraint-first copy.
+// Phase 18.9: Real Data Quiet Verification.
+// This page explains what we read, store, and refuse to do before OAuth.
+func (s *Server) handleGmailConsent(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get circle ID from query, default to demo circle
+	circleID := r.URL.Query().Get("circle_id")
+	if circleID == "" {
+		circleID = "demo-circle"
+	}
+
+	data := templateData{
+		Title:       "Connect Gmail",
+		CurrentTime: s.clk.Now().Format("2006-01-02 15:04"),
+		CircleID:    circleID,
+	}
+
+	s.render(w, "gmail-connect", data)
 }
 
 // handleGmailOAuthStart starts the Gmail OAuth flow.
@@ -2818,6 +2845,10 @@ const templates = `
     {{template "start-content" .}}
 {{else if eq .Title "Connections"}}
     {{template "connections-content" .}}
+{{else if eq .Title "Connect Gmail"}}
+    {{template "gmail-connect-content" .}}
+{{else if eq .Title "Disconnected"}}
+    {{template "gmail-disconnected-content" .}}
 {{else if hasPrefix .Title "Connect "}}
     {{template "connect-stub-content" .}}
 {{else if eq .Title "Seen, quietly."}}
@@ -3727,6 +3758,77 @@ const templates = `
 
     <footer class="connect-stub-footer">
         <a href="/connections" class="connect-stub-back-link">Back to connections</a>
+    </footer>
+</div>
+{{end}}
+
+{{/* ================================================================
+     Phase 18.9: Gmail OAuth Connection - Restraint-first copy
+     ================================================================ */}}
+{{define "gmail-connect"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "gmail-connect-content"}}
+<div class="gmail-connect">
+    <header class="gmail-connect-header">
+        <h1 class="gmail-connect-title">Connect Gmail</h1>
+        <p class="gmail-connect-subtitle">Read-only. Revocable. Nothing stored.</p>
+    </header>
+
+    <section class="gmail-connect-promise">
+        <div class="gmail-connect-promise-item">
+            <h3 class="gmail-connect-promise-title">What we read</h3>
+            <p class="gmail-connect-promise-text">Message headers only. Sender domains, timestamps, labels.</p>
+            <p class="gmail-connect-promise-not">Not: email bodies, attachments, contact details.</p>
+        </div>
+
+        <div class="gmail-connect-promise-item">
+            <h3 class="gmail-connect-promise-title">What we store</h3>
+            <p class="gmail-connect-promise-text">Hashes, buckets, derived signals. Abstract shapes.</p>
+            <p class="gmail-connect-promise-not">Not: subject lines, sender names, message content.</p>
+        </div>
+
+        <div class="gmail-connect-promise-item">
+            <h3 class="gmail-connect-promise-title">What we never do</h3>
+            <p class="gmail-connect-promise-text">No auto-sync. No background polling. Only when you ask.</p>
+            <p class="gmail-connect-promise-not">Revoke anytime. Immediate effect. No trace remains.</p>
+        </div>
+    </section>
+
+    <section class="gmail-connect-action">
+        <p class="gmail-connect-scope-note">Scope requested: <strong>gmail.readonly</strong></p>
+        <a href="/connect/gmail/start?circle_id={{.CircleID}}" class="gmail-connect-button">Connect with Google</a>
+    </section>
+
+    <footer class="gmail-connect-footer">
+        <a href="/connections" class="gmail-connect-back-link">Back to connections</a>
+    </footer>
+</div>
+{{end}}
+
+{{/* ================================================================
+     Phase 18.9: Gmail Disconnected Confirmation
+     ================================================================ */}}
+{{define "gmail-disconnected"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "gmail-disconnected-content"}}
+<div class="gmail-disconnected">
+    <header class="gmail-disconnected-header">
+        <h1 class="gmail-disconnected-title">Disconnected</h1>
+        <p class="gmail-disconnected-subtitle">Gmail is no longer connected.</p>
+    </header>
+
+    <section class="gmail-disconnected-reassurance">
+        <p class="gmail-disconnected-text">Nothing further is read.</p>
+        <p class="gmail-disconnected-text">Access was revoked with Google.</p>
+        <p class="gmail-disconnected-text">Local tokens removed.</p>
+    </section>
+
+    <footer class="gmail-disconnected-footer">
+        <a href="/connections" class="gmail-disconnected-link">Back to connections</a>
     </footer>
 </div>
 {{end}}
