@@ -72,9 +72,13 @@ func (m *StubModel) Observe(ctx shadowllm.ShadowContext) (shadowllm.ShadowRun, e
 }
 
 // generateSignals creates deterministic signals from the context.
+// Always returns 1-3 suggestions to enable diff flow.
 // Max 5 signals per run.
 func (m *StubModel) generateSignals(ctx shadowllm.ShadowContext) []shadowllm.ShadowSignal {
 	var signals []shadowllm.ShadowSignal
+
+	// Determine how many signals to generate (1-3 based on seed)
+	numSignals := selectSignalCount(ctx.Seed, ctx.InputsHash)
 
 	// Categories to potentially emit signals for
 	categories := []shadowllm.AbstractCategory{
@@ -85,18 +89,14 @@ func (m *StubModel) generateSignals(ctx shadowllm.ShadowContext) []shadowllm.Sha
 		shadowllm.CategoryHome,
 	}
 
-	inputs := ctx.AbstractInputs
 	signalCount := 0
 
 	for _, cat := range categories {
-		if signalCount >= shadowllm.MaxSignalsPerRun {
+		if signalCount >= numSignals {
 			break
 		}
-
-		// Only generate signals for categories with obligations
-		oblCount := inputs.ObligationCountByCategory[cat]
-		if oblCount == 0 {
-			continue
+		if signalCount >= shadowllm.MaxSignalsPerRun {
+			break
 		}
 
 		// Generate deterministic values based on seed, category, and inputs hash
@@ -129,6 +129,20 @@ func (m *StubModel) generateSignals(ctx shadowllm.ShadowContext) []shadowllm.Sha
 	}
 
 	return signals
+}
+
+// selectSignalCount deterministically selects how many signals to generate (1-3).
+func selectSignalCount(seed int64, inputsHash string) int {
+	h := sha256.New()
+	seedBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(seedBytes, uint64(seed))
+	h.Write(seedBytes)
+	h.Write([]byte(inputsHash))
+	h.Write([]byte("SIGNAL_COUNT"))
+
+	sum := h.Sum(nil)
+	// Generate 1-3 signals based on hash
+	return 1 + int(sum[0])%3
 }
 
 // generateRunID creates a deterministic run ID from seed and inputs hash.

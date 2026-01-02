@@ -1915,13 +1915,15 @@ func (s *Server) handleShadowRun(w http.ResponseWriter, r *http.Request) {
 		Timestamp: s.clk.Now(),
 	})
 
-	// Get circle ID
+	// Get circle ID - prefer identity repo circles for consistency with loop
 	circleID := r.URL.Query().Get("circle_id")
 	if circleID == "" {
-		// Use first circle from config
-		circleIDs := s.multiCircleConfig.CircleIDs()
-		if len(circleIDs) > 0 {
-			circleID = string(circleIDs[0])
+		// Use first circle from identity repo (matches loop engine)
+		entities, err := s.identityRepo.GetByType(identity.EntityTypeCircle)
+		if err == nil && len(entities) > 0 {
+			if circle, ok := entities[0].(*identity.Circle); ok {
+				circleID = string(circle.ID())
+			}
 		}
 	}
 
@@ -2004,12 +2006,15 @@ func (s *Server) handleShadowDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get circle ID
+	// Get circle ID - prefer identity repo circles for consistency with loop
 	circleID := r.URL.Query().Get("circle_id")
 	if circleID == "" {
-		circleIDs := s.multiCircleConfig.CircleIDs()
-		if len(circleIDs) > 0 {
-			circleID = string(circleIDs[0])
+		// Use first circle from identity repo (matches loop engine)
+		entities, err := s.identityRepo.GetByType(identity.EntityTypeCircle)
+		if err == nil && len(entities) > 0 {
+			if circle, ok := entities[0].(*identity.Circle); ok {
+				circleID = string(circle.ID())
+			}
 		}
 	}
 
@@ -2259,7 +2264,7 @@ func (s *Server) handleShadowReport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Compute calibration stats from stored diffs
-	summary := "No shadow comparisons yet."
+	summary := "No comparisons yet. Run shadow mode first, then compute diffs."
 	agreementPct := "0%"
 	noveltyPct := "0%"
 	conflictPct := "0%"

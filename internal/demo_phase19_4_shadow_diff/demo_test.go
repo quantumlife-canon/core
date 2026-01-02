@@ -20,6 +20,7 @@ import (
 	"quantumlife/internal/persist"
 	"quantumlife/internal/shadowcalibration"
 	"quantumlife/internal/shadowdiff"
+	"quantumlife/internal/shadowllm/stub"
 	"quantumlife/pkg/clock"
 	"quantumlife/pkg/domain/identity"
 	domaindiff "quantumlife/pkg/domain/shadowdiff"
@@ -637,4 +638,143 @@ func TestOverallSummaryGeneration(t *testing.T) {
 	}
 
 	t.Log("Overall summary generation verified")
+}
+
+// =============================================================================
+// Test 15: Stub Provider Produces Non-Empty Suggestions (Phase 19.4.1)
+// =============================================================================
+
+func TestStubProviderNonEmptySuggestions(t *testing.T) {
+	clk := createTestClock()
+
+	// Create stub context with identity circle
+	ctx := shadowllm.ShadowContext{
+		CircleID:   identity.EntityID("circle_38d867a436cedab0"),
+		InputsHash: "test-inputs-hash-deterministic",
+		Seed:       12345,
+		Clock:      clk.Now,
+	}
+
+	// Create stub model
+	stubModel := stub.NewStubModel()
+
+	// Run observe
+	run, err := stubModel.Observe(ctx)
+	if err != nil {
+		t.Fatalf("Stub observe failed: %v", err)
+	}
+
+	// CRITICAL: Stub must return at least 1 signal
+	if len(run.Signals) == 0 {
+		t.Fatal("Stub returned 0 signals - Phase 19.4.1 requires non-empty suggestions for diff flow")
+	}
+
+	// Stub should return 1-3 signals (deterministic based on seed)
+	if len(run.Signals) < 1 || len(run.Signals) > 3 {
+		t.Errorf("Expected 1-3 signals, got: %d", len(run.Signals))
+	}
+
+	t.Logf("Stub provider non-empty verified: %d signals", len(run.Signals))
+}
+
+// =============================================================================
+// Test 16: Diff Engine Produces Non-Empty Output With Stub (Phase 19.4.1)
+// =============================================================================
+
+func TestDiffEngineNonEmptyWithStub(t *testing.T) {
+	clk := createTestClock()
+	diffEngine := shadowdiff.NewEngine(clk)
+
+	// Create canon with 1 item
+	canon := shadowdiff.CanonResult{
+		CircleID: identity.EntityID("circle_38d867a436cedab0"),
+		Signals: []domaindiff.CanonSignal{
+			createCanonSignal("circle_38d867a436cedab0", "test-item", shadowllm.CategoryMoney, shadowllm.HorizonSoon, shadowllm.MagnitudeAFew),
+		},
+		ComputedAt: clk.Now(),
+	}
+
+	// Run stub to generate receipt
+	stubModel := stub.NewStubModel()
+	stubCtx := shadowllm.ShadowContext{
+		CircleID:   identity.EntityID("circle_38d867a436cedab0"),
+		InputsHash: "diff-test-inputs",
+		Seed:       67890,
+		Clock:      clk.Now,
+	}
+	stubRun, err := stubModel.Observe(stubCtx)
+	if err != nil {
+		t.Fatalf("Stub observe failed: %v", err)
+	}
+
+	// Convert stub signals to receipt suggestions
+	// Use deterministic mapping from signal values
+	suggestions := make([]shadowllm.ShadowSuggestion, 0, len(stubRun.Signals))
+	for _, sig := range stubRun.Signals {
+		// Map value float to horizon bucket
+		var horizon shadowllm.Horizon
+		if sig.ValueFloat < -0.5 {
+			horizon = shadowllm.HorizonLater
+		} else if sig.ValueFloat < 0.0 {
+			horizon = shadowllm.HorizonSoon
+		} else if sig.ValueFloat < 0.5 {
+			horizon = shadowllm.HorizonNow
+		} else {
+			horizon = shadowllm.HorizonLater
+		}
+
+		// Map confidence float to magnitude bucket
+		var magnitude shadowllm.MagnitudeBucket
+		if sig.ConfidenceFloat < 0.25 {
+			magnitude = shadowllm.MagnitudeNothing
+		} else if sig.ConfidenceFloat < 0.5 {
+			magnitude = shadowllm.MagnitudeAFew
+		} else {
+			magnitude = shadowllm.MagnitudeSeveral
+		}
+
+		suggestions = append(suggestions, shadowllm.ShadowSuggestion{
+			Category:       sig.Category,
+			Horizon:        horizon,
+			Magnitude:      magnitude,
+			Confidence:     shadowllm.ConfidenceFromFloat(sig.ConfidenceFloat),
+			SuggestionType: shadowllm.SuggestHold,
+			ItemKeyHash:    sig.ItemKeyHash,
+		})
+	}
+
+	receipt := &shadowllm.ShadowReceipt{
+		ReceiptID:       stubRun.RunID,
+		CircleID:        stubCtx.CircleID,
+		WindowBucket:    "2024-01-15",
+		InputDigestHash: stubCtx.InputsHash,
+		ModelSpec:       "stub",
+		Suggestions:     suggestions,
+		CreatedAt:       clk.Now(),
+		Provenance: shadowllm.Provenance{
+			ProviderKind:  shadowllm.ProviderKindStub,
+			LatencyBucket: shadowllm.LatencyNA,
+			Status:        shadowllm.ReceiptStatusSuccess,
+		},
+	}
+
+	// Compute diff
+	output, err := diffEngine.Compute(shadowdiff.DiffInput{Canon: canon, Shadow: receipt})
+	if err != nil {
+		t.Fatalf("Diff compute failed: %v", err)
+	}
+
+	// CRITICAL: Diff engine must produce at least 1 diff result
+	if len(output.Results) == 0 {
+		t.Fatal("Diff engine returned 0 results - Phase 19.4.1 requires non-empty diffs for calibration flow")
+	}
+
+	// Should have diffs from both canon (1 item) and shadow (1-3 items)
+	totalPossible := 1 + len(stubRun.Signals) // canon items + shadow items
+	if len(output.Results) > totalPossible {
+		t.Errorf("Unexpected diff count: %d (max expected %d)", len(output.Results), totalPossible)
+	}
+
+	t.Logf("Diff engine non-empty verified: %d diffs (canon_only=%d, shadow_only=%d, matches=%d)",
+		len(output.Results), output.Summary.CanonOnlyCount, output.Summary.ShadowOnlyCount, output.Summary.MatchCount)
 }
