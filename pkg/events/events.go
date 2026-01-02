@@ -1301,6 +1301,21 @@ const (
 	// CRITICAL: Intent only. Does NOT change behavior.
 	Phase19_5PromotionProposed  EventType = "phase19_5.promotion.proposed"
 	Phase19_5PromotionPersisted EventType = "phase19_5.promotion.persisted"
+
+	// =========================================================================
+	// Phase 19.6: Rule Pack Export (Promotion Pipeline)
+	// =========================================================================
+	// Reference: docs/ADR/ADR-0047-phase19-6-rulepack-export.md
+	//
+	// CRITICAL: RulePack export does NOT apply itself. No behavior change.
+
+	// Pack lifecycle events
+	Phase19_6PackBuildRequested EventType = "phase19_6.pack.build_requested"
+	Phase19_6PackBuilt          EventType = "phase19_6.pack.built"
+	Phase19_6PackPersisted      EventType = "phase19_6.pack.persisted"
+	Phase19_6PackViewed         EventType = "phase19_6.pack.viewed"
+	Phase19_6PackExported       EventType = "phase19_6.pack.exported"
+	Phase19_6PackDismissed      EventType = "phase19_6.pack.dismissed"
 )
 
 // Event represents a system event for audit and observability.

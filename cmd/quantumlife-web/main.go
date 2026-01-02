@@ -63,8 +63,10 @@ import (
 	"quantumlife/pkg/domain/shadowdiff"
 	domainshadowgate "quantumlife/pkg/domain/shadowgate"
 	domainshadow "quantumlife/pkg/domain/shadowllm"
+	domainrulepack "quantumlife/pkg/domain/rulepack"
 	"quantumlife/pkg/events"
 	shadowgate "quantumlife/internal/shadowgate"
+	rulepackengine "quantumlife/internal/rulepack"
 )
 
 var (
@@ -103,6 +105,7 @@ type Server struct {
 	shadowReceiptStore     *persist.ShadowReceiptStore      // Phase 19.2: Shadow receipt store
 	shadowCalibrationStore *persist.ShadowCalibrationStore  // Phase 19.4: Shadow calibration store
 	shadowGateStore        *persist.ShadowGateStore         // Phase 19.5: Shadow gating store
+	rulepackStore          *persist.RulePackStore           // Phase 19.6: Rule pack store
 }
 
 // eventLogger logs events.
@@ -440,6 +443,7 @@ func main() {
 	shadowReceiptStore := persist.NewShadowReceiptStore(clk.Now)
 	shadowCalibrationStore := persist.NewShadowCalibrationStore(clk.Now)
 	shadowGateStore := persist.NewShadowGateStore(clk.Now)
+	rulepackStore := persist.NewRulePackStore(clk.Now)
 
 	// Create server
 	server := &Server{
@@ -471,6 +475,7 @@ func main() {
 		shadowReceiptStore:     shadowReceiptStore,     // Phase 19.2
 		shadowCalibrationStore: shadowCalibrationStore, // Phase 19.4
 		shadowGateStore:        shadowGateStore,        // Phase 19.5
+		rulepackStore:          rulepackStore,          // Phase 19.6
 	}
 
 	// Set up routes
@@ -509,6 +514,9 @@ func main() {
 	mux.HandleFunc("/shadow/candidates", server.handleShadowCandidates)       // Phase 19.5: Shadow candidates
 	mux.HandleFunc("/shadow/candidates/refresh", server.handleShadowCandidatesRefresh)   // Phase 19.5: Refresh candidates
 	mux.HandleFunc("/shadow/candidates/propose", server.handleShadowCandidatesPropose)   // Phase 19.5: Propose promotion
+	mux.HandleFunc("/shadow/packs", server.handleRulePackList)           // Phase 19.6: List packs
+	mux.HandleFunc("/shadow/packs/", server.handleRulePackDetail)        // Phase 19.6: Pack detail
+	mux.HandleFunc("/shadow/packs/build", server.handleRulePackBuild)    // Phase 19.6: Build pack
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18: App routes (authenticated)
@@ -2776,6 +2784,410 @@ func (s *Server) handleShadowCandidatesPropose(w http.ResponseWriter, r *http.Re
 
 	// Redirect back to candidates page
 	http.Redirect(w, r, "/shadow/candidates", http.StatusFound)
+}
+
+// =============================================================================
+// Phase 19.6: Rule Pack Export (Promotion Pipeline)
+// =============================================================================
+
+// handleRulePackList shows the list of available rule packs (whisper-style).
+//
+// Phase 19.6: Rule Pack Export
+// CRITICAL: Packs do NOT apply themselves. No behavior change.
+func (s *Server) handleRulePackList(w http.ResponseWriter, r *http.Request) {
+	// GET only
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get all packs (most recent first)
+	packs := s.rulepackStore.ListAllPacks()
+
+	// Emit viewed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase19_6PackViewed,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"pack_count": fmt.Sprintf("%d", len(packs)),
+		},
+	})
+
+	// Render whisper-style page
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rule Packs</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; color: #333; }
+        h1 { font-size: 1.2rem; font-weight: normal; color: #666; }
+        .summary { font-size: 0.9rem; color: #888; margin: 20px 0; }
+        .packs { margin: 30px 0; }
+        .pack { border-left: 2px solid #ddd; padding: 10px 15px; margin: 15px 0; }
+        .pack-header { font-size: 0.85rem; color: #666; }
+        .pack-stats { font-size: 0.75rem; color: #aaa; margin-top: 5px; }
+        .pack-link { font-size: 0.8rem; color: #666; text-decoration: none; }
+        .pack-link:hover { color: #333; }
+        .build-form { margin: 20px 0; }
+        .build-btn { padding: 6px 12px; font-size: 0.8rem; border: 1px solid #ddd; background: white; color: #666; cursor: pointer; }
+        .build-btn:hover { background: #f5f5f5; }
+        .nav { margin-top: 30px; }
+        .nav a { color: #999; text-decoration: none; font-size: 0.8rem; margin-right: 15px; }
+        .nav a:hover { color: #666; }
+        .whisper { font-size: 0.75rem; color: #aaa; margin-top: 40px; }
+    </style>
+</head>
+<body>
+    <h1>Suggestions you can review later</h1>
+    <p class="summary">Rule packs contain patterns that might be worth promoting to rules.</p>
+
+    <form class="build-form" action="/shadow/packs/build" method="POST">
+        <button type="submit" class="build-btn">Build new pack</button>
+    </form>
+
+    <div class="packs">`)
+
+	if len(packs) == 0 {
+		fmt.Fprintf(w, `        <p class="summary">No packs yet. Build one from promotion intents.</p>`)
+	} else {
+		for _, pack := range packs {
+			magnitude := pack.ChangeMagnitude()
+			magnitudeText := "none"
+			switch magnitude {
+			case domainshadow.MagnitudeAFew:
+				magnitudeText = "a few"
+			case domainshadow.MagnitudeSeveral:
+				magnitudeText = "several"
+			}
+
+			fmt.Fprintf(w, `
+        <div class="pack">
+            <div class="pack-header">
+                <a href="/shadow/packs/%s" class="pack-link">Pack %s</a>
+            </div>
+            <div class="pack-stats">
+                Period: %s • Changes: %s • Created: %s
+            </div>
+        </div>`,
+				pack.PackID,
+				pack.PackID[:8],
+				pack.PeriodKey,
+				magnitudeText,
+				pack.CreatedAtBucket,
+			)
+		}
+	}
+
+	fmt.Fprintf(w, `
+    </div>
+
+    <div class="nav">
+        <a href="/shadow/candidates">&larr; Back to candidates</a>
+        <a href="/today">&larr; Back to today</a>
+    </div>
+    <p class="whisper">Packs: %d</p>
+</body>
+</html>`, len(packs))
+}
+
+// handleRulePackDetail shows pack details or handles export/dismiss.
+//
+// Phase 19.6: Rule Pack Export
+// CRITICAL: Packs do NOT apply themselves. No behavior change.
+func (s *Server) handleRulePackDetail(w http.ResponseWriter, r *http.Request) {
+	// Extract pack ID from URL
+	path := r.URL.Path
+	packID := ""
+	if len(path) > len("/shadow/packs/") {
+		packID = path[len("/shadow/packs/"):]
+	}
+
+	// Handle sub-routes
+	if strings.HasSuffix(packID, "/export") {
+		packID = strings.TrimSuffix(packID, "/export")
+		s.handleRulePackExport(w, r, packID)
+		return
+	}
+	if strings.HasSuffix(packID, "/dismiss") {
+		packID = strings.TrimSuffix(packID, "/dismiss")
+		s.handleRulePackDismiss(w, r, packID)
+		return
+	}
+
+	// GET for detail view
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get the pack
+	pack, ok := s.rulepackStore.GetPack(packID)
+	if !ok {
+		http.Error(w, "Pack not found", http.StatusNotFound)
+		return
+	}
+
+	// Record viewed ack
+	_ = s.rulepackStore.AckPack(packID, domainrulepack.AckViewed)
+
+	// Emit viewed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase19_6PackViewed,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"pack_id":   packID,
+			"pack_hash": pack.PackHash,
+		},
+	})
+
+	// Render whisper-style detail page
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pack %s</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; color: #333; }
+        h1 { font-size: 1.2rem; font-weight: normal; color: #666; }
+        .summary { font-size: 0.9rem; color: #888; margin: 20px 0; }
+        .changes { margin: 30px 0; }
+        .change { border-left: 2px solid #ddd; padding: 10px 15px; margin: 15px 0; }
+        .change-header { font-size: 0.85rem; color: #666; }
+        .change-detail { font-size: 0.75rem; color: #aaa; margin-top: 5px; }
+        .change-kind-bias { border-left-color: #3498db; }
+        .change-kind-threshold { border-left-color: #27ae60; }
+        .change-kind-suppress { border-left-color: #e74c3c; }
+        .actions { margin: 20px 0; }
+        .action-btn { padding: 6px 12px; font-size: 0.8rem; border: 1px solid #ddd; background: white; color: #666; cursor: pointer; margin-right: 10px; }
+        .action-btn:hover { background: #f5f5f5; }
+        .nav { margin-top: 30px; }
+        .nav a { color: #999; text-decoration: none; font-size: 0.8rem; margin-right: 15px; }
+        .nav a:hover { color: #666; }
+        .whisper { font-size: 0.75rem; color: #aaa; margin-top: 40px; }
+    </style>
+</head>
+<body>
+    <h1>Pack %s</h1>
+    <p class="summary">Period: %s • Format: %s</p>
+
+    <div class="actions">
+        <form action="/shadow/packs/%s/export" method="POST" style="display: inline;">
+            <button type="submit" class="action-btn">Export as text</button>
+        </form>
+        <form action="/shadow/packs/%s/dismiss" method="POST" style="display: inline;">
+            <button type="submit" class="action-btn">Dismiss</button>
+        </form>
+    </div>
+
+    <div class="changes">`,
+		pack.PackID[:8],
+		pack.PackID[:8],
+		pack.PeriodKey,
+		pack.ExportFormatVersion,
+		pack.PackID,
+		pack.PackID,
+	)
+
+	if len(pack.Changes) == 0 {
+		fmt.Fprintf(w, `        <p class="summary">No changes in this pack.</p>`)
+	} else {
+		for _, c := range pack.Changes {
+			kindClass := "change-kind-bias"
+			kindText := "bias adjust"
+			switch c.ChangeKind {
+			case domainrulepack.ChangeThresholdAdjust:
+				kindClass = "change-kind-threshold"
+				kindText = "threshold adjust"
+			case domainrulepack.ChangeSuppressSuggest:
+				kindClass = "change-kind-suppress"
+				kindText = "suppress suggest"
+			}
+
+			fmt.Fprintf(w, `
+        <div class="change %s">
+            <div class="change-header">%s • %s • %s</div>
+            <div class="change-detail">
+                Usefulness: %s • Confidence: %s • Delta: %s
+            </div>
+        </div>`,
+				kindClass,
+				kindText,
+				string(c.Category),
+				string(c.TargetScope),
+				string(c.UsefulnessBucket),
+				string(c.VoteConfidenceBucket),
+				string(c.SuggestedDelta),
+			)
+		}
+	}
+
+	fmt.Fprintf(w, `
+    </div>
+
+    <div class="nav">
+        <a href="/shadow/packs">&larr; Back to packs</a>
+        <a href="/today">&larr; Back to today</a>
+    </div>
+    <p class="whisper">Hash: %s</p>
+</body>
+</html>`, pack.PackHash[:16])
+}
+
+// handleRulePackExport exports a pack as text/plain.
+//
+// Phase 19.6: Rule Pack Export
+// CRITICAL: Export does NOT apply the pack. No behavior change.
+func (s *Server) handleRulePackExport(w http.ResponseWriter, r *http.Request, packID string) {
+	// POST only
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed - POST required", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get the pack
+	pack, ok := s.rulepackStore.GetPack(packID)
+	if !ok {
+		http.Error(w, "Pack not found", http.StatusNotFound)
+		return
+	}
+
+	// Record exported ack
+	_ = s.rulepackStore.AckPack(packID, domainrulepack.AckExported)
+
+	// Emit exported event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase19_6PackExported,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"pack_id":   packID,
+			"pack_hash": pack.PackHash,
+		},
+	})
+
+	// Export as text
+	text := pack.ToText()
+
+	// Validate privacy (should never fail, but check anyway)
+	if err := domainrulepack.ValidateExportPrivacy(text); err != nil {
+		http.Error(w, "Export privacy validation failed", http.StatusInternalServerError)
+		return
+	}
+
+	// Return as text/plain download
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"rulepack-%s.txt\"", packID[:8]))
+	w.Write([]byte(text))
+}
+
+// handleRulePackDismiss dismisses a pack.
+//
+// Phase 19.6: Rule Pack Export
+// CRITICAL: Dismiss does NOT affect any behavior. It only records acknowledgment.
+func (s *Server) handleRulePackDismiss(w http.ResponseWriter, r *http.Request, packID string) {
+	// POST only
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed - POST required", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Verify pack exists
+	pack, ok := s.rulepackStore.GetPack(packID)
+	if !ok {
+		http.Error(w, "Pack not found", http.StatusNotFound)
+		return
+	}
+
+	// Record dismissed ack
+	if err := s.rulepackStore.AckPack(packID, domainrulepack.AckDismissed); err != nil {
+		log.Printf("Failed to ack pack dismissal: %v", err)
+	}
+
+	// Emit dismissed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase19_6PackDismissed,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"pack_id":   packID,
+			"pack_hash": pack.PackHash,
+		},
+	})
+
+	// Redirect back to list
+	http.Redirect(w, r, "/shadow/packs", http.StatusFound)
+}
+
+// handleRulePackBuild builds a new pack from promotion intents.
+//
+// Phase 19.6: Rule Pack Export
+// CRITICAL: Building a pack does NOT apply it. No behavior change.
+func (s *Server) handleRulePackBuild(w http.ResponseWriter, r *http.Request) {
+	// POST only
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed - POST required", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Emit build requested event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase19_6PackBuildRequested,
+		Timestamp: s.clk.Now(),
+	})
+
+	// Get current period
+	periodKey := domainrulepack.PeriodKeyFromTime(s.clk.Now())
+
+	// Create engine
+	engine := rulepackengine.NewEngine(s.clk)
+
+	// Build pack
+	input := rulepackengine.BuildInput{
+		PeriodKey:    periodKey,
+		IntentSource: s.shadowGateStore,
+	}
+
+	output, err := engine.Build(input)
+	if err != nil {
+		log.Printf("Failed to build pack: %v", err)
+		http.Redirect(w, r, "/shadow/packs", http.StatusFound)
+		return
+	}
+
+	// Emit built event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase19_6PackBuilt,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"pack_id":           output.Pack.PackID,
+			"pack_hash":         output.Pack.PackHash,
+			"total_intents":     fmt.Sprintf("%d", output.TotalIntents),
+			"qualified_intents": fmt.Sprintf("%d", output.QualifiedIntents),
+			"skipped_intents":   fmt.Sprintf("%d", output.SkippedIntents),
+			"change_count":      fmt.Sprintf("%d", len(output.Pack.Changes)),
+		},
+	})
+
+	// Persist pack
+	if err := s.rulepackStore.AppendPack(output.Pack); err != nil {
+		log.Printf("Failed to persist pack: %v", err)
+	} else {
+		// Emit persisted event
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase19_6PackPersisted,
+			Timestamp: s.clk.Now(),
+			Metadata: map[string]string{
+				"pack_id":   output.Pack.PackID,
+				"pack_hash": output.Pack.PackHash,
+			},
+		})
+	}
+
+	// Redirect to the new pack
+	http.Redirect(w, r, "/shadow/packs/"+output.Pack.PackID, http.StatusFound)
 }
 
 // handleDemo serves the deterministic demo page.

@@ -59,6 +59,7 @@ help:
 	@echo "  make demo-phase19-3 - Run Phase 19.3 Azure shadow provider demo"
 	@echo "  make demo-phase19-4 - Run Phase 19.4 shadow diff + calibration demo"
 	@echo "  make demo-phase19-5 - Run Phase 19.5 shadow gating demo"
+	@echo "  make demo-phase19-6 - Run Phase 19.6 rule pack export demo"
 	@echo ""
 	@echo "Web Server:"
 	@echo "  make web          - Run web server on :8080 (real mode)"
@@ -97,6 +98,7 @@ help:
 	@echo "  make check-shadow-azure - Check Azure shadow constraints (Phase 19.3)"
 	@echo "  make check-shadow-diff - Check shadow diff constraints (Phase 19.4)"
 	@echo "  make check-shadow-gating - Check shadow gating constraints (Phase 19.5)"
+	@echo "  make check-rulepack-export - Check rule pack export constraints (Phase 19.6)"
 	@echo ""
 	@echo "iOS (Phase 19):"
 	@echo "  make ios-open   - Open iOS project in Xcode (macOS only)"
@@ -518,6 +520,17 @@ demo-phase19-5:
 check-shadow-gating:
 	@echo "Checking shadow gating constraints (Phase 19.5)..."
 	@./scripts/guardrails/shadow_gating_enforced.sh
+
+# Phase 19.6 Demo: Rule Pack Export (Promotion Pipeline)
+# Reference: docs/ADR/ADR-0047-phase19-6-rulepack-export.md
+demo-phase19-6:
+	@echo "Running Phase 19.6 Demo: Rule Pack Export..."
+	go test -v ./internal/demo_phase19_6_rulepack_export/...
+
+# Check rule pack export constraints (Phase 19.6)
+check-rulepack-export:
+	@echo "Checking rule pack export constraints (Phase 19.6)..."
+	@./scripts/guardrails/rulepack_export_enforced.sh
 
 # =============================================================================
 # Web Server Targets
