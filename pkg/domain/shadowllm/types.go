@@ -3,13 +3,13 @@
 // Phase 19: LLM Shadow-Mode Contract
 //
 // CRITICAL INVARIANTS:
-// - Shadow mode emits METADATA ONLY (scores, deltas, confidence) - never content
-// - Shadow mode can NEVER: surface UI text, create obligations/drafts,
-//   alter interruption levels, trigger execution, write back to providers
-// - Shadow mode is OFF by default, requires explicit config flag
-// - No goroutines. No time.Now() - clock injection only.
-// - Deterministic: same inputs + same seed + same clock => identical outputs/hashes
-// - Stdlib only. No external dependencies.
+//   - Shadow mode emits METADATA ONLY (scores, deltas, confidence) - never content
+//   - Shadow mode can NEVER: surface UI text, create obligations/drafts,
+//     alter interruption levels, trigger execution, write back to providers
+//   - Shadow mode is OFF by default, requires explicit config flag
+//   - No goroutines. No time.Now() - clock injection only.
+//   - Deterministic: same inputs + same seed + same clock => identical outputs/hashes
+//   - Stdlib only. No external dependencies.
 //
 // Reference: docs/ADR/ADR-0043-phase19-shadow-mode-contract.md
 package shadowllm

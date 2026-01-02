@@ -90,6 +90,7 @@ type Server struct {
 	tokenBroker       auth.TokenBroker                 // Phase 18.8: OAuth token broker
 	oauthStateManager *oauth.StateManager              // Phase 18.8: OAuth state management
 	gmailHandler      *oauth.GmailHandler              // Phase 18.8: Gmail OAuth handler
+	syncReceiptStore  *persist.SyncReceiptStore        // Phase 19.1: Sync receipt store
 }
 
 // eventLogger logs events.
@@ -156,6 +157,8 @@ type templateData struct {
 	MirrorPage *domainmirror.MirrorPage
 	// Phase 18.9: Gmail OAuth
 	CircleID string
+	// Phase 19.1: Quiet check
+	QuietCheckStatus *persist.QuietCheckStatus
 }
 
 // personInfo contains person data for display. Phase 13.1.
@@ -415,6 +418,9 @@ func main() {
 		clk.Now,
 	)
 
+	// Create sync receipt store (Phase 19.1)
+	syncReceiptStore := persist.NewSyncReceiptStore(clk.Now)
+
 	// Create server
 	server := &Server{
 		engine:            engine,
@@ -440,6 +446,7 @@ func main() {
 		tokenBroker:       tokenBroker,       // Phase 18.8
 		oauthStateManager: oauthStateManager, // Phase 18.8
 		gmailHandler:      gmailHandler,      // Phase 18.8
+		syncReceiptStore:  syncReceiptStore,  // Phase 19.1
 	}
 
 	// Set up routes
@@ -465,11 +472,12 @@ func main() {
 	mux.HandleFunc("/connect/", server.handleConnect)                          // Phase 18.6: Connect action
 	mux.HandleFunc("/disconnect/", server.handleDisconnect)                    // Phase 18.6: Disconnect action
 	mux.HandleFunc("/mirror", server.handleMirror)                             // Phase 18.7: Mirror Proof
-	mux.HandleFunc("/connect/gmail", server.handleGmailConsent)                 // Phase 18.9: Gmail consent page
+	mux.HandleFunc("/connect/gmail", server.handleGmailConsent)                // Phase 18.9: Gmail consent page
 	mux.HandleFunc("/connect/gmail/start", server.handleGmailOAuthStart)       // Phase 18.8: Gmail OAuth start
 	mux.HandleFunc("/connect/gmail/callback", server.handleGmailOAuthCallback) // Phase 18.8: Gmail OAuth callback
 	mux.HandleFunc("/disconnect/gmail", server.handleGmailDisconnect)          // Phase 18.8: Gmail disconnect
 	mux.HandleFunc("/run/gmail-sync", server.handleGmailSync)                  // Phase 18.8: Gmail sync
+	mux.HandleFunc("/quiet-check", server.handleQuietCheck)                    // Phase 19.1: Quiet baseline verification
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18: App routes (authenticated)
@@ -1581,8 +1589,10 @@ func (s *Server) handleGmailDisconnect(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleGmailSync performs a Gmail sync.
-// Phase 18.8: Real OAuth (Gmail Read-Only).
+// Phase 19.1: Real Gmail Connection (You-only).
 // CRITICAL: Only called explicitly by browsing human. No background polling.
+// CRITICAL: Max 25 messages, last 7 days.
+// CRITICAL: All Gmail obligations are held by default.
 func (s *Server) handleGmailSync(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -1606,9 +1616,18 @@ func (s *Server) handleGmailSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Phase 19.1: Emit sync requested event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase19_1GmailSyncRequested,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"circle_id": circleID,
+		},
+	})
+
 	// Emit sync started event
 	s.eventEmitter.Emit(events.Event{
-		Type:      events.Phase18_8GmailSyncStarted,
+		Type:      events.Phase19_1GmailSyncStarted,
 		Timestamp: s.clk.Now(),
 		Metadata: map[string]string{
 			"circle_id": circleID,
@@ -1624,12 +1643,23 @@ func (s *Server) handleGmailSync(w http.ResponseWriter, r *http.Request) {
 	broker, ok := s.tokenBroker.(*impl_inmem.Broker)
 	if !ok {
 		log.Printf("Gmail sync failed: invalid broker type")
+
+		// Create failure receipt
+		failReceipt := persist.NewSyncReceipt(
+			identity.EntityID(circleID),
+			"gmail",
+			0, 0, s.clk.Now(),
+			false, "invalid_broker",
+		)
+		s.syncReceiptStore.Store(failReceipt)
+
 		s.eventEmitter.Emit(events.Event{
-			Type:      events.Phase18_8GmailSyncFailed,
+			Type:      events.Phase19_1GmailSyncFailed,
 			Timestamp: s.clk.Now(),
 			Metadata: map[string]string{
-				"circle_id":   circleID,
-				"fail_reason": "invalid_broker",
+				"circle_id":    circleID,
+				"fail_reason":  "invalid_broker",
+				"receipt_hash": failReceipt.Hash,
 			},
 		})
 		http.Error(w, "Internal configuration error", http.StatusInternalServerError)
@@ -1638,18 +1668,32 @@ func (s *Server) handleGmailSync(w http.ResponseWriter, r *http.Request) {
 
 	adapter := gmailread.NewRealAdapter(broker, s.clk, circleID)
 
-	// Perform sync using Gmail adapter
-	since := s.clk.Now().Add(-24 * time.Hour) // Last 24 hours
-	messages, err := adapter.FetchMessages(accountEmail, since, 50)
+	// Phase 19.1: CRITICAL limits
+	// Max 25 messages, last 7 days
+	const maxMessages = 25
+	const syncDays = 7
+	since := s.clk.Now().Add(-time.Duration(syncDays) * 24 * time.Hour)
+
+	messages, err := adapter.FetchMessages(accountEmail, since, maxMessages)
 	if err != nil {
 		log.Printf("Gmail sync failed: %v", err)
 
+		// Create failure receipt
+		failReceipt := persist.NewSyncReceipt(
+			identity.EntityID(circleID),
+			"gmail",
+			0, 0, s.clk.Now(),
+			false, "sync_failed",
+		)
+		s.syncReceiptStore.Store(failReceipt)
+
 		s.eventEmitter.Emit(events.Event{
-			Type:      events.Phase18_8GmailSyncFailed,
+			Type:      events.Phase19_1GmailSyncFailed,
 			Timestamp: s.clk.Now(),
 			Metadata: map[string]string{
-				"circle_id":   circleID,
-				"fail_reason": "sync_failed",
+				"circle_id":    circleID,
+				"fail_reason":  "sync_failed",
+				"receipt_hash": failReceipt.Hash,
 			},
 		})
 
@@ -1658,20 +1702,152 @@ func (s *Server) handleGmailSync(w http.ResponseWriter, r *http.Request) {
 	}
 
 	messageCount := len(messages)
+	eventsStored := 0
 
-	// Emit sync completed event
+	// Store events in event store (no raw content - events already abstracted)
+	for _, msg := range messages {
+		existingEvent, _ := s.engine.EventStore.GetByID(msg.EventID())
+		if existingEvent != nil {
+			// Deduplicate
+			s.eventEmitter.Emit(events.Event{
+				Type:      events.Phase19_1EventDeduplicate,
+				Timestamp: s.clk.Now(),
+				Metadata: map[string]string{
+					"circle_id": circleID,
+					"event_id":  msg.EventID(),
+				},
+			})
+			continue
+		}
+
+		s.engine.EventStore.Store(msg)
+		eventsStored++
+
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase19_1EventStored,
+			Timestamp: s.clk.Now(),
+			Metadata: map[string]string{
+				"circle_id": circleID,
+				"event_id":  msg.EventID(),
+			},
+		})
+	}
+
+	// Create success receipt with magnitude buckets only
+	receipt := persist.NewSyncReceipt(
+		identity.EntityID(circleID),
+		"gmail",
+		messageCount,
+		eventsStored,
+		s.clk.Now(),
+		true, "",
+	)
+	s.syncReceiptStore.Store(receipt)
+
+	// Emit Phase 19.1 sync receipt created
 	s.eventEmitter.Emit(events.Event{
-		Type:      events.Phase18_8GmailSyncCompleted,
+		Type:      events.Phase19_1SyncReceiptCreated,
 		Timestamp: s.clk.Now(),
 		Metadata: map[string]string{
-			"circle_id":        circleID,
-			"message_count":    fmt.Sprintf("%d", messageCount),
-			"magnitude_bucket": oauth.MagnitudeBucket(messageCount),
+			"circle_id":          circleID,
+			"receipt_id":         receipt.ReceiptID,
+			"receipt_hash":       receipt.Hash,
+			"magnitude_bucket":   string(receipt.MagnitudeBucket),
+			"events_stored_bucket": string(receipt.EventsStoredBucket),
+		},
+	})
+
+	// Emit sync completed event with magnitude buckets only (no raw counts in metadata)
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase19_1GmailSyncCompleted,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"circle_id":          circleID,
+			"magnitude_bucket":   string(receipt.MagnitudeBucket),
+			"events_stored_bucket": string(receipt.EventsStoredBucket),
+			"receipt_hash":       receipt.Hash,
 		},
 	})
 
 	// Return success page or redirect
 	http.Redirect(w, r, "/connections?synced=gmail", http.StatusFound)
+}
+
+// handleQuietCheck serves the quiet baseline verification page.
+// Phase 19.1: Shows a calm checklist verifying quiet principles.
+func (s *Server) handleQuietCheck(w http.ResponseWriter, r *http.Request) {
+	// Emit quiet check requested event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase19_1QuietCheckRequested,
+		Timestamp: s.clk.Now(),
+	})
+
+	// Get circle ID (use first circle if not specified)
+	circleID := r.URL.Query().Get("circle_id")
+	if circleID == "" {
+		// Use default circle from multi-circle config
+		circleIDs := s.multiCircleConfig.CircleIDs()
+		if len(circleIDs) > 0 {
+			circleID = string(circleIDs[0])
+		}
+	}
+
+	// Check Gmail connection
+	gmailConnected := false
+	if circleID != "" {
+		hasConn, err := s.gmailHandler.HasConnection(r.Context(), circleID)
+		if err == nil && hasConn {
+			gmailConnected = true
+		}
+	}
+
+	// Get latest sync receipt
+	var lastSyncTime time.Time
+	var lastSyncMagnitude persist.MagnitudeBucket = persist.MagnitudeNone
+	if circleID != "" {
+		receipt := s.syncReceiptStore.GetLatestByCircle(identity.EntityID(circleID))
+		if receipt != nil {
+			lastSyncTime = receipt.TimeBucket
+			lastSyncMagnitude = receipt.MagnitudeBucket
+		}
+	}
+
+	// Obligations are always held by default (DefaultToHold = true)
+	obligationsHeld := true
+
+	// Auto-surface is always disabled
+	autoSurface := false
+
+	// Create quiet check status
+	status := persist.NewQuietCheckStatus(
+		gmailConnected,
+		lastSyncTime,
+		lastSyncMagnitude,
+		obligationsHeld,
+		autoSurface,
+	)
+
+	// Emit quiet check computed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase19_1QuietCheckComputed,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"gmail_connected":   fmt.Sprintf("%t", status.GmailConnected),
+			"obligations_held":  fmt.Sprintf("%t", status.ObligationsHeld),
+			"auto_surface":      fmt.Sprintf("%t", status.AutoSurface),
+			"is_quiet":          fmt.Sprintf("%t", status.IsQuiet()),
+			"status_hash":       status.Hash,
+		},
+	})
+
+	data := templateData{
+		Title:            "Quiet Check",
+		CurrentTime:      s.clk.Now().Format("2006-01-02 15:04"),
+		CircleID:         circleID,
+		QuietCheckStatus: status,
+	}
+
+	s.render(w, "quiet-check", data)
 }
 
 // handleDemo serves the deterministic demo page.
@@ -2855,6 +3031,8 @@ const templates = `
     {{template "mirror-content" .}}
 {{else if eq .Title "Mirror"}}
     {{template "mirror-content" .}}
+{{else if eq .Title "Quiet Check"}}
+    {{template "quiet-check-content" .}}
 {{else if eq .Title "Today, quietly."}}
     {{template "today-content" .}}
 {{else if eq .Title "The Moment"}}
@@ -3667,22 +3845,30 @@ const templates = `
     </section>
 
     <section class="start-connect">
-        <h3 class="start-connect-title">Connect one circle.</h3>
+        <h3 class="start-connect-title">Connect one source.</h3>
         <div class="start-connect-options">
-            <form action="/connect/email" method="POST" class="start-connect-form">
-                <button type="submit" class="start-connect-button">Connect Email</button>
-            </form>
+            <a href="/connect/gmail" class="start-connect-button start-connect-button-gmail">
+                Connect Gmail (read-only)
+            </a>
+            <p class="start-connect-note">
+                We read headers only. We do not store message content.
+                You sync manually. We never poll in the background.
+            </p>
+        </div>
+        <div class="start-connect-options start-connect-options-secondary">
             <form action="/connect/calendar" method="POST" class="start-connect-form">
-                <button type="submit" class="start-connect-button">Connect Calendar</button>
+                <button type="submit" class="start-connect-button start-connect-button-secondary">Connect Calendar</button>
             </form>
             <form action="/connect/finance" method="POST" class="start-connect-form">
-                <button type="submit" class="start-connect-button">Connect Finance</button>
+                <button type="submit" class="start-connect-button start-connect-button-secondary">Connect Finance</button>
             </form>
         </div>
     </section>
 
     <footer class="start-footer">
         <a href="/connections" class="start-connections-link">See connected sources</a>
+        <span class="start-footer-divider">·</span>
+        <a href="/quiet-check" class="start-quiet-link">Verify quiet baseline</a>
     </footer>
 </div>
 {{end}}
@@ -3705,10 +3891,20 @@ const templates = `
             <div class="connection-status connection-status-{{.Status}}">{{.Status.DisplayText}}</div>
             <div class="connection-actions">
                 {{if eq .Status.String "not_connected"}}
+                {{if eq .Kind.String "email"}}
+                <a href="/connect/gmail" class="connection-action-button connection-action-connect">Connect Gmail</a>
+                {{else}}
                 <form action="/connect/{{.Kind}}" method="POST" class="connection-action-form">
                     <button type="submit" class="connection-action-button connection-action-connect">Connect</button>
                 </form>
+                {{end}}
                 {{else}}
+                {{if eq .Kind.String "email"}}
+                <form action="/run/gmail-sync" method="POST" class="connection-action-form">
+                    <input type="hidden" name="circle_id" value="{{$.CircleID}}">
+                    <button type="submit" class="connection-action-button connection-action-sync">Sync now</button>
+                </form>
+                {{end}}
                 <form action="/disconnect/{{.Kind}}" method="POST" class="connection-action-form">
                     <button type="submit" class="connection-action-button connection-action-disconnect">Disconnect</button>
                 </form>
@@ -3722,8 +3918,10 @@ const templates = `
         <p class="connections-mode-label">Mode: {{if .MockMode}}mock{{else}}real{{end}}</p>
     </section>
 
-    <section class="connections-mirror-link">
-        <a href="/mirror" class="connections-mirror-link-text">What we noticed</a>
+    <section class="connections-links">
+        <a href="/mirror" class="connections-mirror-link-text">What we noticed (abstractly)</a>
+        <span class="connections-divider">·</span>
+        <a href="/quiet-check" class="connections-quiet-link">Verify quiet baseline</a>
     </section>
 
     <footer class="connections-footer">
@@ -3903,6 +4101,86 @@ const templates = `
 
     <footer class="mirror-footer">
         <a href="/connections" class="mirror-back-link">Back to connections</a>
+    </footer>
+</div>
+{{end}}
+
+{{/* ================================================================
+     Phase 19.1: Quiet Check - Quiet Baseline Verification
+     ================================================================ */}}
+{{define "quiet-check"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "quiet-check-content"}}
+<div class="quiet-check">
+    <header class="quiet-check-header">
+        <h1 class="quiet-check-title">Quiet, verified.</h1>
+        <p class="quiet-check-subtitle">Proof that real data stays quiet.</p>
+    </header>
+
+    {{if .QuietCheckStatus}}
+    <section class="quiet-check-checklist">
+        <ul class="quiet-check-list">
+            <li class="quiet-check-item {{if .QuietCheckStatus.GmailConnected}}quiet-check-item-yes{{else}}quiet-check-item-no{{end}}">
+                <span class="quiet-check-label">Gmail connected</span>
+                <span class="quiet-check-value">{{if .QuietCheckStatus.GmailConnected}}yes{{else}}no{{end}}</span>
+            </li>
+            <li class="quiet-check-item quiet-check-item-neutral">
+                <span class="quiet-check-label">Last sync</span>
+                <span class="quiet-check-value">{{.QuietCheckStatus.LastSyncTimeBucket}}</span>
+            </li>
+            <li class="quiet-check-item quiet-check-item-neutral">
+                <span class="quiet-check-label">Messages noticed</span>
+                <span class="quiet-check-value">{{.QuietCheckStatus.LastSyncMagnitude.DisplayText}}</span>
+            </li>
+            <li class="quiet-check-item {{if .QuietCheckStatus.ObligationsHeld}}quiet-check-item-yes{{else}}quiet-check-item-no{{end}}">
+                <span class="quiet-check-label">Obligations held</span>
+                <span class="quiet-check-value">{{if .QuietCheckStatus.ObligationsHeld}}yes{{else}}no{{end}}</span>
+            </li>
+            <li class="quiet-check-item {{if not .QuietCheckStatus.AutoSurface}}quiet-check-item-yes{{else}}quiet-check-item-no{{end}}">
+                <span class="quiet-check-label">Auto-surface</span>
+                <span class="quiet-check-value">{{if .QuietCheckStatus.AutoSurface}}enabled{{else}}no{{end}}</span>
+            </li>
+        </ul>
+    </section>
+
+    <section class="quiet-check-result">
+        {{if .QuietCheckStatus.IsQuiet}}
+        <div class="quiet-check-result-quiet">
+            <p class="quiet-check-result-title">Quiet baseline verified.</p>
+            <p class="quiet-check-result-text">
+                Real Gmail data is connected, synced explicitly, and held quietly.
+                Nothing surfaces automatically. Nothing acts without you.
+            </p>
+        </div>
+        {{else}}
+        <div class="quiet-check-result-warning">
+            <p class="quiet-check-result-title">Check failed.</p>
+            <p class="quiet-check-result-text">
+                Something is not quiet. Review the checklist above.
+            </p>
+        </div>
+        {{end}}
+    </section>
+
+    <section class="quiet-check-hash">
+        <p class="quiet-check-hash-label">Status hash:</p>
+        <p class="quiet-check-hash-value">{{slice .QuietCheckStatus.Hash 0 16}}...</p>
+    </section>
+    {{else}}
+    <section class="quiet-check-empty">
+        <p class="quiet-check-empty-text">No status computed.</p>
+        <p class="quiet-check-empty-hint">Connect Gmail and sync to verify quiet baseline.</p>
+    </section>
+    {{end}}
+
+    <footer class="quiet-check-footer">
+        <a href="/connections" class="quiet-check-back-link">Back to connections</a>
+        <span class="quiet-check-divider">·</span>
+        <a href="/mirror" class="quiet-check-mirror-link">What we noticed</a>
+        <span class="quiet-check-divider">·</span>
+        <a href="/today" class="quiet-check-today-link">Today, quietly</a>
     </footer>
 </div>
 {{end}}

@@ -16,8 +16,8 @@ import (
 	"time"
 
 	"quantumlife/internal/mirror"
-	"quantumlife/internal/obligations"
 	"quantumlife/internal/oauth"
+	"quantumlife/internal/obligations"
 	"quantumlife/pkg/domain/connection"
 	domainmirror "quantumlife/pkg/domain/mirror"
 )

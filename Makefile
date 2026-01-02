@@ -7,7 +7,7 @@
 #
 # Guardrails enforce Canon invariants at build time.
 
-.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 demo-phase9 demo-phase10 demo-phase11 demo-phase12 demo-phase13 demo-phase13-1 demo-phase14 demo-phase15 demo-phase16 demo-phase18 demo-phase18-2 demo-phase18-3 demo-phase18-4 demo-phase18-5 demo-phase18-6 demo-phase18-9 demo-phase19-shadow web web-mock web-demo web-app web-stop web-status check-today-quietly check-held check-quiet-shift check-proof check-connection-onboarding check-shadow-mode ios-open ios-build ios-test ios-clean
+.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 demo-phase9 demo-phase10 demo-phase11 demo-phase12 demo-phase13 demo-phase13-1 demo-phase14 demo-phase15 demo-phase16 demo-phase18 demo-phase18-2 demo-phase18-3 demo-phase18-4 demo-phase18-5 demo-phase18-6 demo-phase18-9 demo-phase19-shadow demo-phase19-1 web web-mock web-demo web-app web-stop web-status check-today-quietly check-held check-quiet-shift check-proof check-connection-onboarding check-shadow-mode check-real-gmail-quiet ios-open ios-build ios-test ios-clean
 
 # Default target
 all: ci
@@ -54,6 +54,7 @@ help:
 	@echo "  make demo-phase18-8 - Run Phase 18.8 OAuth Gmail demo"
 	@echo "  make demo-phase18-9 - Run Phase 18.9 quiet verification demo"
 	@echo "  make demo-phase19-shadow - Run Phase 19 shadow mode demo"
+	@echo "  make demo-phase19-1 - Run Phase 19.1 real Gmail connection demo"
 	@echo ""
 	@echo "Web Server:"
 	@echo "  make web          - Run web server on :8080 (real mode)"
@@ -87,6 +88,7 @@ help:
 	@echo "  make check-today-quietly - Check today quietly constraints (Phase 18.2)"
 	@echo "  make check-held - Check held projection constraints (Phase 18.3)"
 	@echo "  make check-quiet-shift - Check quiet shift constraints (Phase 18.4)"
+	@echo "  make check-real-gmail-quiet - Check real Gmail quiet constraints (Phase 19.1)"
 	@echo ""
 	@echo "iOS (Phase 19):"
 	@echo "  make ios-open   - Open iOS project in Xcode (macOS only)"
@@ -459,6 +461,17 @@ demo-phase18-9:
 demo-phase19-shadow:
 	@echo "Running Phase 19 Demo: Shadow Mode Contract..."
 	go test -v ./internal/demo_phase19_shadow_contract/...
+
+# Phase 19.1 Demo: Real Gmail Connection (You-only)
+# Reference: Phase 19.1 specification
+demo-phase19-1:
+	@echo "Running Phase 19.1 Demo: Real Gmail Connection..."
+	go test -v ./internal/demo_phase19_1_real_gmail_quiet/...
+
+# Check real Gmail quiet constraints (Phase 19.1)
+check-real-gmail-quiet:
+	@echo "Checking real Gmail quiet constraints (Phase 19.1)..."
+	@./scripts/guardrails/real_gmail_quiet_enforced.sh
 
 # =============================================================================
 # Web Server Targets

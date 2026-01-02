@@ -52,13 +52,13 @@ type GmailRestraintConfig struct {
 // These values ensure Gmail data stays quiet by default.
 func DefaultGmailRestraintConfig() GmailRestraintConfig {
 	return GmailRestraintConfig{
-		DefaultToHold:          true,  // Always hold by default
-		MaxDailyObligations:    3,     // Very limited surfacing
-		StalenessThresholdDays: 3,     // Ignore old messages
-		BaseRegret:             0.15,  // Very low - prefer quiet
-		HighPriorityBump:       0.10,  // Conservative increase
-		MaxRegret:              0.35,  // Never exceeds surface threshold
-		RequireExplicitAction:  true,  // Nothing auto-surfaces
+		DefaultToHold:          true, // Always hold by default
+		MaxDailyObligations:    3,    // Very limited surfacing
+		StalenessThresholdDays: 3,    // Ignore old messages
+		BaseRegret:             0.15, // Very low - prefer quiet
+		HighPriorityBump:       0.10, // Conservative increase
+		MaxRegret:              0.35, // Never exceeds surface threshold
+		RequireExplicitAction:  true, // Nothing auto-surfaces
 	}
 }
 

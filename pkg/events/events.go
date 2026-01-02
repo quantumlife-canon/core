@@ -1176,6 +1176,41 @@ const (
 	Phase19ShadowReplayStarted   EventType = "phase19.shadow.replay.started"
 	Phase19ShadowReplayCompleted EventType = "phase19.shadow.replay.completed"
 	Phase19ShadowReplayMismatch  EventType = "phase19.shadow.replay.mismatch"
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	// PHASE 19.1: Real Gmail Connection (You-only)
+	// Reference: Phase 19.1 specification
+	//
+	// CRITICAL: Explicit sync only - NO background polling.
+	// CRITICAL: Max 25 messages, last 7 days.
+	// CRITICAL: DefaultToHold = true for all Gmail obligations.
+	// CRITICAL: Magnitude buckets only - no raw counts in UI.
+	// CRITICAL: No storage of raw message content.
+	// ═══════════════════════════════════════════════════════════════════════════
+
+	// Sync lifecycle events
+	Phase19_1GmailSyncRequested EventType = "phase19_1.gmail.sync.requested"
+	Phase19_1GmailSyncStarted   EventType = "phase19_1.gmail.sync.started"
+	Phase19_1GmailSyncCompleted EventType = "phase19_1.gmail.sync.completed"
+	Phase19_1GmailSyncFailed    EventType = "phase19_1.gmail.sync.failed"
+
+	// Sync receipt events
+	Phase19_1SyncReceiptCreated  EventType = "phase19_1.sync.receipt.created"
+	Phase19_1SyncReceiptStored   EventType = "phase19_1.sync.receipt.stored"
+	Phase19_1SyncReceiptVerified EventType = "phase19_1.sync.receipt.verified"
+
+	// Event store events
+	Phase19_1EventStored      EventType = "phase19_1.event.stored"
+	Phase19_1EventDeduplicate EventType = "phase19_1.event.deduplicate"
+
+	// Obligation events
+	Phase19_1ObligationCreated EventType = "phase19_1.obligation.created"
+	Phase19_1ObligationHeld    EventType = "phase19_1.obligation.held"
+
+	// Quiet check events
+	Phase19_1QuietCheckRequested EventType = "phase19_1.quiet_check.requested"
+	Phase19_1QuietCheckComputed  EventType = "phase19_1.quiet_check.computed"
+	Phase19_1QuietCheckVerified  EventType = "phase19_1.quiet_check.verified"
 )
 
 // Event represents a system event for audit and observability.
