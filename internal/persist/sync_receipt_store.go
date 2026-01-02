@@ -25,10 +25,10 @@ import (
 type MagnitudeBucket string
 
 const (
-	MagnitudeNone    MagnitudeBucket = "none"     // 0 items
-	MagnitudeHandful MagnitudeBucket = "handful"  // 1-5 items
-	MagnitudeSeveral MagnitudeBucket = "several"  // 6-20 items
-	MagnitudeMany    MagnitudeBucket = "many"     // 21+ items
+	MagnitudeNone    MagnitudeBucket = "none"    // 0 items
+	MagnitudeHandful MagnitudeBucket = "handful" // 1-5 items
+	MagnitudeSeveral MagnitudeBucket = "several" // 6-20 items
+	MagnitudeMany    MagnitudeBucket = "many"    // 21+ items
 )
 
 // ToMagnitudeBucket converts a raw count to a magnitude bucket.
@@ -182,7 +182,7 @@ func (r *SyncReceipt) Validate() error {
 // Thread-safe, in-memory implementation.
 type SyncReceiptStore struct {
 	mu       sync.RWMutex
-	receipts map[string]*SyncReceipt            // receiptID -> receipt
+	receipts map[string]*SyncReceipt              // receiptID -> receipt
 	byCircle map[identity.EntityID][]*SyncReceipt // circleID -> receipts
 	clock    func() time.Time
 }

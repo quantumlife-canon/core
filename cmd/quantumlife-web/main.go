@@ -1749,10 +1749,10 @@ func (s *Server) handleGmailSync(w http.ResponseWriter, r *http.Request) {
 		Type:      events.Phase19_1SyncReceiptCreated,
 		Timestamp: s.clk.Now(),
 		Metadata: map[string]string{
-			"circle_id":          circleID,
-			"receipt_id":         receipt.ReceiptID,
-			"receipt_hash":       receipt.Hash,
-			"magnitude_bucket":   string(receipt.MagnitudeBucket),
+			"circle_id":            circleID,
+			"receipt_id":           receipt.ReceiptID,
+			"receipt_hash":         receipt.Hash,
+			"magnitude_bucket":     string(receipt.MagnitudeBucket),
 			"events_stored_bucket": string(receipt.EventsStoredBucket),
 		},
 	})
@@ -1762,10 +1762,10 @@ func (s *Server) handleGmailSync(w http.ResponseWriter, r *http.Request) {
 		Type:      events.Phase19_1GmailSyncCompleted,
 		Timestamp: s.clk.Now(),
 		Metadata: map[string]string{
-			"circle_id":          circleID,
-			"magnitude_bucket":   string(receipt.MagnitudeBucket),
+			"circle_id":            circleID,
+			"magnitude_bucket":     string(receipt.MagnitudeBucket),
 			"events_stored_bucket": string(receipt.EventsStoredBucket),
-			"receipt_hash":       receipt.Hash,
+			"receipt_hash":         receipt.Hash,
 		},
 	})
 
@@ -1832,11 +1832,11 @@ func (s *Server) handleQuietCheck(w http.ResponseWriter, r *http.Request) {
 		Type:      events.Phase19_1QuietCheckComputed,
 		Timestamp: s.clk.Now(),
 		Metadata: map[string]string{
-			"gmail_connected":   fmt.Sprintf("%t", status.GmailConnected),
-			"obligations_held":  fmt.Sprintf("%t", status.ObligationsHeld),
-			"auto_surface":      fmt.Sprintf("%t", status.AutoSurface),
-			"is_quiet":          fmt.Sprintf("%t", status.IsQuiet()),
-			"status_hash":       status.Hash,
+			"gmail_connected":  fmt.Sprintf("%t", status.GmailConnected),
+			"obligations_held": fmt.Sprintf("%t", status.ObligationsHeld),
+			"auto_surface":     fmt.Sprintf("%t", status.AutoSurface),
+			"is_quiet":         fmt.Sprintf("%t", status.IsQuiet()),
+			"status_hash":      status.Hash,
 		},
 	})
 

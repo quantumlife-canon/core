@@ -200,11 +200,11 @@ func TestQuietCheckStatus(t *testing.T) {
 
 	// Test quiet status (held + no auto-surface)
 	quietStatus := persist.NewQuietCheckStatus(
-		true,                      // gmail connected
-		fixedTime,                 // last sync
-		persist.MagnitudeSeveral,  // magnitude
-		true,                      // obligations held
-		false,                     // no auto-surface
+		true,                     // gmail connected
+		fixedTime,                // last sync
+		persist.MagnitudeSeveral, // magnitude
+		true,                     // obligations held
+		false,                    // no auto-surface
 	)
 
 	if !quietStatus.IsQuiet() {
@@ -321,8 +321,8 @@ func TestSyncReceiptValidation(t *testing.T) {
 
 	// Invalid receipt (missing circle ID)
 	invalid := &persist.SyncReceipt{
-		ReceiptID: "test",
-		Provider:  "gmail",
+		ReceiptID:  "test",
+		Provider:   "gmail",
 		TimeBucket: time.Now(),
 	}
 
