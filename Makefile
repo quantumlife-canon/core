@@ -50,6 +50,7 @@ help:
 	@echo "  make demo-phase18-4 - Run Phase 18.4 quiet shift demo"
 	@echo "  make demo-phase18-5 - Run Phase 18.5 quiet proof demo"
 	@echo "  make demo-phase18-6 - Run Phase 18.6 first connect demo"
+	@echo "  make demo-phase18-7 - Run Phase 18.7 mirror proof demo"
 	@echo ""
 	@echo "Web Server:"
 	@echo "  make web          - Run web server on :8080 (real mode)"
@@ -223,6 +224,10 @@ check-proof:
 check-connection-onboarding:
 	@echo "Checking connection onboarding constraints (Phase 18.6)..."
 	@./scripts/guardrails/connection_onboarding_enforced.sh
+
+check-mirror-proof:
+	@echo "Checking mirror proof constraints (Phase 18.7)..."
+	@./scripts/guardrails/mirror_proof_enforced.sh
 
 # All guardrails
 guardrails: check-terms check-imports check-deps check-time-now check-background-async check-no-auto-retry check-single-trace-final check-write-provider-reg check-free-text-recipient check-policy-snapshot check-finance-execution
@@ -409,6 +414,12 @@ demo-phase18-5:
 demo-phase18-6:
 	@echo "Running Phase 18.6 Demo: First Connect..."
 	go test -v ./internal/demo_phase18_6_first_connect/...
+
+# Phase 18.7 Demo: Mirror Proof
+# Reference: docs/ADR/ADR-0039-phase18-7-mirror-proof.md
+demo-phase18-7:
+	@echo "Running Phase 18.7 Demo: Mirror Proof..."
+	go test -v ./internal/demo_phase18_7_mirror/...
 
 # =============================================================================
 # Web Server Targets

@@ -1098,6 +1098,21 @@ const (
 	// Connection request events - emitted when user initiates connect/disconnect
 	Phase18_6ConnectionConnectRequested    EventType = "phase18_6.connection.connect.requested"
 	Phase18_6ConnectionDisconnectRequested EventType = "phase18_6.connection.disconnect.requested"
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	// Phase 18.7: Mirror Proof - Trust Through Evidence of Reading
+	// Reference: docs/ADR/ADR-0039-phase18-7-mirror-proof.md
+	// ═══════════════════════════════════════════════════════════════════════════
+
+	// Mirror computed event - emitted when mirror page is computed
+	// CRITICAL: Contains hash only, never raw data or identifiers
+	Phase18_7MirrorComputed EventType = "phase18_7.mirror.computed"
+
+	// Mirror viewed event - emitted when /mirror page is rendered
+	Phase18_7MirrorViewed EventType = "phase18_7.mirror.viewed"
+
+	// Mirror acknowledged event - emitted when user acknowledges the mirror
+	Phase18_7MirrorAcknowledged EventType = "phase18_7.mirror.acknowledged"
 )
 
 // Event represents a system event for audit and observability.

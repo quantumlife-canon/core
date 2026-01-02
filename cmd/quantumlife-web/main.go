@@ -35,10 +35,12 @@ import (
 	"quantumlife/internal/execrouter"
 	"quantumlife/internal/held"
 	"quantumlife/internal/interest"
+	"quantumlife/internal/mirror"
 	"quantumlife/internal/persist"
 	"quantumlife/internal/proof"
 	"quantumlife/internal/surface"
 	"quantumlife/pkg/domain/connection"
+	domainmirror "quantumlife/pkg/domain/mirror"
 	"quantumlife/internal/interruptions"
 	"quantumlife/internal/loop"
 	"quantumlife/internal/obligations"
@@ -79,6 +81,8 @@ type Server struct {
 	proofEngine       *proof.Engine                    // Phase 18.5: Quiet Proof
 	proofAckStore     *proof.AckStore                  // Phase 18.5: Ack store
 	connectionStore   *persist.InMemoryConnectionStore // Phase 18.6: First Connect
+	mirrorEngine      *mirror.Engine                    // Phase 18.7: Mirror Proof
+	mirrorAckStore    *mirror.AckStore                  // Phase 18.7: Mirror Ack store
 }
 
 // eventLogger logs events.
@@ -141,6 +145,8 @@ type templateData struct {
 	ConnectionKind      connection.ConnectionKind
 	ConnectionKindState *connection.ConnectionState
 	MockMode            bool
+	// Phase 18.7: Mirror Proof
+	MirrorPage *domainmirror.MirrorPage
 }
 
 // personInfo contains person data for display. Phase 13.1.
@@ -366,6 +372,10 @@ func main() {
 	// Create connection store (Phase 18.6)
 	connectionStore := persist.NewInMemoryConnectionStore()
 
+	// Create mirror engine and store (Phase 18.7)
+	mirrorEngine := mirror.NewEngine(clk.Now)
+	mirrorAckStore := mirror.NewAckStore(128)
+
 	// Create server
 	server := &Server{
 		engine:            engine,
@@ -386,6 +396,8 @@ func main() {
 		proofEngine:       proofEngine,       // Phase 18.5
 		proofAckStore:     proofAckStore,     // Phase 18.5
 		connectionStore:   connectionStore,   // Phase 18.6
+		mirrorEngine:      mirrorEngine,       // Phase 18.7
+		mirrorAckStore:    mirrorAckStore,     // Phase 18.7
 	}
 
 	// Set up routes
@@ -410,6 +422,7 @@ func main() {
 	mux.HandleFunc("/connections", server.handleConnections)      // Phase 18.6: Connections
 	mux.HandleFunc("/connect/", server.handleConnect)             // Phase 18.6: Connect action
 	mux.HandleFunc("/disconnect/", server.handleDisconnect)       // Phase 18.6: Disconnect action
+	mux.HandleFunc("/mirror", server.handleMirror)                // Phase 18.7: Mirror Proof
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18: App routes (authenticated)
@@ -1233,6 +1246,106 @@ func (s *Server) handleDisconnect(w http.ResponseWriter, r *http.Request) {
 
 	// Redirect to connections
 	http.Redirect(w, r, "/connections", http.StatusFound)
+}
+
+// handleMirror serves the mirror proof page.
+// Phase 18.7: Mirror Proof - Trust Through Evidence of Reading.
+// Shows abstract evidence of what was read, without identifiers.
+func (s *Server) handleMirror(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Build mirror input from connection state
+	connState := s.connectionStore.State()
+
+	// Build source input states from connection state
+	sourceStates := make(map[connection.ConnectionKind]domainmirror.SourceInputState)
+	for _, kind := range connection.AllKinds() {
+		kindState := connState.Get(kind)
+		if kindState.Status == connection.StatusConnectedMock || kindState.Status == connection.StatusConnectedReal {
+			mode := connection.ModeMock
+			if kindState.Status == connection.StatusConnectedReal {
+				mode = connection.ModeReal
+			}
+
+			// Build mock observed counts based on kind
+			observedCounts := make(map[domainmirror.ObservedCategory]int)
+			switch kind {
+			case connection.KindEmail:
+				observedCounts[domainmirror.ObservedTimeCommitments] = 2
+				observedCounts[domainmirror.ObservedReceipts] = 3
+			case connection.KindCalendar:
+				observedCounts[domainmirror.ObservedTimeCommitments] = 5
+			case connection.KindFinance:
+				observedCounts[domainmirror.ObservedReceipts] = 4
+				observedCounts[domainmirror.ObservedPatterns] = 2
+			}
+
+			sourceStates[kind] = domainmirror.SourceInputState{
+				Connected:      true,
+				Mode:           mode,
+				ReadSuccess:    true,
+				ObservedCounts: observedCounts,
+			}
+		}
+	}
+
+	mirrorInput := domainmirror.MirrorInput{
+		ConnectedSources: sourceStates,
+		HeldCount:        3, // Mock held count
+		SurfacedCount:    0, // Nothing surfaced
+		CircleID:         "demo-circle",
+	}
+
+	// Check if there are any connected sources
+	if !s.mirrorEngine.HasConnectedSources(mirrorInput) {
+		// No mirror shown if no connections
+		data := templateData{
+			Title:       "Mirror",
+			CurrentTime: s.clk.Now().Format("2006-01-02 15:04"),
+			MirrorPage:  nil, // Empty mirror
+		}
+		s.render(w, "mirror", data)
+		return
+	}
+
+	// Build mirror page
+	mirrorPage := s.mirrorEngine.BuildMirrorPage(mirrorInput)
+
+	// Record that mirror was viewed
+	if err := s.mirrorAckStore.Record(domainmirror.AckViewed, mirrorPage.Hash, s.clk.Now()); err != nil {
+		log.Printf("Mirror ack store error: %v", err)
+	}
+
+	// Emit mirror computed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase18_7MirrorComputed,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"mirror_hash":   mirrorPage.Hash,
+			"source_count":  fmt.Sprintf("%d", len(mirrorPage.Sources)),
+			"held_quietly":  fmt.Sprintf("%v", mirrorPage.Outcome.HeldQuietly),
+		},
+	})
+
+	// Emit mirror viewed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase18_7MirrorViewed,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"mirror_hash": mirrorPage.Hash,
+		},
+	})
+
+	data := templateData{
+		Title:       "Seen, quietly.",
+		CurrentTime: s.clk.Now().Format("2006-01-02 15:04"),
+		MirrorPage:  &mirrorPage,
+	}
+
+	s.render(w, "mirror", data)
 }
 
 // handleDemo serves the deterministic demo page.
@@ -2408,6 +2521,10 @@ const templates = `
     {{template "connections-content" .}}
 {{else if hasPrefix .Title "Connect "}}
     {{template "connect-stub-content" .}}
+{{else if eq .Title "Seen, quietly."}}
+    {{template "mirror-content" .}}
+{{else if eq .Title "Mirror"}}
+    {{template "mirror-content" .}}
 {{else if eq .Title "Today, quietly."}}
     {{template "today-content" .}}
 {{else if eq .Title "The Moment"}}
@@ -3275,6 +3392,10 @@ const templates = `
         <p class="connections-mode-label">Mode: {{if .MockMode}}mock{{else}}real{{end}}</p>
     </section>
 
+    <section class="connections-mirror-link">
+        <a href="/mirror" class="connections-mirror-link-text">What we noticed</a>
+    </section>
+
     <footer class="connections-footer">
         <a href="/start" class="connections-back-link">Back to start</a>
         <span class="connections-divider">·</span>
@@ -3307,6 +3428,80 @@ const templates = `
 
     <footer class="connect-stub-footer">
         <a href="/connections" class="connect-stub-back-link">Back to connections</a>
+    </footer>
+</div>
+{{end}}
+
+{{define "mirror"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "mirror-content"}}
+<div class="mirror">
+    <header class="mirror-header">
+        <h1 class="mirror-title">{{if .MirrorPage}}{{.MirrorPage.Title}}{{else}}Nothing to show{{end}}</h1>
+        <p class="mirror-subtitle">{{if .MirrorPage}}{{.MirrorPage.Subtitle}}{{else}}Connect sources to see what we noticed.{{end}}</p>
+    </header>
+
+    {{if .MirrorPage}}
+    {{if .MirrorPage.Sources}}
+    <section class="mirror-sources">
+        {{range .MirrorPage.Sources}}
+        <div class="mirror-source">
+            <h2 class="mirror-source-kind">{{.Kind}}</h2>
+            {{if .ReadSuccessfully}}
+            <p class="mirror-source-status">Read successfully</p>
+            {{else}}
+            <p class="mirror-source-status mirror-source-status-error">Not read</p>
+            {{end}}
+            <div class="mirror-source-notstored">
+                <p class="mirror-source-notstored-label">Not stored:</p>
+                <ul class="mirror-source-notstored-list">
+                    {{range .NotStored}}
+                    <li class="mirror-source-notstored-item">{{.}}</li>
+                    {{end}}
+                </ul>
+            </div>
+            {{if .Observed}}
+            <div class="mirror-source-observed">
+                <p class="mirror-source-observed-label">Observed:</p>
+                <ul class="mirror-source-observed-list">
+                    {{range .Observed}}
+                    <li class="mirror-source-observed-item">{{.Magnitude.DisplayText}} {{.Category.DisplayText}}</li>
+                    {{end}}
+                </ul>
+            </div>
+            {{end}}
+        </div>
+        {{end}}
+    </section>
+    {{end}}
+
+    <section class="mirror-outcome">
+        <h2 class="mirror-outcome-title">As a result:</h2>
+        {{if .MirrorPage.Outcome.HeldQuietly}}
+        <p class="mirror-outcome-held">{{if eq .MirrorPage.Outcome.HeldMagnitude.String "a_few"}}One item is{{else}}Some items are{{end}} being held quietly</p>
+        {{else}}
+        <p class="mirror-outcome-nothing">Nothing held</p>
+        {{end}}
+        {{if .MirrorPage.Outcome.NothingRequiresAttention}}
+        <p class="mirror-outcome-attention">Nothing requires your attention</p>
+        {{end}}
+    </section>
+
+    <section class="mirror-restraint">
+        <p class="mirror-restraint-statement">{{.MirrorPage.RestraintStatement}}</p>
+        <p class="mirror-restraint-why">{{.MirrorPage.RestraintWhy}}</p>
+    </section>
+    {{else}}
+    <section class="mirror-empty">
+        <p class="mirror-empty-text">No sources connected yet.</p>
+        <p class="mirror-empty-hint">Connect sources to see what we noticed.</p>
+    </section>
+    {{end}}
+
+    <footer class="mirror-footer">
+        <a href="/connections" class="mirror-back-link">Back to connections</a>
     </footer>
 </div>
 {{end}}

@@ -1834,3 +1834,235 @@
 .connect-stub-back-link:hover {
   color: var(--color-text-secondary);
 }
+
+/* Connections mirror link (Phase 18.7) */
+.connections-mirror-link {
+  text-align: center;
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.connections-mirror-link-text {
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+  text-decoration: none;
+  transition: color var(--duration-fast) var(--easing-default);
+}
+
+.connections-mirror-link-text:hover {
+  color: var(--color-text-secondary);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PHASE 18.7: MIRROR PROOF
+   Trust through evidence of reading, not action.
+   ═══════════════════════════════════════════════════════════════ */
+
+.mirror {
+  max-width: 32rem;
+  margin: 0 auto;
+  padding: var(--space-16) var(--container-padding);
+  min-height: 80vh;
+}
+
+.mirror-header {
+  text-align: center;
+  margin-bottom: var(--space-12);
+}
+
+.mirror-title {
+  font-size: var(--text-xl);
+  font-weight: var(--font-normal);
+  color: var(--color-text-primary);
+  margin-bottom: var(--space-2);
+}
+
+.mirror-subtitle {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  max-width: 24rem;
+  margin: 0 auto;
+}
+
+/* Sources section */
+.mirror-sources {
+  margin-bottom: var(--space-12);
+}
+
+.mirror-source {
+  margin-bottom: var(--space-8);
+  padding-bottom: var(--space-6);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.mirror-source:last-child {
+  border-bottom: none;
+}
+
+.mirror-source-kind {
+  font-size: var(--text-base);
+  font-weight: var(--font-medium);
+  color: var(--color-text-primary);
+  text-transform: capitalize;
+  margin-bottom: var(--space-2);
+}
+
+.mirror-source-status {
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+  margin-bottom: var(--space-3);
+}
+
+.mirror-source-status-error {
+  color: var(--color-text-quaternary);
+}
+
+.mirror-source-notstored {
+  margin-bottom: var(--space-3);
+}
+
+.mirror-source-notstored-label {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-1);
+}
+
+.mirror-source-notstored-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.mirror-source-notstored-item {
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+  padding-left: var(--space-3);
+  position: relative;
+}
+
+.mirror-source-notstored-item::before {
+  content: "—";
+  position: absolute;
+  left: 0;
+  color: var(--color-text-quaternary);
+}
+
+.mirror-source-observed {
+  margin-top: var(--space-2);
+}
+
+.mirror-source-observed-label {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-1);
+}
+
+.mirror-source-observed-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.mirror-source-observed-item {
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+  padding-left: var(--space-3);
+  position: relative;
+}
+
+.mirror-source-observed-item::before {
+  content: "·";
+  position: absolute;
+  left: 0;
+  color: var(--color-text-quaternary);
+}
+
+/* Outcome section */
+.mirror-outcome {
+  margin-bottom: var(--space-8);
+  padding: var(--space-4);
+  background: var(--color-bg-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.mirror-outcome-title {
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-2);
+}
+
+.mirror-outcome-held,
+.mirror-outcome-nothing,
+.mirror-outcome-attention {
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+  margin-bottom: var(--space-1);
+  padding-left: var(--space-3);
+  position: relative;
+}
+
+.mirror-outcome-held::before,
+.mirror-outcome-nothing::before,
+.mirror-outcome-attention::before {
+  content: "•";
+  position: absolute;
+  left: 0;
+  color: var(--color-text-quaternary);
+}
+
+/* Restraint section */
+.mirror-restraint {
+  text-align: center;
+  margin-bottom: var(--space-8);
+  padding: var(--space-6);
+}
+
+.mirror-restraint-statement {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-2);
+}
+
+.mirror-restraint-why {
+  font-size: var(--text-xs);
+  color: var(--color-text-quaternary);
+  font-style: italic;
+}
+
+/* Empty state */
+.mirror-empty {
+  text-align: center;
+  padding: var(--space-8);
+}
+
+.mirror-empty-text {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-2);
+}
+
+.mirror-empty-hint {
+  font-size: var(--text-xs);
+  color: var(--color-text-quaternary);
+}
+
+/* Footer */
+.mirror-footer {
+  text-align: center;
+  margin-top: var(--space-8);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.mirror-back-link {
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+  text-decoration: none;
+  transition: color var(--duration-fast) var(--easing-default);
+}
+
+.mirror-back-link:hover {
+  color: var(--color-text-secondary);
+}
