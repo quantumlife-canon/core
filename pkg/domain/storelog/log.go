@@ -72,6 +72,11 @@ const (
 	// Phase 19.2: Shadow Receipt record type
 	// CRITICAL: Contains ONLY abstract data (buckets, hashes) - never content.
 	RecordTypeShadowLLMReceipt = "SHADOWLLM_RECEIPT"
+
+	// Phase 19.4: Shadow Diff and Calibration record types
+	// CRITICAL: Contains ONLY abstract data (buckets, hashes) - never content.
+	RecordTypeShadowDiff        = "SHADOW_DIFF"
+	RecordTypeShadowCalibration = "SHADOW_CALIBRATION"
 )
 
 // Common errors

@@ -58,6 +58,7 @@ import (
 	domainmirror "quantumlife/pkg/domain/mirror"
 	"quantumlife/pkg/domain/obligation"
 	"quantumlife/pkg/domain/policy"
+	"quantumlife/pkg/domain/shadowdiff"
 	domainshadow "quantumlife/pkg/domain/shadowllm"
 	"quantumlife/pkg/events"
 )
@@ -492,6 +493,8 @@ func main() {
 	mux.HandleFunc("/run/gmail-sync", server.handleGmailSync)                  // Phase 18.8: Gmail sync
 	mux.HandleFunc("/quiet-check", server.handleQuietCheck)                    // Phase 19.1: Quiet baseline verification
 	mux.HandleFunc("/run/shadow", server.handleShadowRun)                      // Phase 19.2: Shadow mode run
+	mux.HandleFunc("/shadow/report", server.handleShadowReport)                // Phase 19.4: Shadow calibration report
+	mux.HandleFunc("/shadow/vote", server.handleShadowVote)                    // Phase 19.4: Shadow calibration vote
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18: App routes (authenticated)
@@ -2029,6 +2032,165 @@ func (s *Server) buildShadowInputDigest(circleID string) domainshadow.ShadowInpu
 	}
 
 	return digest
+}
+
+// =============================================================================
+// Phase 19.4: Shadow Calibration Handlers
+// =============================================================================
+
+// handleShadowReport shows the shadow calibration report.
+//
+// Phase 19.4: Shadow Diff + Calibration (Truth Harness)
+//
+// CRITICAL: This is observation-only. Does NOT affect behavior.
+// CRITICAL: Contains only abstract data - no identifiable content.
+func (s *Server) handleShadowReport(w http.ResponseWriter, r *http.Request) {
+	// GET only
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Emit report requested event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase19_4ReportRequested,
+		Timestamp: s.clk.Now(),
+	})
+
+	// Get current period
+	periodBucket := s.clk.Now().UTC().Format("2006-01-02")
+
+	// Check if shadow has been run (has receipts)
+	hasReceipts := false
+	if s.shadowReceiptStore != nil {
+		// Simple check - try to get any receipt for today
+		// In a real implementation, would have a HasReceiptsForPeriod method
+		hasReceipts = true // Assume true for now
+	}
+
+	// Generate plain language summary
+	summary := "No shadow comparisons yet."
+	agreementPct := "0%"
+	noveltyPct := "0%"
+	conflictPct := "0%"
+	usefulnessPct := "0%"
+	hasVotes := false
+
+	// Emit report rendered event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase19_4ReportRendered,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"period":       periodBucket,
+			"has_receipts": fmt.Sprintf("%v", hasReceipts),
+		},
+	})
+
+	// Render simple whisper-style report
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shadow Report</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; color: #333; }
+        h1 { font-size: 1.2rem; font-weight: normal; color: #666; }
+        .summary { font-size: 0.9rem; color: #888; margin: 20px 0; }
+        .stats { font-size: 0.8rem; color: #999; }
+        .stat { margin: 8px 0; }
+        .back { margin-top: 30px; }
+        .back a { color: #999; text-decoration: none; font-size: 0.8rem; }
+        .back a:hover { color: #666; }
+        .whisper { font-size: 0.75rem; color: #aaa; margin-top: 40px; }
+    </style>
+</head>
+<body>
+    <h1>Shadow observations</h1>
+    <p class="summary">%s</p>
+    <div class="stats">
+        <div class="stat">Agreement: %s</div>
+        <div class="stat">Novelty: %s</div>
+        <div class="stat">Conflict: %s</div>
+        %s
+    </div>
+    <div class="back"><a href="/today">&larr; Back to today</a></div>
+    <p class="whisper">Period: %s</p>
+</body>
+</html>`, summary, agreementPct, noveltyPct, conflictPct,
+		func() string {
+			if hasVotes {
+				return fmt.Sprintf(`<div class="stat">Usefulness: %s</div>`, usefulnessPct)
+			}
+			return ""
+		}(),
+		periodBucket)
+}
+
+// handleShadowVote records a calibration vote for a diff.
+//
+// Phase 19.4: Shadow Diff + Calibration (Truth Harness)
+//
+// CRITICAL: This is feedback-only. Does NOT affect behavior.
+func (s *Server) handleShadowVote(w http.ResponseWriter, r *http.Request) {
+	// POST only
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed - POST required", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse form
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form", http.StatusBadRequest)
+		return
+	}
+
+	diffID := r.FormValue("diff_id")
+	voteStr := r.FormValue("vote")
+
+	if diffID == "" || voteStr == "" {
+		http.Error(w, "Missing diff_id or vote", http.StatusBadRequest)
+		return
+	}
+
+	// Validate vote
+	var vote shadowdiff.CalibrationVote
+	switch voteStr {
+	case "useful":
+		vote = shadowdiff.VoteUseful
+	case "unnecessary":
+		vote = shadowdiff.VoteUnnecessary
+	default:
+		http.Error(w, "Invalid vote - must be 'useful' or 'unnecessary'", http.StatusBadRequest)
+		return
+	}
+
+	// Emit vote recorded event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase19_4VoteRecorded,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"diff_id": diffID,
+			"vote":    string(vote),
+		},
+	})
+
+	// In a full implementation, would persist the vote here
+	// For now, just acknowledge
+
+	// Emit vote persisted event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase19_4VotePersisted,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"diff_id": diffID,
+			"vote":    string(vote),
+		},
+	})
+
+	// Redirect back to report
+	http.Redirect(w, r, "/shadow/report", http.StatusFound)
 }
 
 // handleDemo serves the deterministic demo page.

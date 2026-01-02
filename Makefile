@@ -7,7 +7,7 @@
 #
 # Guardrails enforce Canon invariants at build time.
 
-.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 demo-phase9 demo-phase10 demo-phase11 demo-phase12 demo-phase13 demo-phase13-1 demo-phase14 demo-phase15 demo-phase16 demo-phase18 demo-phase18-2 demo-phase18-3 demo-phase18-4 demo-phase18-5 demo-phase18-6 demo-phase18-9 demo-phase19-shadow demo-phase19-1 web web-mock web-demo web-app web-stop web-status check-today-quietly check-held check-quiet-shift check-proof check-connection-onboarding check-shadow-mode check-real-gmail-quiet ios-open ios-build ios-test ios-clean
+.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 demo-phase9 demo-phase10 demo-phase11 demo-phase12 demo-phase13 demo-phase13-1 demo-phase14 demo-phase15 demo-phase16 demo-phase18 demo-phase18-2 demo-phase18-3 demo-phase18-4 demo-phase18-5 demo-phase18-6 demo-phase18-9 demo-phase19-shadow demo-phase19-1 demo-phase19-4 web web-mock web-demo web-app web-stop web-status check-today-quietly check-held check-quiet-shift check-proof check-connection-onboarding check-shadow-mode check-shadow-diff check-real-gmail-quiet ios-open ios-build ios-test ios-clean
 
 # Default target
 all: ci
@@ -56,6 +56,8 @@ help:
 	@echo "  make demo-phase19-shadow - Run Phase 19 shadow mode demo"
 	@echo "  make demo-phase19-1 - Run Phase 19.1 real Gmail connection demo"
 	@echo "  make demo-phase19-2 - Run Phase 19.2 shadow mode demo"
+	@echo "  make demo-phase19-3 - Run Phase 19.3 Azure shadow provider demo"
+	@echo "  make demo-phase19-4 - Run Phase 19.4 shadow diff + calibration demo"
 	@echo ""
 	@echo "Web Server:"
 	@echo "  make web          - Run web server on :8080 (real mode)"
@@ -91,6 +93,8 @@ help:
 	@echo "  make check-quiet-shift - Check quiet shift constraints (Phase 18.4)"
 	@echo "  make check-real-gmail-quiet - Check real Gmail quiet constraints (Phase 19.1)"
 	@echo "  make check-shadow-mode - Check shadow mode constraints (Phase 19.2)"
+	@echo "  make check-shadow-azure - Check Azure shadow constraints (Phase 19.3)"
+	@echo "  make check-shadow-diff - Check shadow diff constraints (Phase 19.4)"
 	@echo ""
 	@echo "iOS (Phase 19):"
 	@echo "  make ios-open   - Open iOS project in Xcode (macOS only)"
@@ -490,6 +494,17 @@ check-shadow-mode:
 check-shadow-azure:
 	@echo "Checking Azure shadow provider constraints (Phase 19.3)..."
 	@./scripts/guardrails/shadow_azure_enforced.sh
+
+# Phase 19.4 Demo: Shadow Diff + Calibration
+# Reference: docs/ADR/ADR-0045-phase19-4-shadow-diff-calibration.md
+demo-phase19-4:
+	@echo "Running Phase 19.4 Demo: Shadow Diff + Calibration..."
+	go test -v ./internal/demo_phase19_4_shadow_diff/...
+
+# Check shadow diff constraints (Phase 19.4)
+check-shadow-diff:
+	@echo "Checking shadow diff constraints (Phase 19.4)..."
+	@./scripts/guardrails/shadow_diff_enforced.sh
 
 # =============================================================================
 # Web Server Targets

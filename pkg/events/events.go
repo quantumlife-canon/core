@@ -1262,6 +1262,28 @@ const (
 
 	// Provider selection events
 	Phase19_3ProviderSelected EventType = "phase19_3.provider.selected"
+
+	// ==========================================================================
+	// Phase 19.4: Shadow Diff + Calibration Events
+	// ==========================================================================
+	// CRITICAL: Contains ONLY hashes and buckets - never content.
+	// Reference: docs/ADR/ADR-0045-phase19-4-shadow-diff-calibration.md
+
+	// Diff computation events
+	Phase19_4DiffComputed  EventType = "phase19_4.diff.computed"
+	Phase19_4DiffPersisted EventType = "phase19_4.diff.persisted"
+
+	// Vote recording events
+	Phase19_4VoteRecorded  EventType = "phase19_4.vote.recorded"
+	Phase19_4VotePersisted EventType = "phase19_4.vote.persisted"
+
+	// Stats computation events
+	Phase19_4StatsComputed EventType = "phase19_4.stats.computed"
+	Phase19_4StatsViewed   EventType = "phase19_4.stats.viewed"
+
+	// Report events
+	Phase19_4ReportRequested EventType = "phase19_4.report.requested"
+	Phase19_4ReportRendered  EventType = "phase19_4.report.rendered"
 )
 
 // Event represents a system event for audit and observability.
