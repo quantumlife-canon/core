@@ -226,3 +226,13 @@ internal/demo_phase18_7_mirror/*.go
 # notifications (e.g., "prevents overwhelming user"). QuantumLife core uses
 # "circle" for identity - this describes the restraint behavior.
 internal/demo_phase18_9_quiet_verification/*.go
+
+# Phase 19.3: Azure OpenAI Shadow Provider (ADR-0044)
+# These files interface with OpenAI Chat Completions API which uses "role" and
+# "user" as part of its protocol specification (role: "system"|"user"|"assistant").
+# This is external API terminology required for protocol compliance, NOT
+# QuantumLife identity. QuantumLife core uses "circle" for identity - these are
+# LLM provider adapters that must match external API specifications.
+internal/shadowllm/providers/azureopenai/*.go
+internal/shadowllm/prompt/*.go
+internal/demo_phase19_3_azure_shadow/*.go

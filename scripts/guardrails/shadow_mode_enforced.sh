@@ -5,14 +5,15 @@
 #
 # CRITICAL: Shadow mode must:
 #   - Be observation ONLY - no state modification
-#   - Use stub provider ONLY - no real LLM API calls
+#   - Default to stub provider - real providers require explicit opt-in (Phase 19.3)
 #   - Be OFF by default - explicit user action required
 #   - Store ONLY abstract data - no raw content
 #   - Use clock injection - no time.Now()
 #   - No goroutines - synchronous only
-#   - No HTTP calls in shadow packages
+#   - No HTTP calls in core shadow packages (providers are exception per Phase 19.3)
 #
 # Reference: docs/ADR/ADR-0043-phase19-2-shadow-mode-contract.md
+# Reference: docs/ADR/ADR-0044-phase19-3-azure-openai-shadow-provider.md
 
 set -e
 
@@ -28,24 +29,28 @@ check() {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Check 1: No network calls in shadowllm packages
+# Check 1: No network calls in core shadowllm packages (providers are exception)
+# Phase 19.3 allows net/http in providers/ directory only
 # ═══════════════════════════════════════════════════════════════════════════════
-check "No net/http imports in internal/shadowllm"
-if grep -r '"net/http"' internal/shadowllm/ 2>/dev/null | grep -v '_test.go'; then
-    error "Found net/http import in internal/shadowllm (non-test)"
+check "No net/http imports in internal/shadowllm (excluding providers)"
+if grep -r '"net/http"' internal/shadowllm/ 2>/dev/null | grep -v '_test.go' | grep -v 'providers/'; then
+    error "Found net/http import in internal/shadowllm core (non-provider)"
 fi
 
-check "No http.Client in internal/shadowllm"
-if grep -r 'http\.Client' internal/shadowllm/ 2>/dev/null | grep -v '_test.go'; then
-    error "Found http.Client in internal/shadowllm (non-test)"
+check "No http.Client in internal/shadowllm (excluding providers)"
+if grep -r 'http\.Client' internal/shadowllm/ 2>/dev/null | grep -v '_test.go' | grep -v 'providers/'; then
+    error "Found http.Client in internal/shadowllm core (non-provider)"
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Check 2: No real LLM provider strings
+# Check 2: No unauthorized LLM provider strings
+# Phase 19.3 allows azure_openai provider specifically
 # ═══════════════════════════════════════════════════════════════════════════════
-check "No OpenAI strings in shadowllm packages"
-if grep -ri 'openai' internal/shadowllm/ pkg/domain/shadowllm/ 2>/dev/null | grep -v '_test.go' | grep -v 'TODO'; then
-    error "Found 'openai' string in shadow packages"
+check "No direct OpenAI SDK imports in shadowllm packages"
+# Allow: azure_openai provider references, ADR references, ProviderKind constants
+# Disallow: github.com/openai SDK imports
+if grep -ri 'github.com/openai' internal/shadowllm/ pkg/domain/shadowllm/ 2>/dev/null | grep -v '_test.go'; then
+    error "Found OpenAI SDK import in shadow packages"
 fi
 
 check "No Anthropic strings in shadowllm packages"
@@ -123,26 +128,26 @@ if ! grep -q 'RecordTypeShadowLLMReceipt' pkg/domain/storelog/log.go; then
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Check 7: Only stub provider exists
+# Check 7: Required providers exist
+# Phase 19.3 adds azure_openai provider
 # ═══════════════════════════════════════════════════════════════════════════════
 check "Stub provider exists"
 if [ ! -f "internal/shadowllm/stub/stub.go" ]; then
     error "Stub provider not found at internal/shadowllm/stub/stub.go"
 fi
 
-check "No real LLM providers exist yet"
-for dir in internal/shadowllm/providers/*/; do
-    if [ -d "$dir" ] && [ "$(basename "$dir")" != "stub" ]; then
-        error "Found non-stub provider: $dir"
-    fi
-done
+check "Default provider is stub (RealAllowed=false)"
+if ! grep -q 'RealAllowed.*false' pkg/domain/config/types.go; then
+    error "DefaultShadowConfig must have RealAllowed: false"
+fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Check 8: Canonical strings use pipe delimiter (not JSON)
+# Phase 19.3 updated receipt to v2 (includes provenance)
 # ═══════════════════════════════════════════════════════════════════════════════
 check "ShadowReceipt uses pipe-delimited canonical string"
-if ! grep -q 'SHADOW_RECEIPT|v1|' pkg/domain/shadowllm/hashing.go; then
-    error "ShadowReceipt canonical string missing pipe-delimited prefix"
+if ! grep -q 'SHADOW_RECEIPT|v2|' pkg/domain/shadowllm/hashing.go; then
+    error "ShadowReceipt canonical string missing pipe-delimited prefix (v2)"
 fi
 
 check "ShadowSuggestion uses pipe-delimited canonical string"

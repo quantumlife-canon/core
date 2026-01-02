@@ -137,10 +137,11 @@ func (r *ShadowReceipt) Hash() string {
 }
 
 // CanonicalString returns the pipe-delimited canonical representation.
-// Format: SHADOW_RECEIPT|v1|receipt_id|circle_id|window_bucket|input_digest_hash|model_spec|created_at|suggestions_hash
+// Format: SHADOW_RECEIPT|v2|receipt_id|circle_id|window_bucket|input_digest_hash|model_spec|created_at|suggestions_hash|provenance|why_generic_hash
+// Note: v2 adds provenance and why_generic fields (Phase 19.3)
 func (r *ShadowReceipt) CanonicalString() string {
 	var b strings.Builder
-	b.WriteString("SHADOW_RECEIPT|v1|")
+	b.WriteString("SHADOW_RECEIPT|v2|")
 	b.WriteString(r.ReceiptID)
 	b.WriteString("|")
 	b.WriteString(string(r.CircleID))
@@ -154,6 +155,15 @@ func (r *ShadowReceipt) CanonicalString() string {
 	b.WriteString(r.CreatedAt.UTC().Format(time.RFC3339Nano))
 	b.WriteString("|")
 	b.WriteString(r.computeSuggestionsHash())
+	b.WriteString("|")
+	b.WriteString(r.Provenance.CanonicalString())
+	b.WriteString("|")
+	// Hash WhyGeneric to avoid storing raw text in canonical string
+	if r.WhyGeneric == "" {
+		b.WriteString("empty")
+	} else {
+		b.WriteString(computeHash("WHY_GENERIC|" + r.WhyGeneric))
+	}
 	return b.String()
 }
 

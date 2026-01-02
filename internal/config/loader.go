@@ -151,11 +151,29 @@ func LoadFromFile(path string, loadedAt time.Time) (*MultiCircleConfig, error) {
 				}
 				config.Shadow.Mode = value
 			case "model":
-				// Validate model value
-				if value != "stub" {
-					return nil, &ParseError{Line: lineNum, Message: "invalid shadow model: " + value + " (must be 'stub')"}
+				// Validate model value (Phase 19.3: expanded to include azure_openai)
+				if value != "stub" && value != "azure_openai" && value != "local_slm" {
+					return nil, &ParseError{Line: lineNum, Message: "invalid shadow model: " + value + " (must be 'stub', 'azure_openai', or 'local_slm')"}
 				}
 				config.Shadow.ModelName = value
+			case "provider_kind":
+				// Phase 19.3: provider kind
+				if value != "none" && value != "stub" && value != "azure_openai" && value != "local_slm" {
+					return nil, &ParseError{Line: lineNum, Message: "invalid shadow provider_kind: " + value}
+				}
+				config.Shadow.ProviderKind = value
+			case "real_allowed":
+				// Phase 19.3: explicit opt-in for real providers
+				config.Shadow.RealAllowed = value == "true"
+			case "azure_endpoint":
+				// Phase 19.3: Azure OpenAI endpoint (optional - env var preferred)
+				config.Shadow.AzureOpenAI.Endpoint = value
+			case "azure_deployment":
+				// Phase 19.3: Azure OpenAI deployment name (optional - env var preferred)
+				config.Shadow.AzureOpenAI.Deployment = value
+			case "azure_api_version":
+				// Phase 19.3: Azure OpenAI API version
+				config.Shadow.AzureOpenAI.APIVersion = value
 			default:
 				return nil, &ParseError{Line: lineNum, Message: "unknown shadow key: " + key}
 			}

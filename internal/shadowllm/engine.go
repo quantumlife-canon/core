@@ -1,16 +1,19 @@
 // Package shadowllm provides the shadow-mode engine for LLM observation.
 //
 // Phase 19.2: LLM Shadow Mode Contract
+// Phase 19.3: Azure OpenAI Shadow Provider
 //
 // CRITICAL INVARIANTS:
 //   - Shadow mode produces METADATA ONLY (abstract buckets, hashes) - never content
 //   - Shadow mode does NOT affect behavior - observation ONLY
 //   - Shadow mode is OFF by default - explicit action required
-//   - No goroutines. No time.Now() - clock injection only.
-//   - Deterministic: same inputs + same clock => identical receipt hash
-//   - Stdlib only. No external dependencies. No HTTP calls.
+//   - No goroutines in internal/. No time.Now() - clock injection only.
+//   - Stub provider: Deterministic (same inputs + same clock => identical receipt hash)
+//   - Real providers: Non-deterministic OK but receipts include provenance
+//   - Stdlib only. No external dependencies.
 //
 // Reference: docs/ADR/ADR-0043-phase19-2-shadow-mode-contract.md
+// Reference: docs/ADR/ADR-0044-phase19-3-azure-openai-shadow-provider.md
 package shadowllm
 
 import (
@@ -19,6 +22,8 @@ import (
 	"encoding/hex"
 	"time"
 
+	"quantumlife/internal/shadowllm/privacy"
+	"quantumlife/internal/shadowllm/prompt"
 	"quantumlife/pkg/clock"
 	"quantumlife/pkg/domain/identity"
 	"quantumlife/pkg/domain/shadowllm"
@@ -132,7 +137,7 @@ func (e *Engine) Run(input RunInput) (*RunOutput, error) {
 	// Convert signals to suggestions
 	suggestions := convertSignalsToSuggestions(run.Signals)
 
-	// Build receipt
+	// Build receipt with Phase 19.3 provenance
 	receipt := shadowllm.ShadowReceipt{
 		ReceiptID:       receiptID,
 		CircleID:        input.CircleID,
@@ -141,6 +146,16 @@ func (e *Engine) Run(input RunInput) (*RunOutput, error) {
 		Suggestions:     suggestions,
 		ModelSpec:       e.provider.Name(),
 		CreatedAt:       now,
+		Provenance: shadowllm.Provenance{
+			ProviderKind:          shadowllm.ProviderKindStub,
+			ModelOrDeployment:     e.provider.Name(),
+			RequestPolicyHash:     privacy.PolicyHash(),
+			PromptTemplateVersion: prompt.TemplateVersion,
+			LatencyBucket:         shadowllm.LatencyNA, // Stub has no latency
+			Status:                shadowllm.ReceiptStatusSuccess,
+			ErrorBucket:           "",
+		},
+		WhyGeneric: "", // Stub provider has no why_generic
 	}
 
 	return &RunOutput{

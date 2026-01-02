@@ -1235,6 +1235,33 @@ const (
 
 	// Shadow suggestion events (aggregated, no per-suggestion events for privacy)
 	Phase19_2ShadowSuggestionsComputed EventType = "phase19_2.shadow.suggestions.computed"
+
+	// =============================================================================
+	// Phase 19.3: Azure OpenAI Shadow Provider Events
+	// =============================================================================
+
+	// Phase19_3 Azure shadow provider events
+	Phase19_3AzureShadowRequested    EventType = "phase19_3.azure.shadow.requested"
+	Phase19_3AzureShadowCompleted    EventType = "phase19_3.azure.shadow.completed"
+	Phase19_3AzureShadowFailed       EventType = "phase19_3.azure.shadow.failed"
+	Phase19_3AzureShadowTimeout      EventType = "phase19_3.azure.shadow.timeout"
+	Phase19_3AzureShadowNotPermitted EventType = "phase19_3.azure.shadow.not_permitted"
+	Phase19_3AzureShadowDisabled     EventType = "phase19_3.azure.shadow.disabled"
+
+	// Privacy guard events
+	Phase19_3PrivacyGuardPassed  EventType = "phase19_3.privacy.guard.passed"
+	Phase19_3PrivacyGuardBlocked EventType = "phase19_3.privacy.guard.blocked"
+
+	// Output validation events
+	Phase19_3OutputValidationPassed EventType = "phase19_3.output.validation.passed"
+	Phase19_3OutputValidationFailed EventType = "phase19_3.output.validation.failed"
+
+	// Consent events
+	Phase19_3ShadowConsentGranted EventType = "phase19_3.shadow.consent.granted"
+	Phase19_3ShadowConsentRevoked EventType = "phase19_3.shadow.consent.revoked"
+
+	// Provider selection events
+	Phase19_3ProviderSelected EventType = "phase19_3.provider.selected"
 )
 
 // Event represents a system event for audit and observability.

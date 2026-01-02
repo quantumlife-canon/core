@@ -477,10 +477,19 @@ demo-phase19-2:
 	@echo "Running Phase 19.2 Demo: Shadow Mode Contract..."
 	go test -v ./internal/demo_phase19_2_shadow_mode/...
 
+demo-phase19-3:
+	@echo "Running Phase 19.3 Demo: Azure OpenAI Shadow Provider..."
+	go test -v ./internal/demo_phase19_3_azure_shadow/...
+
 # Check shadow mode constraints (Phase 19.2)
 check-shadow-mode:
 	@echo "Checking shadow mode constraints (Phase 19.2)..."
 	@./scripts/guardrails/shadow_mode_enforced.sh
+
+# Check Azure shadow provider constraints (Phase 19.3)
+check-shadow-azure:
+	@echo "Checking Azure shadow provider constraints (Phase 19.3)..."
+	@./scripts/guardrails/shadow_azure_enforced.sh
 
 # =============================================================================
 # Web Server Targets

@@ -1,17 +1,20 @@
 // Package shadowllm provides types for LLM shadow-mode observation.
 //
 // Phase 19: LLM Shadow-Mode Contract
+// Phase 19.3: Azure OpenAI Shadow Provider
 //
 // CRITICAL INVARIANTS:
 //   - Shadow mode emits METADATA ONLY (scores, deltas, confidence) - never content
 //   - Shadow mode can NEVER: surface UI text, create obligations/drafts,
 //     alter interruption levels, trigger execution, write back to providers
 //   - Shadow mode is OFF by default, requires explicit config flag
-//   - No goroutines. No time.Now() - clock injection only.
-//   - Deterministic: same inputs + same seed + same clock => identical outputs/hashes
+//   - No goroutines in pkg/domain/ or internal/. No time.Now() - clock injection only.
+//   - Stub provider: Deterministic (same inputs + same seed + same clock => identical outputs/hashes)
+//   - Real providers: Non-deterministic OK but receipts are auditable with provenance
 //   - Stdlib only. No external dependencies.
 //
 // Reference: docs/ADR/ADR-0043-phase19-shadow-mode-contract.md
+// Reference: docs/ADR/ADR-0044-phase19-3-azure-openai-shadow-provider.md
 package shadowllm
 
 import (
@@ -40,6 +43,186 @@ func (m ShadowMode) IsEnabled() bool {
 func (m ShadowMode) Validate() bool {
 	return m == ShadowModeOff || m == ShadowModeObserve
 }
+
+// =============================================================================
+// Phase 19.3: Provider Kind and Provenance Types
+// =============================================================================
+
+// ProviderKind identifies the shadow LLM provider type.
+//
+// CRITICAL: Only "stub" is fully deterministic.
+// Real providers (azure_openai) produce non-deterministic results but are auditable.
+type ProviderKind string
+
+const (
+	// ProviderKindNone means no provider is configured.
+	ProviderKindNone ProviderKind = "none"
+
+	// ProviderKindStub is the deterministic stub provider (default).
+	ProviderKindStub ProviderKind = "stub"
+
+	// ProviderKindAzureOpenAI is the Azure OpenAI provider.
+	// CRITICAL: Requires explicit opt-in and consent.
+	ProviderKindAzureOpenAI ProviderKind = "azure_openai"
+
+	// ProviderKindLocalSLM is a placeholder for future local SLM support.
+	// NOT IMPLEMENTED in Phase 19.3.
+	ProviderKindLocalSLM ProviderKind = "local_slm"
+)
+
+// Validate checks if the provider kind is valid.
+func (p ProviderKind) Validate() bool {
+	switch p {
+	case ProviderKindNone, ProviderKindStub, ProviderKindAzureOpenAI, ProviderKindLocalSLM:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsReal returns true if this is a real (non-stub) provider.
+func (p ProviderKind) IsReal() bool {
+	return p == ProviderKindAzureOpenAI || p == ProviderKindLocalSLM
+}
+
+// RequiresConsent returns true if this provider requires explicit consent.
+func (p ProviderKind) RequiresConsent() bool {
+	return p.IsReal()
+}
+
+// LatencyBucket indicates response latency in abstract buckets.
+// Computed in cmd layer only (not in internal/).
+type LatencyBucket string
+
+const (
+	// LatencyFast indicates response under 1 second.
+	LatencyFast LatencyBucket = "fast"
+
+	// LatencyMedium indicates response 1-5 seconds.
+	LatencyMedium LatencyBucket = "medium"
+
+	// LatencySlow indicates response over 5 seconds.
+	LatencySlow LatencyBucket = "slow"
+
+	// LatencyTimeout indicates the request timed out.
+	LatencyTimeout LatencyBucket = "timeout"
+
+	// LatencyNA indicates latency is not applicable (stub provider).
+	LatencyNA LatencyBucket = "na"
+)
+
+// Validate checks if the latency bucket is valid.
+func (l LatencyBucket) Validate() bool {
+	switch l {
+	case LatencyFast, LatencyMedium, LatencySlow, LatencyTimeout, LatencyNA:
+		return true
+	default:
+		return false
+	}
+}
+
+// ReceiptStatus indicates the outcome of a shadow run.
+type ReceiptStatus string
+
+const (
+	// ReceiptStatusSuccess means the shadow run completed successfully.
+	ReceiptStatusSuccess ReceiptStatus = "success"
+
+	// ReceiptStatusDisabled means shadow mode is disabled.
+	ReceiptStatusDisabled ReceiptStatus = "disabled"
+
+	// ReceiptStatusNotPermitted means the provider is not permitted (missing consent).
+	ReceiptStatusNotPermitted ReceiptStatus = "not_permitted"
+
+	// ReceiptStatusFailed means the shadow run failed (network error, etc).
+	ReceiptStatusFailed ReceiptStatus = "failed"
+
+	// ReceiptStatusInvalidOutput means the model output was invalid.
+	ReceiptStatusInvalidOutput ReceiptStatus = "invalid_output"
+
+	// ReceiptStatusPrivacyBlocked means input failed privacy validation.
+	ReceiptStatusPrivacyBlocked ReceiptStatus = "privacy_blocked"
+)
+
+// Validate checks if the status is valid.
+func (s ReceiptStatus) Validate() bool {
+	switch s {
+	case ReceiptStatusSuccess, ReceiptStatusDisabled, ReceiptStatusNotPermitted,
+		ReceiptStatusFailed, ReceiptStatusInvalidOutput, ReceiptStatusPrivacyBlocked:
+		return true
+	default:
+		return false
+	}
+}
+
+// Provenance captures provider and request metadata for auditability.
+//
+// CRITICAL: Contains NO secrets (API keys, tokens).
+// Contains ONLY metadata for audit trail.
+type Provenance struct {
+	// ProviderKind identifies the provider type.
+	ProviderKind ProviderKind
+
+	// ModelOrDeployment is the model/deployment name (e.g., "gpt-4o-mini").
+	// May be empty for stub provider.
+	ModelOrDeployment string
+
+	// RequestPolicyHash is a hash of the privacy policy version used.
+	// Allows tracking which policy version was in effect.
+	RequestPolicyHash string
+
+	// PromptTemplateVersion identifies the prompt template version.
+	PromptTemplateVersion string
+
+	// LatencyBucket indicates response latency (computed in cmd layer).
+	LatencyBucket LatencyBucket
+
+	// Status indicates the outcome of the shadow run.
+	Status ReceiptStatus
+
+	// ErrorBucket contains an abstract error category if failed.
+	// Never contains actual error messages or stack traces.
+	ErrorBucket string
+}
+
+// Validate checks if the provenance is valid.
+func (p *Provenance) Validate() error {
+	if !p.ProviderKind.Validate() {
+		return ErrInvalidProviderKind
+	}
+	if !p.LatencyBucket.Validate() {
+		return ErrInvalidLatencyBucket
+	}
+	if !p.Status.Validate() {
+		return ErrInvalidReceiptStatus
+	}
+	return nil
+}
+
+// CanonicalString returns the pipe-delimited canonical representation.
+func (p *Provenance) CanonicalString() string {
+	return "PROVENANCE|v1|" +
+		string(p.ProviderKind) + "|" +
+		p.ModelOrDeployment + "|" +
+		p.RequestPolicyHash + "|" +
+		p.PromptTemplateVersion + "|" +
+		string(p.LatencyBucket) + "|" +
+		string(p.Status) + "|" +
+		p.ErrorBucket
+}
+
+// Additional error types for Phase 19.3
+const (
+	ErrInvalidProviderKind  shadowError = "invalid provider kind"
+	ErrInvalidLatencyBucket shadowError = "invalid latency bucket"
+	ErrInvalidReceiptStatus shadowError = "invalid receipt status"
+	ErrProviderNotPermitted shadowError = "provider not permitted"
+	ErrPrivacyViolation     shadowError = "privacy violation in input"
+	ErrInvalidModelOutput   shadowError = "invalid model output"
+	ErrProviderTimeout      shadowError = "provider request timed out"
+	ErrProviderError        shadowError = "provider error"
+	ErrWhyGenericTooLong    shadowError = "why_generic exceeds max length"
+)
 
 // ShadowSignalKind identifies the type of signal emitted by shadow-mode.
 type ShadowSignalKind string
@@ -418,6 +601,7 @@ const MaxSuggestionsPerReceipt = 5
 // ShadowReceipt represents a privacy-safe receipt of shadow analysis.
 //
 // Phase 19.2: LLM Shadow Mode Contract
+// Phase 19.3: Extended with Provenance and WhyGeneric
 //
 // CRITICAL: Contains ONLY abstract data.
 // CRITICAL: No raw text, emails, amounts, dates, or identifiable info.
@@ -447,9 +631,21 @@ type ShadowReceipt struct {
 	// CreatedAt is when this receipt was created (injected clock).
 	CreatedAt time.Time
 
+	// Phase 19.3: Provenance for auditability
+	// Provenance captures provider and request metadata.
+	Provenance Provenance
+
+	// Phase 19.3: WhyGeneric is a short generic rationale from the model.
+	// CRITICAL: Must be validated to contain no identifiable information.
+	// Max 140 characters. May be empty for stub provider.
+	WhyGeneric string
+
 	// hash is cached after first computation.
 	hash string
 }
+
+// MaxWhyGenericLength is the maximum length for WhyGeneric field.
+const MaxWhyGenericLength = 140
 
 // Validate checks if the receipt is valid.
 func (r *ShadowReceipt) Validate() error {
@@ -479,6 +675,16 @@ func (r *ShadowReceipt) Validate() error {
 		if err := r.Suggestions[i].Validate(); err != nil {
 			return err
 		}
+	}
+
+	// Phase 19.3: Validate provenance
+	if err := r.Provenance.Validate(); err != nil {
+		return err
+	}
+
+	// Phase 19.3: Validate WhyGeneric length
+	if len(r.WhyGeneric) > MaxWhyGenericLength {
+		return ErrWhyGenericTooLong
 	}
 
 	return nil

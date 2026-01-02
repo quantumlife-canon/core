@@ -323,8 +323,8 @@ func TestCanonicalStringFormat(t *testing.T) {
 
 	canonical := output.Receipt.CanonicalString()
 
-	// Must start with type prefix
-	if !strings.HasPrefix(canonical, "SHADOW_RECEIPT|v1|") {
+	// Must start with type prefix (v2 includes provenance - Phase 19.3)
+	if !strings.HasPrefix(canonical, "SHADOW_RECEIPT|v2|") {
 		t.Errorf("Canonical string missing prefix: %s", canonical[:50])
 	}
 

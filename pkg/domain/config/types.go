@@ -139,26 +139,71 @@ type MultiCircleConfig struct {
 // ShadowConfig contains shadow-mode configuration.
 //
 // Phase 19: LLM Shadow-Mode Contract
+// Phase 19.3: Azure OpenAI Shadow Provider
 //
 // CRITICAL: Shadow mode is OFF by default.
 // CRITICAL: Shadow mode emits METADATA ONLY - never content.
 // CRITICAL: Shadow mode NEVER affects UI, obligations, drafts, or execution.
+// CRITICAL: Real providers require explicit opt-in (RealAllowed=true) + consent.
 type ShadowConfig struct {
 	// Mode is the shadow-mode operation mode.
 	// Valid values: "off" (default), "observe"
 	Mode string
 
 	// ModelName is the shadow model to use.
-	// Valid values: "stub" (default)
+	// Valid values: "stub" (default), "azure_openai", "local_slm" (placeholder)
 	ModelName string
+
+	// Phase 19.3: Provider configuration
+	// ProviderKind identifies the provider type.
+	// Valid values: "none", "stub" (default), "azure_openai", "local_slm"
+	ProviderKind string
+
+	// RealAllowed indicates if real (non-stub) providers are permitted.
+	// CRITICAL: Default is false. Must be explicitly enabled.
+	RealAllowed bool
+
+	// AzureOpenAI contains Azure OpenAI provider configuration.
+	// Only used when ProviderKind="azure_openai" and RealAllowed=true.
+	AzureOpenAI AzureOpenAIConfig
 }
+
+// AzureOpenAIConfig contains Azure OpenAI provider settings.
+//
+// CRITICAL: API key should come from environment variable, not config file.
+// Config file only stores endpoint and deployment name.
+type AzureOpenAIConfig struct {
+	// Endpoint is the Azure OpenAI endpoint URL.
+	// Example: "https://your-resource.openai.azure.com"
+	// Read from AZURE_OPENAI_ENDPOINT env var if empty.
+	Endpoint string
+
+	// Deployment is the model deployment name.
+	// Example: "gpt-4o-mini"
+	// Read from AZURE_OPENAI_DEPLOYMENT env var if empty.
+	Deployment string
+
+	// APIVersion is the Azure OpenAI API version.
+	// Default: "2024-02-15-preview"
+	// Read from AZURE_OPENAI_API_VERSION env var if empty.
+	APIVersion string
+}
+
+// DefaultAzureOpenAIAPIVersion is the default Azure OpenAI API version.
+const DefaultAzureOpenAIAPIVersion = "2024-02-15-preview"
 
 // DefaultShadowConfig returns the default shadow configuration.
 // CRITICAL: Mode is OFF by default.
+// CRITICAL: RealAllowed is false by default.
 func DefaultShadowConfig() ShadowConfig {
 	return ShadowConfig{
-		Mode:      "off",
-		ModelName: "stub",
+		Mode:         "off",
+		ModelName:    "stub",
+		ProviderKind: "stub",
+		RealAllowed:  false,
+		AzureOpenAI: AzureOpenAIConfig{
+			APIVersion: DefaultAzureOpenAIAPIVersion,
+		},
 	}
 }
 
@@ -254,11 +299,20 @@ func (c *MultiCircleConfig) CanonicalString() string {
 	sort.Strings(sortedFamily)
 	b.WriteString(strings.Join(sortedFamily, ","))
 
-	// Shadow config (Phase 19)
+	// Shadow config (Phase 19 + 19.3)
 	b.WriteString("\nshadow|mode:")
 	b.WriteString(c.Shadow.Mode)
 	b.WriteString("|model:")
 	b.WriteString(c.Shadow.ModelName)
+	b.WriteString("|provider_kind:")
+	b.WriteString(c.Shadow.ProviderKind)
+	b.WriteString("|real_allowed:")
+	if c.Shadow.RealAllowed {
+		b.WriteString("true")
+	} else {
+		b.WriteString("false")
+	}
+	// Note: Azure config excluded from canonical string as it contains runtime env vars
 
 	return b.String()
 }
