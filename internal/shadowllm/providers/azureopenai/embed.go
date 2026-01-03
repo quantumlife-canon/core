@@ -142,7 +142,8 @@ type EmbedHealthResult struct {
 // CRITICAL: Returns only hash of vector - never raw embeddings.
 // CRITICAL: Single request - NO retries.
 // NOTE: Latency is NOT measured here (no time.Now allowed in internal/).
-//       If latency measurement is needed, do it in cmd/quantumlife-web/.
+//
+//	If latency measurement is needed, do it in cmd/quantumlife-web/.
 func (p *EmbedProvider) Healthcheck(ctx context.Context) (*EmbedHealthResult, error) {
 	result := &EmbedHealthResult{
 		Status:        config.EmbedStatusFail,

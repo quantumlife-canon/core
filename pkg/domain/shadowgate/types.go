@@ -514,22 +514,22 @@ type gateError string
 func (e gateError) Error() string { return string(e) }
 
 const (
-	ErrMissingPeriodKey           gateError = "missing period key"
-	ErrMissingCircleID            gateError = "missing circle ID"
-	ErrInvalidOrigin              gateError = "invalid candidate origin"
-	ErrInvalidCategory            gateError = "invalid category"
-	ErrInvalidHorizon             gateError = "invalid horizon"
-	ErrInvalidMagnitude           gateError = "invalid magnitude"
-	ErrMissingWhyGeneric          gateError = "missing why generic"
-	ErrInvalidUsefulnessPct       gateError = "usefulness pct must be 0-100"
-	ErrInvalidUsefulnessBucket    gateError = "invalid usefulness bucket"
+	ErrMissingPeriodKey            gateError = "missing period key"
+	ErrMissingCircleID             gateError = "missing circle ID"
+	ErrInvalidOrigin               gateError = "invalid candidate origin"
+	ErrInvalidCategory             gateError = "invalid category"
+	ErrInvalidHorizon              gateError = "invalid horizon"
+	ErrInvalidMagnitude            gateError = "invalid magnitude"
+	ErrMissingWhyGeneric           gateError = "missing why generic"
+	ErrInvalidUsefulnessPct        gateError = "usefulness pct must be 0-100"
+	ErrInvalidUsefulnessBucket     gateError = "invalid usefulness bucket"
 	ErrInvalidVoteConfidenceBucket gateError = "invalid vote confidence bucket"
-	ErrInvalidVoteCount           gateError = "vote count must be non-negative"
-	ErrMissingCandidateID         gateError = "missing candidate ID"
-	ErrMissingCandidateHash       gateError = "missing candidate hash"
-	ErrInvalidNoteCode            gateError = "invalid note code"
-	ErrMissingCreatedBucket       gateError = "missing created bucket"
-	ErrPrivacyViolation           gateError = "privacy violation in candidate"
+	ErrInvalidVoteCount            gateError = "vote count must be non-negative"
+	ErrMissingCandidateID          gateError = "missing candidate ID"
+	ErrMissingCandidateHash        gateError = "missing candidate hash"
+	ErrInvalidNoteCode             gateError = "invalid note code"
+	ErrMissingCreatedBucket        gateError = "missing created bucket"
+	ErrPrivacyViolation            gateError = "privacy violation in candidate"
 )
 
 // =============================================================================

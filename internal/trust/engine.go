@@ -254,8 +254,8 @@ func determineSignal(
 // Used for testing and when no real data is available.
 type NullSource struct{}
 
-func (NullSource) GetHeldCount(string, trust.TrustPeriod) int         { return 0 }
-func (NullSource) GetSuppressionCount(string, trust.TrustPeriod) int  { return 0 }
+func (NullSource) GetHeldCount(string, trust.TrustPeriod) int            { return 0 }
+func (NullSource) GetSuppressionCount(string, trust.TrustPeriod) int     { return 0 }
 func (NullSource) GetShadowRejectionCount(string, trust.TrustPeriod) int { return 0 }
 
 // =============================================================================
@@ -264,17 +264,17 @@ func (NullSource) GetShadowRejectionCount(string, trust.TrustPeriod) int { retur
 
 // MockSource is a configurable RestraintSource for testing.
 type MockSource struct {
-	HeldCounts       map[string]int
+	HeldCounts        map[string]int
 	SuppressionCounts map[string]int
-	RejectionCounts  map[string]int
+	RejectionCounts   map[string]int
 }
 
 // NewMockSource creates a new mock source.
 func NewMockSource() *MockSource {
 	return &MockSource{
-		HeldCounts:       make(map[string]int),
+		HeldCounts:        make(map[string]int),
 		SuppressionCounts: make(map[string]int),
-		RejectionCounts:  make(map[string]int),
+		RejectionCounts:   make(map[string]int),
 	}
 }
 

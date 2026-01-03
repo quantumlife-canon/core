@@ -36,8 +36,8 @@ func createTestClock() clock.Clock {
 
 // mockDiffSource is a mock implementation of DiffSource for testing.
 type mockDiffSource struct {
-	diffs  []*shadowdiff.DiffResult
-	votes  map[string]shadowdiff.CalibrationVote
+	diffs []*shadowdiff.DiffResult
+	votes map[string]shadowdiff.CalibrationVote
 }
 
 func (m *mockDiffSource) ListDiffsByPeriod(periodKey string) []*shadowdiff.DiffResult {

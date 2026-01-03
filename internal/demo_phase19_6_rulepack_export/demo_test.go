@@ -963,7 +963,7 @@ func TestStorePackCount(t *testing.T) {
 		pack := &rulepack.RulePack{
 			PeriodKey:           "2024-01-15",
 			CircleID:            identity.EntityID(circle),
-			CreatedAtBucket:     "2024-01-15T10:" + rulepack.FiveMinuteBucket(clk.Now().Add(time.Duration(i*5)*time.Minute))[16:],
+			CreatedAtBucket:     "2024-01-15T10:" + rulepack.FiveMinuteBucket(clk.Now().Add(time.Duration(i*5) * time.Minute))[16:],
 			ExportFormatVersion: rulepack.ExportFormatVersion,
 			Changes:             []rulepack.RuleChange{},
 			CreatedAt:           clk.Now(),

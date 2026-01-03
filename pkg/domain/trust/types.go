@@ -321,11 +321,11 @@ type trustError string
 func (e trustError) Error() string { return string(e) }
 
 const (
-	ErrInvalidPeriod       trustError = "invalid trust period"
-	ErrMissingPeriodKey    trustError = "missing period key"
-	ErrInvalidSignalKind   trustError = "invalid signal kind"
-	ErrInvalidMagnitude    trustError = "invalid magnitude bucket"
+	ErrInvalidPeriod        trustError = "invalid trust period"
+	ErrMissingPeriodKey     trustError = "missing period key"
+	ErrInvalidSignalKind    trustError = "invalid signal kind"
+	ErrInvalidMagnitude     trustError = "invalid magnitude bucket"
 	ErrMissingCreatedBucket trustError = "missing created bucket"
-	ErrMissingSummaryID    trustError = "missing summary ID"
-	ErrMissingSummaryHash  trustError = "missing summary hash"
+	ErrMissingSummaryID     trustError = "missing summary ID"
+	ErrMissingSummaryHash   trustError = "missing summary hash"
 )

@@ -296,4 +296,3 @@ func mapAgreement(origin shadowgate.CandidateOrigin) rulepack.AgreementBucket {
 		return rulepack.AgreementMatch
 	}
 }
-

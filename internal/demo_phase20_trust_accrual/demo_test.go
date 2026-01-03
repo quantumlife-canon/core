@@ -640,8 +640,8 @@ func TestTrustEngine_SuppressionsPriority(t *testing.T) {
 
 	// Source with BOTH suppressions and held
 	source := trustengine.NewMockSource()
-	source.HeldCounts["2024-W03"] = 10          // several
-	source.SuppressionCounts["2024-W03"] = 2   // a_few
+	source.HeldCounts["2024-W03"] = 10       // several
+	source.SuppressionCounts["2024-W03"] = 2 // a_few
 
 	output, err := engine.Compute(trustengine.ComputeInput{
 		Period:    trust.PeriodWeek,

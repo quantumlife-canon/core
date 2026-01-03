@@ -28,13 +28,14 @@ const ExportHeader = "# RULEPACK EXPORT FORMAT " + ExportFormatVersion
 // ToText exports the RulePack to a stable text format.
 //
 // The format is:
-//   # RULEPACK EXPORT FORMAT v1
-//   # PACK_ID|period|circle|created_bucket|change_count|pack_hash
-//   PACK|<pack_id>|<period>|<circle>|<created_bucket>|<change_count>|<pack_hash>
-//   # CHANGES (sorted deterministically)
-//   CHANGE|<change_id>|<candidate_hash>|<intent_hash>|<circle>|<kind>|<scope>|<target_hash>|<category>|<delta>|<usefulness>|<confidence>|<novelty>|<agreement>
-//   ...
-//   # END
+//
+//	# RULEPACK EXPORT FORMAT v1
+//	# PACK_ID|period|circle|created_bucket|change_count|pack_hash
+//	PACK|<pack_id>|<period>|<circle>|<created_bucket>|<change_count>|<pack_hash>
+//	# CHANGES (sorted deterministically)
+//	CHANGE|<change_id>|<candidate_hash>|<intent_hash>|<circle>|<kind>|<scope>|<target_hash>|<category>|<delta>|<usefulness>|<confidence>|<novelty>|<agreement>
+//	...
+//	# END
 //
 // CRITICAL: No raw identifiers. Only hashes and buckets.
 func (p *RulePack) ToText() string {
@@ -201,7 +202,7 @@ var ForbiddenPatterns = []string{
 	".org",
 	".net",
 	".io",
-	"$",  // Currency
+	"$", // Currency
 	"£",
 	"€",
 	"¥",

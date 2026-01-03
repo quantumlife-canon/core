@@ -45,32 +45,32 @@ import (
 	"quantumlife/internal/obligations"
 	"quantumlife/internal/persist"
 	"quantumlife/internal/proof"
+	rulepackengine "quantumlife/internal/rulepack"
 	"quantumlife/internal/shadowcalibration"
 	shadowdiffengine "quantumlife/internal/shadowdiff"
+	shadowgate "quantumlife/internal/shadowgate"
 	"quantumlife/internal/shadowllm"
 	"quantumlife/internal/shadowllm/providers/azureopenai"
 	"quantumlife/internal/shadowllm/stub"
 	"quantumlife/internal/surface"
 	"quantumlife/internal/todayquietly"
+	trustengine "quantumlife/internal/trust"
 	"quantumlife/pkg/clock"
+	pkgconfig "quantumlife/pkg/domain/config"
 	"quantumlife/pkg/domain/connection"
 	"quantumlife/pkg/domain/draft"
-	pkgconfig "quantumlife/pkg/domain/config"
 	domainevents "quantumlife/pkg/domain/events"
 	"quantumlife/pkg/domain/feedback"
 	"quantumlife/pkg/domain/identity"
 	domainmirror "quantumlife/pkg/domain/mirror"
 	"quantumlife/pkg/domain/obligation"
 	"quantumlife/pkg/domain/policy"
+	domainrulepack "quantumlife/pkg/domain/rulepack"
 	"quantumlife/pkg/domain/shadowdiff"
 	domainshadowgate "quantumlife/pkg/domain/shadowgate"
 	domainshadow "quantumlife/pkg/domain/shadowllm"
-	domainrulepack "quantumlife/pkg/domain/rulepack"
 	domaintrust "quantumlife/pkg/domain/trust"
 	"quantumlife/pkg/events"
-	shadowgate "quantumlife/internal/shadowgate"
-	rulepackengine "quantumlife/internal/rulepack"
-	trustengine "quantumlife/internal/trust"
 )
 
 var (
@@ -81,30 +81,30 @@ var (
 
 // Server handles HTTP requests.
 type Server struct {
-	engine             *loop.Engine
-	templates          *template.Template
-	eventEmitter       *eventLogger
-	clk                clock.Clock
-	execRouter         *execrouter.Router
-	execExecutor       *execexecutor.Executor
-	multiCircleConfig  *config.MultiCircleConfig
-	identityRepo       *identity.InMemoryRepository     // Phase 13.1: Identity graph
-	interestStore      *interest.Store                  // Phase 18.1: Interest capture
-	todayEngine        *todayquietly.Engine             // Phase 18.2: Today, quietly
-	preferenceStore    *todayquietly.PreferenceStore    // Phase 18.2: Preference capture
-	heldEngine         *held.Engine                     // Phase 18.3: Held, not shown
-	heldStore          *held.SummaryStore               // Phase 18.3: Summary store
-	surfaceEngine      *surface.Engine                  // Phase 18.4: Quiet Shift
-	surfaceStore       *surface.ActionStore             // Phase 18.4: Action store
-	proofEngine        *proof.Engine                    // Phase 18.5: Quiet Proof
-	proofAckStore      *proof.AckStore                  // Phase 18.5: Ack store
-	connectionStore    *persist.InMemoryConnectionStore // Phase 18.6: First Connect
-	mirrorEngine       *mirror.Engine                   // Phase 18.7: Mirror Proof
-	mirrorAckStore     *mirror.AckStore                 // Phase 18.7: Mirror Ack store
-	tokenBroker        auth.TokenBroker                 // Phase 18.8: OAuth token broker
-	oauthStateManager  *oauth.StateManager              // Phase 18.8: OAuth state management
-	gmailHandler       *oauth.GmailHandler              // Phase 18.8: Gmail OAuth handler
-	syncReceiptStore   *persist.SyncReceiptStore        // Phase 19.1: Sync receipt store
+	engine                 *loop.Engine
+	templates              *template.Template
+	eventEmitter           *eventLogger
+	clk                    clock.Clock
+	execRouter             *execrouter.Router
+	execExecutor           *execexecutor.Executor
+	multiCircleConfig      *config.MultiCircleConfig
+	identityRepo           *identity.InMemoryRepository     // Phase 13.1: Identity graph
+	interestStore          *interest.Store                  // Phase 18.1: Interest capture
+	todayEngine            *todayquietly.Engine             // Phase 18.2: Today, quietly
+	preferenceStore        *todayquietly.PreferenceStore    // Phase 18.2: Preference capture
+	heldEngine             *held.Engine                     // Phase 18.3: Held, not shown
+	heldStore              *held.SummaryStore               // Phase 18.3: Summary store
+	surfaceEngine          *surface.Engine                  // Phase 18.4: Quiet Shift
+	surfaceStore           *surface.ActionStore             // Phase 18.4: Action store
+	proofEngine            *proof.Engine                    // Phase 18.5: Quiet Proof
+	proofAckStore          *proof.AckStore                  // Phase 18.5: Ack store
+	connectionStore        *persist.InMemoryConnectionStore // Phase 18.6: First Connect
+	mirrorEngine           *mirror.Engine                   // Phase 18.7: Mirror Proof
+	mirrorAckStore         *mirror.AckStore                 // Phase 18.7: Mirror Ack store
+	tokenBroker            auth.TokenBroker                 // Phase 18.8: OAuth token broker
+	oauthStateManager      *oauth.StateManager              // Phase 18.8: OAuth state management
+	gmailHandler           *oauth.GmailHandler              // Phase 18.8: Gmail OAuth handler
+	syncReceiptStore       *persist.SyncReceiptStore        // Phase 19.1: Sync receipt store
 	shadowEngine           *shadowllm.Engine                // Phase 19.2: Shadow mode engine
 	shadowReceiptStore     *persist.ShadowReceiptStore      // Phase 19.2: Shadow receipt store
 	shadowCalibrationStore *persist.ShadowCalibrationStore  // Phase 19.4: Shadow calibration store
@@ -463,31 +463,31 @@ func main() {
 
 	// Create server
 	server := &Server{
-		engine:             engine,
-		templates:          tmpl,
-		eventEmitter:       emitter,
-		clk:                clk,
-		execRouter:         execRouter,
-		execExecutor:       execExecutor,
-		multiCircleConfig:  multiCfg,
-		identityRepo:       identityRepo,       // Phase 13.1
-		interestStore:      interestStore,      // Phase 18.1
-		todayEngine:        todayEngine,        // Phase 18.2
-		preferenceStore:    preferenceStore,    // Phase 18.2
-		heldEngine:         heldEngine,         // Phase 18.3
-		heldStore:          heldStore,          // Phase 18.3
-		surfaceEngine:      surfaceEngine,      // Phase 18.4
-		surfaceStore:       surfaceStore,       // Phase 18.4
-		proofEngine:        proofEngine,        // Phase 18.5
-		proofAckStore:      proofAckStore,      // Phase 18.5
-		connectionStore:    connectionStore,    // Phase 18.6
-		mirrorEngine:       mirrorEngine,       // Phase 18.7
-		mirrorAckStore:     mirrorAckStore,     // Phase 18.7
-		tokenBroker:        tokenBroker,        // Phase 18.8
-		oauthStateManager:  oauthStateManager,  // Phase 18.8
-		gmailHandler:       gmailHandler,       // Phase 18.8
-		syncReceiptStore:   syncReceiptStore,   // Phase 19.1
-		shadowEngine:       shadowEngine,       // Phase 19.2
+		engine:                 engine,
+		templates:              tmpl,
+		eventEmitter:           emitter,
+		clk:                    clk,
+		execRouter:             execRouter,
+		execExecutor:           execExecutor,
+		multiCircleConfig:      multiCfg,
+		identityRepo:           identityRepo,           // Phase 13.1
+		interestStore:          interestStore,          // Phase 18.1
+		todayEngine:            todayEngine,            // Phase 18.2
+		preferenceStore:        preferenceStore,        // Phase 18.2
+		heldEngine:             heldEngine,             // Phase 18.3
+		heldStore:              heldStore,              // Phase 18.3
+		surfaceEngine:          surfaceEngine,          // Phase 18.4
+		surfaceStore:           surfaceStore,           // Phase 18.4
+		proofEngine:            proofEngine,            // Phase 18.5
+		proofAckStore:          proofAckStore,          // Phase 18.5
+		connectionStore:        connectionStore,        // Phase 18.6
+		mirrorEngine:           mirrorEngine,           // Phase 18.7
+		mirrorAckStore:         mirrorAckStore,         // Phase 18.7
+		tokenBroker:            tokenBroker,            // Phase 18.8
+		oauthStateManager:      oauthStateManager,      // Phase 18.8
+		gmailHandler:           gmailHandler,           // Phase 18.8
+		syncReceiptStore:       syncReceiptStore,       // Phase 19.1
+		shadowEngine:           shadowEngine,           // Phase 19.2
 		shadowReceiptStore:     shadowReceiptStore,     // Phase 19.2
 		shadowCalibrationStore: shadowCalibrationStore, // Phase 19.4
 		shadowGateStore:        shadowGateStore,        // Phase 19.5
@@ -504,41 +504,41 @@ func main() {
 
 	// Phase 18: Public routes
 	mux.HandleFunc("/", server.handleLanding)
-	mux.HandleFunc("/interest", server.handleInterest)                         // Phase 18.1: Interest capture
-	mux.HandleFunc("/today", server.handleToday)                               // Phase 18.2: Today, quietly
-	mux.HandleFunc("/today/preference", server.handlePreference)               // Phase 18.2: Preference capture
-	mux.HandleFunc("/held", server.handleHeld)                                 // Phase 18.3: Held, not shown
-	mux.HandleFunc("/surface", server.handleSurface)                           // Phase 18.4: Quiet Shift
-	mux.HandleFunc("/surface/hold", server.handleSurfaceHold)                  // Phase 18.4: Hold action
-	mux.HandleFunc("/surface/why", server.handleSurfaceWhy)                    // Phase 18.4: Why action
-	mux.HandleFunc("/surface/prefer", server.handleSurfacePrefer)              // Phase 18.4: Prefer show_all
-	mux.HandleFunc("/proof", server.handleProof)                               // Phase 18.5: Quiet Proof
-	mux.HandleFunc("/proof/dismiss", server.handleProofDismiss)                // Phase 18.5: Dismiss proof
-	mux.HandleFunc("/start", server.handleStart)                               // Phase 18.6: First Connect
-	mux.HandleFunc("/connections", server.handleConnections)                   // Phase 18.6: Connections
-	mux.HandleFunc("/connect/", server.handleConnect)                          // Phase 18.6: Connect action
-	mux.HandleFunc("/disconnect/", server.handleDisconnect)                    // Phase 18.6: Disconnect action
-	mux.HandleFunc("/mirror", server.handleMirror)                             // Phase 18.7: Mirror Proof
-	mux.HandleFunc("/connect/gmail", server.handleGmailConsent)                // Phase 18.9: Gmail consent page
-	mux.HandleFunc("/connect/gmail/start", server.handleGmailOAuthStart)       // Phase 18.8: Gmail OAuth start
-	mux.HandleFunc("/connect/gmail/callback", server.handleGmailOAuthCallback) // Phase 18.8: Gmail OAuth callback
-	mux.HandleFunc("/disconnect/gmail", server.handleGmailDisconnect)          // Phase 18.8: Gmail disconnect
-	mux.HandleFunc("/run/gmail-sync", server.handleGmailSync)                  // Phase 18.8: Gmail sync
-	mux.HandleFunc("/quiet-check", server.handleQuietCheck)                    // Phase 19.1: Quiet baseline verification
-	mux.HandleFunc("/run/shadow", server.handleShadowRun)                      // Phase 19.2: Shadow mode run
-	mux.HandleFunc("/run/shadow-diff", server.handleShadowDiff)               // Phase 19.4: Compute shadow diffs
-	mux.HandleFunc("/shadow/report", server.handleShadowReport)                // Phase 19.4: Shadow calibration report
-	mux.HandleFunc("/shadow/vote", server.handleShadowVote)                    // Phase 19.4: Shadow calibration vote
-	mux.HandleFunc("/shadow/candidates", server.handleShadowCandidates)       // Phase 19.5: Shadow candidates
-	mux.HandleFunc("/shadow/candidates/refresh", server.handleShadowCandidatesRefresh)   // Phase 19.5: Refresh candidates
-	mux.HandleFunc("/shadow/candidates/propose", server.handleShadowCandidatesPropose)   // Phase 19.5: Propose promotion
-	mux.HandleFunc("/shadow/packs", server.handleRulePackList)           // Phase 19.6: List packs
-	mux.HandleFunc("/shadow/packs/", server.handleRulePackDetail)        // Phase 19.6: Pack detail
-	mux.HandleFunc("/shadow/packs/build", server.handleRulePackBuild)    // Phase 19.6: Build pack
-	mux.HandleFunc("/shadow/health", server.handleShadowHealth)          // Phase 19.3b: Shadow health
-	mux.HandleFunc("/shadow/health/run", server.handleShadowHealthRun)   // Phase 19.3b: Shadow health run
-	mux.HandleFunc("/trust", server.handleTrust)                        // Phase 20: Trust accrual
-	mux.HandleFunc("/trust/dismiss", server.handleTrustDismiss)         // Phase 20: Dismiss trust cue
+	mux.HandleFunc("/interest", server.handleInterest)                                 // Phase 18.1: Interest capture
+	mux.HandleFunc("/today", server.handleToday)                                       // Phase 18.2: Today, quietly
+	mux.HandleFunc("/today/preference", server.handlePreference)                       // Phase 18.2: Preference capture
+	mux.HandleFunc("/held", server.handleHeld)                                         // Phase 18.3: Held, not shown
+	mux.HandleFunc("/surface", server.handleSurface)                                   // Phase 18.4: Quiet Shift
+	mux.HandleFunc("/surface/hold", server.handleSurfaceHold)                          // Phase 18.4: Hold action
+	mux.HandleFunc("/surface/why", server.handleSurfaceWhy)                            // Phase 18.4: Why action
+	mux.HandleFunc("/surface/prefer", server.handleSurfacePrefer)                      // Phase 18.4: Prefer show_all
+	mux.HandleFunc("/proof", server.handleProof)                                       // Phase 18.5: Quiet Proof
+	mux.HandleFunc("/proof/dismiss", server.handleProofDismiss)                        // Phase 18.5: Dismiss proof
+	mux.HandleFunc("/start", server.handleStart)                                       // Phase 18.6: First Connect
+	mux.HandleFunc("/connections", server.handleConnections)                           // Phase 18.6: Connections
+	mux.HandleFunc("/connect/", server.handleConnect)                                  // Phase 18.6: Connect action
+	mux.HandleFunc("/disconnect/", server.handleDisconnect)                            // Phase 18.6: Disconnect action
+	mux.HandleFunc("/mirror", server.handleMirror)                                     // Phase 18.7: Mirror Proof
+	mux.HandleFunc("/connect/gmail", server.handleGmailConsent)                        // Phase 18.9: Gmail consent page
+	mux.HandleFunc("/connect/gmail/start", server.handleGmailOAuthStart)               // Phase 18.8: Gmail OAuth start
+	mux.HandleFunc("/connect/gmail/callback", server.handleGmailOAuthCallback)         // Phase 18.8: Gmail OAuth callback
+	mux.HandleFunc("/disconnect/gmail", server.handleGmailDisconnect)                  // Phase 18.8: Gmail disconnect
+	mux.HandleFunc("/run/gmail-sync", server.handleGmailSync)                          // Phase 18.8: Gmail sync
+	mux.HandleFunc("/quiet-check", server.handleQuietCheck)                            // Phase 19.1: Quiet baseline verification
+	mux.HandleFunc("/run/shadow", server.handleShadowRun)                              // Phase 19.2: Shadow mode run
+	mux.HandleFunc("/run/shadow-diff", server.handleShadowDiff)                        // Phase 19.4: Compute shadow diffs
+	mux.HandleFunc("/shadow/report", server.handleShadowReport)                        // Phase 19.4: Shadow calibration report
+	mux.HandleFunc("/shadow/vote", server.handleShadowVote)                            // Phase 19.4: Shadow calibration vote
+	mux.HandleFunc("/shadow/candidates", server.handleShadowCandidates)                // Phase 19.5: Shadow candidates
+	mux.HandleFunc("/shadow/candidates/refresh", server.handleShadowCandidatesRefresh) // Phase 19.5: Refresh candidates
+	mux.HandleFunc("/shadow/candidates/propose", server.handleShadowCandidatesPropose) // Phase 19.5: Propose promotion
+	mux.HandleFunc("/shadow/packs", server.handleRulePackList)                         // Phase 19.6: List packs
+	mux.HandleFunc("/shadow/packs/", server.handleRulePackDetail)                      // Phase 19.6: Pack detail
+	mux.HandleFunc("/shadow/packs/build", server.handleRulePackBuild)                  // Phase 19.6: Build pack
+	mux.HandleFunc("/shadow/health", server.handleShadowHealth)                        // Phase 19.3b: Shadow health
+	mux.HandleFunc("/shadow/health/run", server.handleShadowHealthRun)                 // Phase 19.3b: Shadow health run
+	mux.HandleFunc("/trust", server.handleTrust)                                       // Phase 20: Trust accrual
+	mux.HandleFunc("/trust/dismiss", server.handleTrustDismiss)                        // Phase 20: Dismiss trust cue
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18: App routes (authenticated)
@@ -771,9 +771,9 @@ func createShadowProvider(cfg *config.MultiCircleConfig, emitter *eventLogger) (
 			emitter.Emit(events.Event{
 				Type: events.Phase19_3ProviderFallback,
 				Metadata: map[string]string{
-					"requested":  "azure_openai",
-					"fallback":   "stub",
-					"reason":     "missing_env_vars",
+					"requested": "azure_openai",
+					"fallback":  "stub",
+					"reason":    "missing_env_vars",
 				},
 			})
 			return stub.NewStubModel(), "stub (RealAllowed: true, fallback: missing AZURE_OPENAI_* env vars)"
@@ -786,9 +786,9 @@ func createShadowProvider(cfg *config.MultiCircleConfig, emitter *eventLogger) (
 			emitter.Emit(events.Event{
 				Type: events.Phase19_3ProviderFallback,
 				Metadata: map[string]string{
-					"requested":  "azure_openai",
-					"fallback":   "stub",
-					"reason":     "provider_init_failed",
+					"requested": "azure_openai",
+					"fallback":  "stub",
+					"reason":    "provider_init_failed",
 				},
 			})
 			return stub.NewStubModel(), "stub (RealAllowed: true, fallback: provider init failed)"
