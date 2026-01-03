@@ -35,6 +35,25 @@ import (
 	domainquietmirror "quantumlife/pkg/domain/quietmirror"
 )
 
+// createTestReceipt creates a SyncReceiptAbstract for testing.
+// This maps message count to magnitude buckets.
+func createTestReceipt(messageCount int, success bool) *quietmirror.SyncReceiptAbstract {
+	var magnitude domainquietmirror.MirrorMagnitude
+	switch {
+	case messageCount == 0:
+		magnitude = domainquietmirror.MagnitudeNothing
+	case messageCount <= 5:
+		magnitude = domainquietmirror.MagnitudeAFew
+	default:
+		magnitude = domainquietmirror.MagnitudeSeveral
+	}
+	return &quietmirror.SyncReceiptAbstract{
+		Success:   success,
+		Hash:      "test-hash",
+		Magnitude: magnitude,
+	}
+}
+
 // =============================================================================
 // Test: No Gmail Connection → No Mirror
 // =============================================================================
@@ -79,16 +98,8 @@ func TestSyncedNothingNotable(t *testing.T) {
 	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
 	engine := quietmirror.NewEngine(func() time.Time { return fixedTime })
 
-	// Create sync receipt with no messages
-	receipt := persist.NewSyncReceipt(
-		identity.EntityID("personal"),
-		"gmail",
-		0, // messageCount = 0
-		0, // eventsStored = 0
-		fixedTime,
-		true, // success
-		"",   // no error
-	)
+	// Create sync receipt with no messages (magnitude = nothing)
+	receipt := createTestReceipt(0, true)
 
 	input := engine.ComputeInput(
 		identity.EntityID("personal"),
@@ -124,16 +135,8 @@ func TestSyncedWithPatterns(t *testing.T) {
 	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
 	engine := quietmirror.NewEngine(func() time.Time { return fixedTime })
 
-	// Create sync receipt with some messages
-	receipt := persist.NewSyncReceipt(
-		identity.EntityID("personal"),
-		"gmail",
-		3, // messageCount = 3 (a_few)
-		2, // eventsStored = 2
-		fixedTime,
-		true, // success
-		"",   // no error
-	)
+	// Create sync receipt with some messages (magnitude = a_few)
+	receipt := createTestReceipt(3, true)
 
 	categoryPresence := map[domainquietmirror.MirrorCategory]bool{
 		domainquietmirror.CategoryWork: true,
@@ -180,15 +183,7 @@ func TestDeterminism(t *testing.T) {
 	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
 	engine := quietmirror.NewEngine(func() time.Time { return fixedTime })
 
-	receipt := persist.NewSyncReceipt(
-		identity.EntityID("personal"),
-		"gmail",
-		5,
-		3,
-		fixedTime,
-		true,
-		"",
-	)
+	receipt := createTestReceipt(5, true)
 
 	categoryPresence := map[domainquietmirror.MirrorCategory]bool{
 		domainquietmirror.CategoryWork:  true,
@@ -223,15 +218,7 @@ func TestPrivacyEnforcement(t *testing.T) {
 	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
 	engine := quietmirror.NewEngine(func() time.Time { return fixedTime })
 
-	receipt := persist.NewSyncReceipt(
-		identity.EntityID("personal"),
-		"gmail",
-		10,
-		5,
-		fixedTime,
-		true,
-		"",
-	)
+	receipt := createTestReceipt(10, true)
 
 	categoryPresence := map[domainquietmirror.MirrorCategory]bool{
 		domainquietmirror.CategoryWork: true,
@@ -276,15 +263,7 @@ func TestNoAutoSurface(t *testing.T) {
 	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
 	engine := quietmirror.NewEngine(func() time.Time { return fixedTime })
 
-	receipt := persist.NewSyncReceipt(
-		identity.EntityID("personal"),
-		"gmail",
-		15,
-		10,
-		fixedTime,
-		true,
-		"",
-	)
+	receipt := createTestReceipt(15, true)
 
 	input := engine.ComputeInput(identity.EntityID("personal"), true, receipt, nil)
 	summary := engine.Compute(input)
@@ -312,15 +291,7 @@ func TestMirrorDoesNotAffectObligations(t *testing.T) {
 	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
 	engine := quietmirror.NewEngine(func() time.Time { return fixedTime })
 
-	receipt := persist.NewSyncReceipt(
-		identity.EntityID("personal"),
-		"gmail",
-		20,
-		15,
-		fixedTime,
-		true,
-		"",
-	)
+	receipt := createTestReceipt(20, true)
 
 	input := engine.ComputeInput(identity.EntityID("personal"), true, receipt, nil)
 	summary := engine.Compute(input)
@@ -349,15 +320,7 @@ func TestCategoriesCappedAt3(t *testing.T) {
 	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
 	engine := quietmirror.NewEngine(func() time.Time { return fixedTime })
 
-	receipt := persist.NewSyncReceipt(
-		identity.EntityID("personal"),
-		"gmail",
-		10,
-		5,
-		fixedTime,
-		true,
-		"",
-	)
+	receipt := createTestReceipt(10, true)
 
 	// Add more than 3 categories
 	categoryPresence := map[domainquietmirror.MirrorCategory]bool{
@@ -406,15 +369,7 @@ func TestMagnitudeBucketsOnly(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		receipt := persist.NewSyncReceipt(
-			identity.EntityID("personal"),
-			"gmail",
-			tt.messageCount,
-			tt.messageCount/2,
-			fixedTime,
-			true,
-			"",
-		)
+		receipt := createTestReceipt(tt.messageCount, true)
 
 		input := engine.ComputeInput(identity.EntityID("personal"), true, receipt, nil)
 		summary := engine.Compute(input)
@@ -434,15 +389,7 @@ func TestPageDisplayProperties(t *testing.T) {
 	fixedTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
 	engine := quietmirror.NewEngine(func() time.Time { return fixedTime })
 
-	receipt := persist.NewSyncReceipt(
-		identity.EntityID("personal"),
-		"gmail",
-		5,
-		3,
-		fixedTime,
-		true,
-		"",
-	)
+	receipt := createTestReceipt(5, true)
 
 	categoryPresence := map[domainquietmirror.MirrorCategory]bool{
 		domainquietmirror.CategoryWork: true,
@@ -479,15 +426,7 @@ func TestStorePersistence(t *testing.T) {
 	store := persist.NewQuietMirrorStore(func() time.Time { return fixedTime })
 	engine := quietmirror.NewEngine(func() time.Time { return fixedTime })
 
-	receipt := persist.NewSyncReceipt(
-		identity.EntityID("personal"),
-		"gmail",
-		5,
-		3,
-		fixedTime,
-		true,
-		"",
-	)
+	receipt := createTestReceipt(5, true)
 
 	input := engine.ComputeInput(identity.EntityID("personal"), true, receipt, nil)
 	summary := engine.Compute(input)

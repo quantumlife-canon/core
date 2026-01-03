@@ -3483,6 +3483,21 @@ func boolToString(b bool) string {
 	return "false"
 }
 
+// mapPersistMagnitudeToMirror converts persist.MagnitudeBucket to quietmirror.MirrorMagnitude.
+// This helper avoids importing internal/persist in internal/quietmirror.
+func mapPersistMagnitudeToMirror(mag persist.MagnitudeBucket) quietmirror.MirrorMagnitude {
+	switch mag {
+	case persist.MagnitudeNone:
+		return quietmirror.MagnitudeNothing
+	case persist.MagnitudeHandful:
+		return quietmirror.MagnitudeAFew
+	case persist.MagnitudeSeveral, persist.MagnitudeMany:
+		return quietmirror.MagnitudeSeveral
+	default:
+		return quietmirror.MagnitudeNothing
+	}
+}
+
 // =============================================================================
 // Phase 19.6: Rule Pack Export (Promotion Pipeline)
 // =============================================================================
@@ -4655,18 +4670,28 @@ func (s *Server) handleQuietInboxMirror(w http.ResponseWriter, r *http.Request) 
 	hasConnection, _ := s.gmailHandler.HasConnection(r.Context(), circleIDStr)
 
 	// Get latest sync receipt
-	var receipt *persist.SyncReceipt
+	var persistReceipt *persist.SyncReceipt
 	if hasConnection {
-		receipt = s.syncReceiptStore.GetLatestByCircle(circleID)
+		persistReceipt = s.syncReceiptStore.GetLatestByCircle(circleID)
 	}
 
 	// Build category presence from obligations (abstract only)
 	categoryPresence := make(map[quietmirror.MirrorCategory]bool)
-	if receipt != nil && receipt.Success {
+	if persistReceipt != nil && persistReceipt.Success {
 		// Use abstract category detection from receipt magnitude
-		if receipt.MagnitudeBucket != persist.MagnitudeNone {
+		if persistReceipt.MagnitudeBucket != persist.MagnitudeNone {
 			// Default to work category for email activity
 			categoryPresence[quietmirror.CategoryWork] = true
+		}
+	}
+
+	// Convert persist.SyncReceipt to internalquietmirror.SyncReceiptAbstract
+	var receipt *internalquietmirror.SyncReceiptAbstract
+	if persistReceipt != nil {
+		receipt = &internalquietmirror.SyncReceiptAbstract{
+			Success:   persistReceipt.Success,
+			Hash:      persistReceipt.Hash,
+			Magnitude: mapPersistMagnitudeToMirror(persistReceipt.MagnitudeBucket),
 		}
 	}
 

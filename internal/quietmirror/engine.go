@@ -22,7 +22,6 @@ import (
 	"sort"
 	"time"
 
-	"quantumlife/internal/persist"
 	"quantumlife/pkg/domain/identity"
 	"quantumlife/pkg/domain/quietmirror"
 )
@@ -40,6 +39,17 @@ func NewEngine(clock func() time.Time) *Engine {
 	return &Engine{clock: clock}
 }
 
+// SyncReceiptAbstract contains abstract sync receipt data.
+// This avoids importing internal/persist in this package.
+type SyncReceiptAbstract struct {
+	// Success indicates if the sync succeeded.
+	Success bool
+	// Hash is the receipt hash.
+	Hash string
+	// Magnitude is the abstract magnitude (nothing | a_few | several).
+	Magnitude quietmirror.MirrorMagnitude
+}
+
 // ComputeInput creates a mirror input from abstract sources.
 //
 // CRITICAL: This is the boundary where raw data becomes abstract.
@@ -47,7 +57,7 @@ func NewEngine(clock func() time.Time) *Engine {
 func (e *Engine) ComputeInput(
 	circleID identity.EntityID,
 	hasConnection bool,
-	receipt *persist.SyncReceipt,
+	receipt *SyncReceiptAbstract,
 	categoryPresence map[quietmirror.MirrorCategory]bool,
 ) *quietmirror.QuietMirrorInput {
 	now := e.clock()
@@ -63,7 +73,7 @@ func (e *Engine) ComputeInput(
 
 	if receipt != nil {
 		input.SyncReceiptHash = receipt.Hash
-		input.ObligationMagnitude = mapMagnitude(receipt.MagnitudeBucket)
+		input.ObligationMagnitude = receipt.Magnitude
 	} else {
 		input.ObligationMagnitude = quietmirror.MagnitudeNothing
 	}
@@ -161,20 +171,6 @@ func (e *Engine) BuildPage(summary *quietmirror.QuietMirrorSummary) *quietmirror
 		return quietmirror.NewEmptyPage()
 	}
 	return quietmirror.NewMirrorPage(summary)
-}
-
-// mapMagnitude converts SyncReceipt magnitude to QuietMirror magnitude.
-func mapMagnitude(m persist.MagnitudeBucket) quietmirror.MirrorMagnitude {
-	switch m {
-	case persist.MagnitudeNone:
-		return quietmirror.MagnitudeNothing
-	case persist.MagnitudeHandful:
-		return quietmirror.MagnitudeAFew
-	case persist.MagnitudeSeveral, persist.MagnitudeMany:
-		return quietmirror.MagnitudeSeveral
-	default:
-		return quietmirror.MagnitudeNothing
-	}
 }
 
 // WhisperCue represents an optional whisper link for /today.
