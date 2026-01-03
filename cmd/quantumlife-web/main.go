@@ -35,6 +35,7 @@ import (
 	emailexec "quantumlife/internal/email/execution"
 	"quantumlife/internal/execexecutor"
 	"quantumlife/internal/execrouter"
+	internalfirstaction "quantumlife/internal/firstaction"
 	"quantumlife/internal/held"
 	gmailread "quantumlife/internal/integrations/gmail_read"
 	"quantumlife/internal/interest"
@@ -66,6 +67,7 @@ import (
 	"quantumlife/pkg/domain/draft"
 	domainevents "quantumlife/pkg/domain/events"
 	"quantumlife/pkg/domain/feedback"
+	domainfirstaction "quantumlife/pkg/domain/firstaction"
 	"quantumlife/pkg/domain/identity"
 	domaininvitation "quantumlife/pkg/domain/invitation"
 	domainmirror "quantumlife/pkg/domain/mirror"
@@ -129,6 +131,8 @@ type Server struct {
 	quietMirrorDismissals  *persist.QuietMirrorDismissalStore // Phase 22: Whisper dismissal store
 	invitationEngine       *internalinvitation.Engine         // Phase 23: Gentle Action Invitation engine
 	invitationStore        *persist.InvitationStore           // Phase 23: Invitation decision store
+	firstActionEngine      *internalfirstaction.Engine        // Phase 24: First Reversible Action engine
+	firstActionStore       *persist.FirstActionStore          // Phase 24: First action store
 	// Phase 18 Web Control Center
 	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
 	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
@@ -208,6 +212,10 @@ type templateData struct {
 	ModeIndicator     *mode.ModeIndicator
 	ShadowReceiptPage *shadowview.ShadowReceiptPage
 	ShadowReceiptCue  *shadowview.ReceiptCue // Whisper cue for proof page link
+	// Phase 24: First Reversible Action
+	FirstActionPage    *domainfirstaction.ActionPage
+	FirstActionPreview *domainfirstaction.PreviewPage
+	FirstActionPeriod  string // Period hash for form submission
 	// Phase 18 Web Control Center
 	RunSnapshots     []*runlog.RunSnapshot      // List of run snapshots for /runs
 	RunSnapshot      *runlog.RunSnapshot        // Single run snapshot for /runs/:id
@@ -571,6 +579,8 @@ func main() {
 		quietMirrorDismissals:  persist.NewQuietMirrorDismissalStore(clk.Now), // Phase 22
 		invitationEngine:       internalinvitation.NewEngine(clk.Now),         // Phase 23
 		invitationStore:        persist.NewInvitationStore(clk.Now),           // Phase 23
+		firstActionEngine:      internalfirstaction.NewEngine(clk.Now),        // Phase 24
+		firstActionStore:       persist.NewFirstActionStore(clk.Now),          // Phase 24
 		// Phase 18 Web Control Center
 		runStore:       runStore,
 		suppressionSet: suppressionSet,
@@ -628,6 +638,9 @@ func main() {
 	mux.HandleFunc("/invite", server.handleInvitation)                                 // Phase 23: Gentle Action Invitation
 	mux.HandleFunc("/invite/accept", server.handleInvitationAccept)                    // Phase 23: Accept invitation
 	mux.HandleFunc("/invite/dismiss", server.handleInvitationDismiss)                  // Phase 23: Dismiss invitation
+	mux.HandleFunc("/action/once", server.handleFirstAction)                           // Phase 24: First Reversible Action
+	mux.HandleFunc("/action/once/run", server.handleFirstActionRun)                    // Phase 24: Execute preview
+	mux.HandleFunc("/action/once/dismiss", server.handleFirstActionDismiss)            // Phase 24: Dismiss invitation
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18 Web Control Center: Core routes
@@ -5207,6 +5220,228 @@ func (s *Server) handleInvitationDismiss(w http.ResponseWriter, r *http.Request)
 	})
 
 	// Redirect quietly back to today
+	http.Redirect(w, r, "/today", http.StatusFound)
+}
+
+// handleFirstAction serves the first action page.
+// Phase 24: First Reversible Real Action (Trust-Preserving).
+// CRITICAL: Preview only, never execution. One per period.
+func (s *Server) handleFirstAction(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := identity.EntityID("default")
+
+	// Gather abstract inputs for eligibility check
+	hasGmailConnection := false
+	if s.gmailHandler != nil {
+		hasConn, err := s.gmailHandler.HasConnection(r.Context(), string(circleID))
+		if err == nil && hasConn {
+			hasGmailConnection = true
+		}
+	}
+
+	// Check trust inputs - derive from available stores
+	trustInputs := &internalfirstaction.TrustInputs{
+		HasQuietBaseline: s.syncReceiptStore != nil && s.syncReceiptStore.Count() > 0,
+		HasMirrorViewed:  s.mirrorAckStore != nil && s.mirrorAckStore.Len() > 0,
+		HasTrustAccrual:  false,
+		TrustScore:       0.0,
+	}
+
+	// Check for trust accrual from trust store
+	if s.trustStore != nil {
+		summary := s.trustStore.GetRecentMeaningfulSummary()
+		if summary != nil {
+			trustInputs.HasTrustAccrual = true
+			trustInputs.TrustScore = 0.5 // Abstract score, not raw value
+		}
+	}
+
+	// Check for prior action this period
+	period := s.firstActionEngine.CurrentPeriod()
+	hasPriorAction := s.firstActionStore != nil && s.firstActionStore.HasActionThisPeriod(circleID, period.PeriodHash)
+
+	// Check for held items (abstract check only)
+	hasHeldItems := false
+	if s.heldStore != nil {
+		hasHeldItems = s.heldStore.Count() > 0
+	}
+
+	// Compute eligibility
+	eligibility := s.firstActionEngine.ComputeEligibility(
+		string(circleID),
+		hasGmailConnection,
+		trustInputs,
+		hasPriorAction,
+		hasHeldItems,
+	)
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase24InvitationOffered,
+		Timestamp: now,
+		CircleID:  string(circleID),
+		Metadata: map[string]string{
+			"eligible":    fmt.Sprintf("%t", eligibility.IsEligible()),
+			"period_hash": period.PeriodHash,
+		},
+	})
+
+	// Build action page
+	category := domainfirstaction.CategoryWork // Default category
+	page := s.firstActionEngine.BuildActionPage(eligibility, category)
+
+	data := templateData{
+		Title:             "Once, together",
+		CurrentTime:       now.Format("2006-01-02 15:04"),
+		FirstActionPage:   page,
+		FirstActionPeriod: period.PeriodHash,
+	}
+
+	s.render(w, "first-action", data)
+}
+
+// handleFirstActionRun executes the preview (not the action).
+// Phase 24: Preview only, never execution.
+// CRITICAL: This shows a preview, it does NOT execute anything.
+func (s *Server) handleFirstActionRun(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := identity.EntityID("default")
+	period := s.firstActionEngine.CurrentPeriod()
+
+	// Check if already acted this period
+	if s.firstActionStore != nil && s.firstActionStore.HasActionThisPeriod(circleID, period.PeriodHash) {
+		// Already acted, redirect back
+		http.Redirect(w, r, "/action/once", http.StatusFound)
+		return
+	}
+
+	// Gather abstract held items from held store records
+	var heldItems []internalfirstaction.HeldItemAbstract
+	if s.heldStore != nil && s.heldStore.Count() > 0 {
+		records := s.heldStore.Records()
+		for _, rec := range records {
+			heldItems = append(heldItems, internalfirstaction.HeldItemAbstract{
+				Hash:      rec.Hash,
+				Category:  domainfirstaction.CategoryWork,
+				Horizon:   domainfirstaction.HorizonLater,
+				Magnitude: domainfirstaction.MagnitudeSmall,
+			})
+		}
+	}
+
+	// Select one held item deterministically
+	selectedItem := s.firstActionEngine.SelectHeldItem(heldItems)
+	if selectedItem == nil {
+		// Nothing to show
+		http.Redirect(w, r, "/action/once", http.StatusFound)
+		return
+	}
+
+	// Build preview
+	preview := s.firstActionEngine.BuildPreview(string(circleID), selectedItem)
+
+	// Record the view
+	if s.firstActionStore != nil {
+		_ = s.firstActionStore.RecordState(
+			circleID,
+			preview.Hash(),
+			domainfirstaction.StateViewed,
+			period.PeriodHash,
+		)
+	}
+
+	// Emit events
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase24ActionViewed,
+		Timestamp: now,
+		CircleID:  string(circleID),
+		Metadata: map[string]string{
+			"preview_hash": preview.Hash(),
+			"period_hash":  period.PeriodHash,
+		},
+	})
+
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase24PreviewRendered,
+		Timestamp: now,
+		CircleID:  string(circleID),
+		Metadata: map[string]string{
+			"preview_hash": preview.Hash(),
+			"category":     string(preview.Category),
+			"horizon":      string(preview.Horizon),
+		},
+	})
+
+	// Build preview page
+	previewPage := s.firstActionEngine.BuildPreviewPage(preview)
+
+	data := templateData{
+		Title:              "Preview",
+		CurrentTime:        now.Format("2006-01-02 15:04"),
+		FirstActionPreview: previewPage,
+		FirstActionPeriod:  period.PeriodHash,
+	}
+
+	s.render(w, "first-action-preview", data)
+}
+
+// handleFirstActionDismiss handles dismissing the first action.
+// Phase 24: Circle dismisses, silence resumes.
+func (s *Server) handleFirstActionDismiss(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := identity.EntityID("default")
+	period := s.firstActionEngine.CurrentPeriod()
+
+	// Get the preview hash from form
+	previewHash := r.FormValue("preview_hash")
+
+	// Record the dismissal
+	if s.firstActionStore != nil && previewHash != "" {
+		_ = s.firstActionStore.RecordState(
+			circleID,
+			previewHash,
+			domainfirstaction.StateDismissed,
+			period.PeriodHash,
+		)
+	}
+
+	// Emit events
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase24ActionDismissed,
+		Timestamp: now,
+		CircleID:  string(circleID),
+		Metadata: map[string]string{
+			"preview_hash": previewHash,
+			"period_hash":  period.PeriodHash,
+		},
+	})
+
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase24PeriodClosed,
+		Timestamp: now,
+		CircleID:  string(circleID),
+		Metadata: map[string]string{
+			"period_hash": period.PeriodHash,
+			"reason":      "dismissed",
+		},
+	})
+
+	// Redirect back to today - silence resumes
 	http.Redirect(w, r, "/today", http.StatusFound)
 }
 

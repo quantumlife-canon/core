@@ -66,6 +66,7 @@ help:
 	@echo "  make demo-phase21 - Run Phase 21 onboarding/shadow receipt demo"
 	@echo "  make demo-phase22 - Run Phase 22 quiet inbox mirror demo"
 	@echo "  make demo-phase23 - Run Phase 23 gentle invitation demo"
+	@echo "  make demo-phase24 - Run Phase 24 first action demo"
 	@echo ""
 	@echo "Web Server:"
 	@echo "  make web          - Run web server on :8080 (real mode)"
@@ -608,6 +609,17 @@ demo-phase23:
 check-phase23:
 	@echo "Checking Phase 23 constraints..."
 	@./scripts/guardrails/gentle_invitation_enforced.sh
+
+# Run Phase 24 demo: First Reversible Real Action
+# Reference: docs/ADR/ADR-0054-phase24-first-reversible-action.md
+demo-phase24:
+	@echo "Running Phase 24 Demo: First Reversible Real Action..."
+	go test -v ./internal/demo_phase24_first_action/...
+
+# Check Phase 24 first action constraints
+check-phase24:
+	@echo "Checking Phase 24 constraints..."
+	@./scripts/guardrails/first_action_enforced.sh
 
 # =============================================================================
 # Web Server Targets

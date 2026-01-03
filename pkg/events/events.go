@@ -1451,6 +1451,27 @@ const (
 
 	// Phase23InvitationSkipped - invitation not shown (not eligible).
 	Phase23InvitationSkipped EventType = "phase23.invitation.skipped"
+
+	// ==========================================================================
+	// Phase 24: First Reversible Real Action
+	// Reference: docs/ADR/ADR-0054-phase24-first-reversible-action.md
+	// ==========================================================================
+
+	// Phase24InvitationOffered - action invitation was offered.
+	// Payload: hashes only, period ID, no content.
+	Phase24InvitationOffered EventType = "phase24.invitation.offered"
+
+	// Phase24ActionViewed - circle viewed the action preview.
+	Phase24ActionViewed EventType = "phase24.action.viewed"
+
+	// Phase24ActionDismissed - circle dismissed the action invitation.
+	Phase24ActionDismissed EventType = "phase24.action.dismissed"
+
+	// Phase24PreviewRendered - preview was rendered.
+	Phase24PreviewRendered EventType = "phase24.preview.rendered"
+
+	// Phase24PeriodClosed - period was closed (action taken or dismissed).
+	Phase24PeriodClosed EventType = "phase24.period.closed"
 )
 
 // Event represents a system event for audit and observability.
