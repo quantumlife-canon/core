@@ -261,3 +261,10 @@ pkg/domain/trust/types.go
 # content. This is security documentation, NOT QuantumLife identity terminology.
 internal/demo_phase19_3b_go_real/*.go
 internal/shadowllm/engine.go
+
+# Phase 19.3c: Real Azure Chat Shadow Run (ADR-0050)
+# Uses "user" and "role" for LLM API message roles (system/user) which are standard
+# OpenAI/Azure Chat Completions API terminology. The "user" variable holds the rendered
+# user prompt, and "Role" is the message role field. These are NOT QuantumLife identity.
+internal/demo_phase19_3c_real_chat_shadow/demo_test.go
+internal/shadowllm/providers/azureopenai/types.go
