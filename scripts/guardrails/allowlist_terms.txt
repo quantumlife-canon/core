@@ -236,3 +236,21 @@ internal/demo_phase18_9_quiet_verification/*.go
 internal/shadowllm/providers/azureopenai/*.go
 internal/shadowllm/prompt/*.go
 internal/demo_phase19_3_azure_shadow/*.go
+
+# Phase 19.5: Shadow Gating + Promotion Candidates (ADR-0046)
+# Uses "user" in "user's intent to promote" which describes the human operator
+# recording their intent to promote a shadow candidate to canon. This is domain
+# terminology for the human-in-the-loop promotion workflow, NOT QuantumLife identity.
+# Also uses "users" in comments about "users can propose promotion".
+pkg/domain/shadowgate/types.go
+
+# Phase 19.6: Rule Pack Export (ADR-0047)
+# Test uses "user@example.com" in a test fixture for pack email serialization.
+# This is test data, NOT QuantumLife identity.
+pkg/domain/rulepack/types_test.go
+
+# Phase 20: Trust Accrual Layer (ADR-0048)
+# Uses "user" in "user dismissed a trust summary" which describes the human
+# interacting with the UI to dismiss a trust summary. This is domain terminology
+# for the trust dismissal workflow, NOT QuantumLife identity.
+pkg/domain/trust/types.go

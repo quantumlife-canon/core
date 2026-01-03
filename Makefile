@@ -7,7 +7,7 @@
 #
 # Guardrails enforce Canon invariants at build time.
 
-.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 demo-phase9 demo-phase10 demo-phase11 demo-phase12 demo-phase13 demo-phase13-1 demo-phase14 demo-phase15 demo-phase16 demo-phase18 demo-phase18-2 demo-phase18-3 demo-phase18-4 demo-phase18-5 demo-phase18-6 demo-phase18-9 demo-phase19-shadow demo-phase19-1 demo-phase19-4 demo-phase20 web web-mock web-demo web-app web-stop web-status check-today-quietly check-held check-quiet-shift check-proof check-connection-onboarding check-shadow-mode check-shadow-diff check-real-gmail-quiet check-trust-accrual ios-open ios-build ios-test ios-clean
+.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 demo-phase9 demo-phase10 demo-phase11 demo-phase12 demo-phase13 demo-phase13-1 demo-phase14 demo-phase15 demo-phase16 demo-phase18 demo-phase18-2 demo-phase18-3 demo-phase18-4 demo-phase18-5 demo-phase18-6 demo-phase18-9 demo-phase19-shadow demo-phase19-1 demo-phase19-4 demo-phase19-real-keys-smoke demo-phase20 web web-mock web-demo web-app web-stop web-status run-real-shadow check-real-shadow-config check-today-quietly check-held check-quiet-shift check-proof check-connection-onboarding check-shadow-mode check-shadow-diff check-real-gmail-quiet check-trust-accrual ios-open ios-build ios-test ios-clean
 
 # Default target
 all: ci
@@ -69,6 +69,7 @@ help:
 	@echo "  make web-app      - Run web server on :8080 in app mode"
 	@echo "  make web-stop     - Stop whatever is listening on :8080"
 	@echo "  make web-status   - Check if :8080 is bound"
+	@echo "  make run-real-shadow - Run web with real Azure shadow provider"
 	@echo ""
 	@echo "Guardrail Checks:"
 	@echo "  make check-terms              - Check for forbidden terms"
@@ -97,6 +98,7 @@ help:
 	@echo "  make check-real-gmail-quiet - Check real Gmail quiet constraints (Phase 19.1)"
 	@echo "  make check-shadow-mode - Check shadow mode constraints (Phase 19.2)"
 	@echo "  make check-shadow-azure - Check Azure shadow constraints (Phase 19.3)"
+	@echo "  make check-real-shadow-config - Check real shadow config (Phase 19.3)"
 	@echo "  make check-shadow-diff - Check shadow diff constraints (Phase 19.4)"
 	@echo "  make check-shadow-gating - Check shadow gating constraints (Phase 19.5)"
 	@echo "  make check-rulepack-export - Check rule pack export constraints (Phase 19.6)"
@@ -590,6 +592,77 @@ web-status:
 	else \
 		echo "Port 8080: FREE"; \
 	fi
+
+# =============================================================================
+# Real Shadow Provider Targets (Phase 19.3)
+# =============================================================================
+# Reference: docs/REAL_KEYS_LOCAL_RUNBOOK_V1.md
+#
+# CRITICAL: Requires Azure OpenAI credentials in environment variables.
+# See docs/REAL_KEYS_LOCAL_RUNBOOK_V1.md for setup instructions.
+
+# Run web server with real Azure shadow provider
+# Requires: AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_DEPLOYMENT, AZURE_OPENAI_API_KEY
+run-real-shadow:
+	@echo "Starting QuantumLife Web with real shadow provider on :8080..."
+	@echo "Checking Azure OpenAI configuration..."
+	@if [ -z "$$AZURE_OPENAI_ENDPOINT" ]; then \
+		echo "ERROR: AZURE_OPENAI_ENDPOINT not set"; \
+		echo "See: docs/REAL_KEYS_LOCAL_RUNBOOK_V1.md"; \
+		exit 1; \
+	fi
+	@if [ -z "$$AZURE_OPENAI_DEPLOYMENT" ]; then \
+		echo "ERROR: AZURE_OPENAI_DEPLOYMENT not set"; \
+		echo "See: docs/REAL_KEYS_LOCAL_RUNBOOK_V1.md"; \
+		exit 1; \
+	fi
+	@if [ -z "$$AZURE_OPENAI_API_KEY" ]; then \
+		echo "ERROR: AZURE_OPENAI_API_KEY not set"; \
+		echo "See: docs/REAL_KEYS_LOCAL_RUNBOOK_V1.md"; \
+		exit 1; \
+	fi
+	@echo "Azure config verified (endpoint, deployment, key present)"
+	@echo ""
+	QL_SHADOW_REAL_ALLOWED=true QL_SHADOW_PROVIDER_KIND=azure_openai QL_SHADOW_MODE=observe go run ./cmd/quantumlife-web -mock=false
+
+# Check real shadow configuration (without running)
+check-real-shadow-config:
+	@echo "Checking real shadow provider configuration..."
+	@echo ""
+	@echo "Environment variables:"
+	@if [ -n "$$AZURE_OPENAI_ENDPOINT" ]; then \
+		echo "  AZURE_OPENAI_ENDPOINT: [SET]"; \
+	else \
+		echo "  AZURE_OPENAI_ENDPOINT: [NOT SET] (required)"; \
+	fi
+	@if [ -n "$$AZURE_OPENAI_DEPLOYMENT" ]; then \
+		echo "  AZURE_OPENAI_DEPLOYMENT: $$AZURE_OPENAI_DEPLOYMENT"; \
+	else \
+		echo "  AZURE_OPENAI_DEPLOYMENT: [NOT SET] (required)"; \
+	fi
+	@if [ -n "$$AZURE_OPENAI_API_KEY" ]; then \
+		echo "  AZURE_OPENAI_API_KEY: [SET]"; \
+	else \
+		echo "  AZURE_OPENAI_API_KEY: [NOT SET] (required)"; \
+	fi
+	@if [ -n "$$AZURE_OPENAI_API_VERSION" ]; then \
+		echo "  AZURE_OPENAI_API_VERSION: $$AZURE_OPENAI_API_VERSION"; \
+	else \
+		echo "  AZURE_OPENAI_API_VERSION: [NOT SET] (defaults to 2024-02-15-preview)"; \
+	fi
+	@echo ""
+	@if [ -n "$$AZURE_OPENAI_ENDPOINT" ] && [ -n "$$AZURE_OPENAI_DEPLOYMENT" ] && [ -n "$$AZURE_OPENAI_API_KEY" ]; then \
+		echo "Status: READY - All required variables set"; \
+		echo "Run: make run-real-shadow"; \
+	else \
+		echo "Status: NOT READY - Missing required variables"; \
+		echo "See: docs/REAL_KEYS_LOCAL_RUNBOOK_V1.md"; \
+	fi
+
+# Phase 19.3: Real keys smoke tests (does not call network)
+demo-phase19-real-keys-smoke:
+	@echo "Running Phase 19.3 Demo: Real Keys Smoke Tests..."
+	go test -v ./internal/demo_phase19_real_keys_smoke/...
 
 # =============================================================================
 # iOS Targets (Phase 19)

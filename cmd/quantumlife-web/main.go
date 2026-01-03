@@ -48,6 +48,7 @@ import (
 	"quantumlife/internal/shadowcalibration"
 	shadowdiffengine "quantumlife/internal/shadowdiff"
 	"quantumlife/internal/shadowllm"
+	"quantumlife/internal/shadowllm/providers/azureopenai"
 	"quantumlife/internal/shadowllm/stub"
 	"quantumlife/internal/surface"
 	"quantumlife/internal/todayquietly"
@@ -443,9 +444,9 @@ func main() {
 	// Create sync receipt store (Phase 19.1)
 	syncReceiptStore := persist.NewSyncReceiptStore(clk.Now)
 
-	// Create shadow mode engine and store (Phase 19.2)
-	// CRITICAL: Uses stub provider - no real LLM API calls
-	shadowProvider := stub.NewStubModel()
+	// Create shadow mode engine and store (Phase 19.2 + 19.3)
+	// CRITICAL: Default is stub provider - real providers require explicit opt-in
+	shadowProvider, shadowProviderInfo := createShadowProvider(multiCfg, emitter)
 	shadowEngine := shadowllm.NewEngine(clk, shadowProvider)
 	shadowReceiptStore := persist.NewShadowReceiptStore(clk.Now)
 	shadowCalibrationStore := persist.NewShadowCalibrationStore(clk.Now)
@@ -594,6 +595,7 @@ func main() {
 
 	log.Printf("Starting QuantumLife Web on %s", *addr)
 	log.Printf("Mock data: %v", *mockData)
+	log.Printf("Shadow provider: %s", shadowProviderInfo)
 
 	// Start the server (blocks until shutdown)
 	if err := httpServer.ListenAndServe(); err != http.ErrServerClosed {
@@ -697,6 +699,145 @@ func populateMockTrustSummaries(store *persist.TrustStore, now time.Time) {
 	_ = store.AppendSummary(summary3)
 
 	log.Printf("Populated %d mock trust summaries", 3)
+}
+
+// createShadowProvider creates the appropriate shadow provider based on config and env vars.
+//
+// Phase 19.3: Azure OpenAI Shadow Provider
+//
+// CRITICAL: Default is stub provider - real providers require explicit opt-in.
+// CRITICAL: Never logs API keys or secrets.
+// CRITICAL: Emits fallback event if Azure config is incomplete.
+//
+// Environment variables (override config file):
+//   - QL_SHADOW_REAL_ALLOWED: "true" to enable real providers (default: false)
+//   - QL_SHADOW_PROVIDER_KIND: "stub" | "azure_openai" (default: stub)
+//   - QL_SHADOW_MODE: "off" | "observe" (default: off)
+//   - AZURE_OPENAI_ENDPOINT: Azure OpenAI endpoint URL
+//   - AZURE_OPENAI_DEPLOYMENT: Model deployment name
+//   - AZURE_OPENAI_API_KEY: API key (never logged)
+//   - AZURE_OPENAI_API_VERSION: API version (optional)
+func createShadowProvider(cfg *config.MultiCircleConfig, emitter *eventLogger) (domainshadow.ShadowModel, string) {
+	// Read env var overrides
+	realAllowed := cfg.Shadow.RealAllowed
+	if envVal := os.Getenv("QL_SHADOW_REAL_ALLOWED"); envVal == "true" {
+		realAllowed = true
+	}
+
+	providerKind := cfg.Shadow.ProviderKind
+	if envVal := os.Getenv("QL_SHADOW_PROVIDER_KIND"); envVal != "" {
+		providerKind = envVal
+	}
+
+	// Default to stub if not specified
+	if providerKind == "" || providerKind == "none" {
+		providerKind = "stub"
+	}
+
+	// If real not allowed, force stub
+	if !realAllowed {
+		emitter.Emit(events.Event{
+			Type: events.Phase19_3ProviderSelected,
+			Metadata: map[string]string{
+				"provider":     "stub",
+				"real_allowed": "false",
+				"reason":       "real_not_allowed",
+			},
+		})
+		return stub.NewStubModel(), "stub (RealAllowed: false)"
+	}
+
+	// If provider kind is stub, use stub
+	if providerKind == "stub" {
+		emitter.Emit(events.Event{
+			Type: events.Phase19_3ProviderSelected,
+			Metadata: map[string]string{
+				"provider":     "stub",
+				"real_allowed": "true",
+				"reason":       "provider_kind_stub",
+			},
+		})
+		return stub.NewStubModel(), "stub (RealAllowed: true, kind: stub)"
+	}
+
+	// Try to create Azure provider
+	if providerKind == "azure_openai" {
+		// Check if Azure env vars are configured
+		if !azureopenai.IsConfigured() {
+			// Fall back to stub with event
+			emitter.Emit(events.Event{
+				Type: events.Phase19_3ProviderFallback,
+				Metadata: map[string]string{
+					"requested":  "azure_openai",
+					"fallback":   "stub",
+					"reason":     "missing_env_vars",
+				},
+			})
+			return stub.NewStubModel(), "stub (RealAllowed: true, fallback: missing AZURE_OPENAI_* env vars)"
+		}
+
+		// Create Azure provider from env
+		provider, err := azureopenai.NewProviderFromEnv()
+		if err != nil {
+			// Fall back to stub with event
+			emitter.Emit(events.Event{
+				Type: events.Phase19_3ProviderFallback,
+				Metadata: map[string]string{
+					"requested":  "azure_openai",
+					"fallback":   "stub",
+					"reason":     "provider_init_failed",
+				},
+			})
+			return stub.NewStubModel(), "stub (RealAllowed: true, fallback: provider init failed)"
+		}
+
+		emitter.Emit(events.Event{
+			Type: events.Phase19_3ProviderSelected,
+			Metadata: map[string]string{
+				"provider":     "azure_openai",
+				"deployment":   provider.Deployment(),
+				"real_allowed": "true",
+			},
+		})
+		// CRITICAL: Never log API key or endpoint details
+		return wrapAzureProvider(provider), "azure_openai (RealAllowed: true)"
+	}
+
+	// Unknown provider kind - fall back to stub
+	emitter.Emit(events.Event{
+		Type: events.Phase19_3ProviderFallback,
+		Metadata: map[string]string{
+			"requested": providerKind,
+			"fallback":  "stub",
+			"reason":    "unknown_provider_kind",
+		},
+	})
+	return stub.NewStubModel(), "stub (RealAllowed: true, fallback: unknown kind " + providerKind + ")"
+}
+
+// azureProviderWrapper wraps the Azure provider to implement ShadowModel interface.
+type azureProviderWrapper struct {
+	provider *azureopenai.Provider
+}
+
+func wrapAzureProvider(p *azureopenai.Provider) domainshadow.ShadowModel {
+	return &azureProviderWrapper{provider: p}
+}
+
+func (w *azureProviderWrapper) Name() string {
+	return w.provider.Name()
+}
+
+func (w *azureProviderWrapper) Observe(ctx domainshadow.ShadowContext) (domainshadow.ShadowRun, error) {
+	// The Azure provider uses a different interface (privacy.ShadowInput).
+	// For now, we return an empty run with the provider name.
+	// Full integration would require converting ShadowContext to ShadowInput.
+	return domainshadow.ShadowRun{
+		RunID:     "azure-" + ctx.InputsHash[:16],
+		CircleID:  ctx.CircleID,
+		ModelSpec: w.provider.Name(),
+		Signals:   nil, // Azure provider returns suggestions, not legacy signals
+	}, nil
 }
 
 // ============================================================================

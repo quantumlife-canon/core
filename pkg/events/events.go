@@ -1262,6 +1262,7 @@ const (
 
 	// Provider selection events
 	Phase19_3ProviderSelected EventType = "phase19_3.provider.selected"
+	Phase19_3ProviderFallback EventType = "phase19_3.provider.fallback"
 
 	// ==========================================================================
 	// Phase 19.4: Shadow Diff + Calibration Events
