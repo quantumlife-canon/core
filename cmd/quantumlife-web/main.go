@@ -41,6 +41,7 @@ import (
 	"quantumlife/internal/interest"
 	"quantumlife/internal/interruptions"
 	internalinvitation "quantumlife/internal/invitation"
+	"quantumlife/internal/journey"
 	"quantumlife/internal/loop"
 	"quantumlife/internal/mirror"
 	"quantumlife/internal/mode"
@@ -137,6 +138,8 @@ type Server struct {
 	firstActionStore       *persist.FirstActionStore          // Phase 24: First action store
 	undoableExecEngine     *undoableexec.Engine               // Phase 25: Undoable execution engine
 	undoableExecStore      *persist.UndoableExecStore         // Phase 25: Undoable execution store
+	journeyEngine          *journey.Engine                    // Phase 26A: Guided Journey engine
+	journeyDismissalStore  *persist.JourneyDismissalStore     // Phase 26A: Journey dismissal store
 	// Phase 18 Web Control Center
 	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
 	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
@@ -226,6 +229,8 @@ type templateData struct {
 	UndoPage        *domainundoableexec.UndoPage
 	UndoRecordID    string // For undo form submission
 	UndoEligibility *domainundoableexec.ActionEligibility
+	// Phase 26A: Guided Journey
+	JourneyPage *journey.JourneyPage
 	// Phase 18 Web Control Center
 	RunSnapshots     []*runlog.RunSnapshot      // List of run snapshots for /runs
 	RunSnapshot      *runlog.RunSnapshot        // Single run snapshot for /runs/:id
@@ -592,6 +597,8 @@ func main() {
 		firstActionEngine:      internalfirstaction.NewEngine(clk.Now),        // Phase 24
 		firstActionStore:       persist.NewFirstActionStore(clk.Now),          // Phase 24
 		undoableExecStore:      persist.NewUndoableExecStore(clk.Now),         // Phase 25
+		journeyEngine:          journey.NewEngine(clk.Now),                    // Phase 26A
+		journeyDismissalStore:  persist.NewJourneyDismissalStore(clk.Now),     // Phase 26A
 		// Phase 18 Web Control Center
 		runStore:       runStore,
 		suppressionSet: suppressionSet,
@@ -658,6 +665,9 @@ func main() {
 	mux.HandleFunc("/action/undoable/undo", server.handleUndoableUndo)                 // Phase 25: Undo page
 	mux.HandleFunc("/action/undoable/undo/run", server.handleUndoableUndoRun)          // Phase 25: Execute undo
 	mux.HandleFunc("/action/undoable/dismiss", server.handleUndoableDismiss)           // Phase 25: Dismiss
+	mux.HandleFunc("/journey", server.handleJourney)                                   // Phase 26A: Guided Journey
+	mux.HandleFunc("/journey/next", server.handleJourneyNext)                          // Phase 26A: Journey next step
+	mux.HandleFunc("/journey/dismiss", server.handleJourneyDismiss)                    // Phase 26A: Dismiss journey
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18 Web Control Center: Core routes
@@ -5739,6 +5749,189 @@ func (s *Server) handleUndoableDismiss(w http.ResponseWriter, r *http.Request) {
 
 	// Redirect to today - silence resumes
 	http.Redirect(w, r, "/today", http.StatusFound)
+}
+
+// handleJourney serves the guided journey page.
+// Phase 26A: Single calm card showing next step.
+func (s *Server) handleJourney(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := identity.EntityID("default")
+
+	// Build journey inputs by gathering state from various stores
+	inputs := s.buildJourneyInputs(circleID, now)
+
+	// Build the journey page
+	page := s.journeyEngine.BuildPage(inputs)
+
+	// Emit events
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase26AJourneyRequested,
+		Timestamp: now,
+		CircleID:  string(circleID),
+	})
+
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase26AJourneyComputed,
+		Timestamp: now,
+		CircleID:  string(circleID),
+		Metadata: map[string]string{
+			"step":        string(page.CurrentStep),
+			"status_hash": page.StatusHash,
+			"is_done":     fmt.Sprintf("%t", page.IsDone),
+		},
+	})
+
+	data := templateData{
+		Title:       "Journey",
+		CurrentTime: now.Format("2006-01-02 15:04"),
+		JourneyPage: page,
+		CircleID:    string(circleID),
+	}
+
+	s.render(w, "journey", data)
+}
+
+// handleJourneyNext redirects to the primary action of the current step.
+// Phase 26A: Deterministic redirect based on computed step.
+func (s *Server) handleJourneyNext(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := identity.EntityID("default")
+
+	// Build journey inputs and page
+	inputs := s.buildJourneyInputs(circleID, now)
+	page := s.journeyEngine.BuildPage(inputs)
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase26AJourneyNextRedirected,
+		Timestamp: now,
+		CircleID:  string(circleID),
+		Metadata: map[string]string{
+			"step": string(page.CurrentStep),
+		},
+	})
+
+	// Redirect to primary action path
+	http.Redirect(w, r, page.PrimaryAction.Path, http.StatusFound)
+}
+
+// handleJourneyDismiss dismisses the journey for the current period.
+// Phase 26A: Store hash-only dismissal, redirect to /today.
+func (s *Server) handleJourneyDismiss(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := identity.EntityID("default")
+
+	// Get status_hash from form
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+	statusHash := r.FormValue("status_hash")
+
+	// Verify status hash matches current state
+	inputs := s.buildJourneyInputs(circleID, now)
+	currentHash := inputs.ComputeStatusHash()
+
+	if statusHash != "" && statusHash != currentHash {
+		// Status changed since page was rendered - redirect back to journey
+		http.Redirect(w, r, "/journey", http.StatusFound)
+		return
+	}
+
+	// Record dismissal
+	periodKey := inputs.PeriodKey()
+	_, _ = s.journeyDismissalStore.RecordDismissal(circleID, periodKey, currentHash)
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase26AJourneyDismissed,
+		Timestamp: now,
+		CircleID:  string(circleID),
+		Metadata: map[string]string{
+			"status_hash": currentHash,
+			"period_key":  periodKey,
+		},
+	})
+
+	// Redirect to today - silence resumes
+	http.Redirect(w, r, "/today", http.StatusFound)
+}
+
+// buildJourneyInputs gathers state from various stores to build journey inputs.
+func (s *Server) buildJourneyInputs(circleID identity.EntityID, now time.Time) *journey.JourneyInputs {
+	inputs := &journey.JourneyInputs{
+		CircleID: string(circleID),
+		Now:      now,
+	}
+
+	// Check Gmail connection status
+	if s.connectionStore != nil {
+		stateSet := s.connectionStore.State()
+		if stateSet != nil {
+			emailState := stateSet.Get(connection.KindEmail)
+			if emailState != nil && emailState.Status != connection.StatusNotConnected {
+				inputs.HasGmail = true
+				if emailState.Status == connection.StatusConnectedMock {
+					inputs.GmailMode = "mock"
+				} else {
+					inputs.GmailMode = "real"
+				}
+			}
+		}
+	}
+
+	// Check sync receipt
+	if s.syncReceiptStore != nil {
+		latestReceipt := s.syncReceiptStore.GetLatestByCircle(circleID)
+		if latestReceipt != nil {
+			inputs.HasSyncReceipt = true
+			inputs.LastSyncMagnitude = latestReceipt.MagnitudeBucket
+		}
+	}
+
+	// Check mirror viewed
+	if s.quietMirrorStore != nil {
+		periodKey := now.UTC().Format("2006-01-02")
+		if s.quietMirrorStore.HasSummaryForPeriod(circleID, periodKey) {
+			inputs.MirrorViewed = true
+		}
+	}
+
+	// Check action eligibility (Phase 25)
+	if s.undoableExecEngine != nil {
+		eligibility := s.undoableExecEngine.EligibleAction(context.Background(), circleID)
+		if eligibility != nil && eligibility.Eligible {
+			inputs.ActionEligible = true
+		}
+	}
+
+	// Check if action was used this period
+	if s.undoableExecEngine != nil {
+		inputs.ActionUsedThisPeriod = s.undoableExecEngine.HasExecutedThisPeriod(circleID)
+	}
+
+	// Check for dismissal
+	if s.journeyDismissalStore != nil {
+		periodKey := inputs.PeriodKey()
+		inputs.DismissedStatusHash = s.journeyDismissalStore.GetDismissedStatusHash(circleID, periodKey)
+	}
+
+	return inputs
 }
 
 // handleDemo serves the deterministic demo page.

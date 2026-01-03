@@ -1508,6 +1508,24 @@ const (
 
 	// Phase25Dismissed - undoable action was dismissed.
 	Phase25Dismissed EventType = "phase25.undoable.dismissed"
+
+	// ==========================================================================
+	// Phase 26A: Guided Journey Events
+	// Reference: docs/ADR/ADR-0056-phase26A-guided-journey.md
+	// ==========================================================================
+	// CRITICAL: All payloads contain hashes only - never identifiers.
+
+	// Phase26AJourneyRequested - journey page was requested.
+	Phase26AJourneyRequested EventType = "phase26a.journey.requested"
+
+	// Phase26AJourneyComputed - journey step was computed.
+	Phase26AJourneyComputed EventType = "phase26a.journey.computed"
+
+	// Phase26AJourneyDismissed - journey was dismissed for period.
+	Phase26AJourneyDismissed EventType = "phase26a.journey.dismissed"
+
+	// Phase26AJourneyNextRedirected - user clicked next and was redirected.
+	Phase26AJourneyNextRedirected EventType = "phase26a.journey.next.redirected"
 )
 
 // Event represents a system event for audit and observability.

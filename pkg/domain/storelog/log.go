@@ -82,6 +82,10 @@ const (
 	// CRITICAL: Contains ONLY hashes and enums - never identifiers.
 	RecordTypeUndoExecRecord = "UNDO_EXEC_RECORD"
 	RecordTypeUndoExecAck    = "UNDO_EXEC_ACK"
+
+	// Phase 26A: Guided Journey record types
+	// CRITICAL: Contains ONLY hashes and period keys - never identifiers.
+	RecordTypeJourneyDismissal = "JOURNEY_DISMISSAL"
 )
 
 // Common errors

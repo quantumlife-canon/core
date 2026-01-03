@@ -110,7 +110,7 @@ if [[ -d "$INTERNAL_DIR" ]]; then
     while IFS= read -r -d '' file; do
         relative_path="${file#${REPO_ROOT}/}"
 
-        # Skip wiring layers (implementation packages, demo, loop orchestrator, persist, undoableexec, and conformance)
+        # Skip wiring layers (implementation packages, demo, loop orchestrator, persist, undoableexec, journey, and conformance)
         # These are allowed to import across internal packages for wiring/testing
         if [[ "$relative_path" == *"/impl_inmem/"* ]] || \
            [[ "$relative_path" == *"/impl_"* ]] || \
@@ -119,6 +119,7 @@ if [[ -d "$INTERNAL_DIR" ]]; then
            [[ "$relative_path" == "internal/loop/"* ]] || \
            [[ "$relative_path" == "internal/persist/"* ]] || \
            [[ "$relative_path" == "internal/undoableexec/"* ]] || \
+           [[ "$relative_path" == "internal/journey/"* ]] || \
            [[ "$relative_path" == *"/conformance/"* ]]; then
             continue
         fi

@@ -7,7 +7,7 @@
 #
 # Guardrails enforce Canon invariants at build time.
 
-.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 demo-phase9 demo-phase10 demo-phase11 demo-phase12 demo-phase13 demo-phase13-1 demo-phase14 demo-phase15 demo-phase16 demo-phase18 demo-phase18-2 demo-phase18-3 demo-phase18-4 demo-phase18-5 demo-phase18-6 demo-phase18-9 demo-phase19-shadow demo-phase19-1 demo-phase19-4 demo-phase19-real-keys-smoke demo-phase20 web web-mock web-demo web-app web-stop web-status run-real-shadow check-real-shadow-config check-today-quietly check-held check-quiet-shift check-proof check-connection-onboarding check-shadow-mode check-shadow-diff check-real-gmail-quiet check-trust-accrual ios-open ios-build ios-test ios-clean
+.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 demo-phase9 demo-phase10 demo-phase11 demo-phase12 demo-phase13 demo-phase13-1 demo-phase14 demo-phase15 demo-phase16 demo-phase18 demo-phase18-2 demo-phase18-3 demo-phase18-4 demo-phase18-5 demo-phase18-6 demo-phase18-9 demo-phase19-shadow demo-phase19-1 demo-phase19-4 demo-phase19-real-keys-smoke demo-phase20 demo-phase26A web web-mock web-demo web-app web-stop web-status run-real-shadow check-real-shadow-config check-today-quietly check-held check-quiet-shift check-proof check-connection-onboarding check-shadow-mode check-shadow-diff check-real-gmail-quiet check-trust-accrual check-journey ios-open ios-build ios-test ios-clean
 
 # Default target
 all: ci
@@ -68,6 +68,7 @@ help:
 	@echo "  make demo-phase23 - Run Phase 23 gentle invitation demo"
 	@echo "  make demo-phase24 - Run Phase 24 first action demo"
 	@echo "  make demo-phase25 - Run Phase 25 undoable execution demo"
+	@echo "  make demo-phase26A - Run Phase 26A guided journey demo"
 	@echo ""
 	@echo "Web Server:"
 	@echo "  make web          - Run web server on :8080 (real mode)"
@@ -113,6 +114,7 @@ help:
 	@echo "  make check-rulepack-export - Check rule pack export constraints (Phase 19.6)"
 	@echo "  make check-trust-accrual - Check trust accrual constraints (Phase 20)"
 	@echo "  make check-phase25 - Check undoable execution constraints (Phase 25)"
+	@echo "  make check-journey - Check guided journey constraints (Phase 26A)"
 	@echo ""
 	@echo "iOS (Phase 19):"
 	@echo "  make ios-open   - Open iOS project in Xcode (macOS only)"
@@ -633,6 +635,17 @@ demo-phase25:
 check-phase25:
 	@echo "Checking Phase 25 constraints..."
 	@./scripts/guardrails/undoable_execution_enforced.sh
+
+# Run Phase 26A demo: Guided Journey
+# Reference: docs/ADR/ADR-0056-phase26A-guided-journey.md
+demo-phase26A:
+	@echo "Running Phase 26A Demo: Guided Journey..."
+	go test -v ./internal/demo_phase26A_guided_journey/...
+
+# Check Phase 26A guided journey constraints
+check-journey:
+	@echo "Checking Phase 26A constraints..."
+	@./scripts/guardrails/journey_enforced.sh
 
 # =============================================================================
 # Web Server Targets
