@@ -1358,6 +1358,25 @@ const (
 	Phase20TrustPersisted EventType = "phase20.trust.persisted"
 	Phase20TrustViewed    EventType = "phase20.trust.viewed"
 	Phase20TrustDismissed EventType = "phase20.trust.dismissed"
+
+	// ======================================================================
+	// Phase 21: Unified Onboarding + Shadow Receipt Viewer
+	// ======================================================================
+	//
+	// CRITICAL INVARIANTS:
+	//   - Mode is DERIVED not stored
+	//   - Receipt displays ONLY abstract buckets and hashes
+	//   - Dismissal stores ONLY hashes
+	//   - Events include canonical hashes only
+
+	// Onboarding lifecycle events
+	Phase21OnboardingViewed EventType = "phase21.onboarding.viewed"
+	Phase21ModeComputed     EventType = "phase21.mode.computed"
+
+	// Shadow receipt viewer lifecycle events
+	Phase21ShadowReceiptViewed    EventType = "phase21.shadow.receipt.viewed"
+	Phase21ShadowReceiptDismissed EventType = "phase21.shadow.receipt.dismissed"
+	Phase21ShadowReceiptCueShown  EventType = "phase21.shadow.receipt.cue.shown"
 )
 
 // Event represents a system event for audit and observability.

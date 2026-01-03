@@ -41,6 +41,7 @@ import (
 	"quantumlife/internal/interruptions"
 	"quantumlife/internal/loop"
 	"quantumlife/internal/mirror"
+	"quantumlife/internal/mode"
 	"quantumlife/internal/oauth"
 	"quantumlife/internal/obligations"
 	"quantumlife/internal/persist"
@@ -50,6 +51,7 @@ import (
 	shadowdiffengine "quantumlife/internal/shadowdiff"
 	shadowgate "quantumlife/internal/shadowgate"
 	"quantumlife/internal/shadowllm"
+	"quantumlife/internal/shadowview"
 	"quantumlife/internal/shadowllm/providers/azureopenai"
 	"quantumlife/internal/shadowllm/stub"
 	"quantumlife/internal/surface"
@@ -112,6 +114,9 @@ type Server struct {
 	rulepackStore          *persist.RulePackStore           // Phase 19.6: Rule pack store
 	trustStore             *persist.TrustStore              // Phase 20: Trust store
 	trustEngine            *trustengine.Engine              // Phase 20: Trust engine
+	modeEngine             *mode.Engine                     // Phase 21: Mode derivation engine
+	shadowviewEngine       *shadowview.Engine               // Phase 21: Shadow receipt viewer engine
+	shadowviewAckStore     *shadowview.AckStore             // Phase 21: Shadow receipt acknowledgement store
 }
 
 // eventLogger logs events.
@@ -183,6 +188,10 @@ type templateData struct {
 	// Phase 20: Trust accrual
 	TrustSummary  *domaintrust.TrustSummary
 	TrustCueShown bool
+	// Phase 21: Onboarding + Shadow Receipt Viewer
+	ModeIndicator       *mode.ModeIndicator
+	ShadowReceiptPage   *shadowview.ShadowReceiptPage
+	ShadowReceiptCue    *shadowview.ReceiptCue // Whisper cue for proof page link
 }
 
 // personInfo contains person data for display. Phase 13.1.
@@ -494,6 +503,9 @@ func main() {
 		rulepackStore:          rulepackStore,          // Phase 19.6
 		trustStore:             trustStore,             // Phase 20
 		trustEngine:            trustEng,               // Phase 20
+		modeEngine:             mode.NewEngine(clk.Now),             // Phase 21
+		shadowviewEngine:       shadowview.NewEngine(clk.Now),       // Phase 21
+		shadowviewAckStore:     shadowview.NewAckStore(0),           // Phase 21
 	}
 
 	// Set up routes
@@ -539,6 +551,9 @@ func main() {
 	mux.HandleFunc("/shadow/health/run", server.handleShadowHealthRun)                 // Phase 19.3b: Shadow health run
 	mux.HandleFunc("/trust", server.handleTrust)                                       // Phase 20: Trust accrual
 	mux.HandleFunc("/trust/dismiss", server.handleTrustDismiss)                        // Phase 20: Dismiss trust cue
+	mux.HandleFunc("/onboarding", server.handleOnboarding)                             // Phase 21: Unified onboarding
+	mux.HandleFunc("/shadow/receipt", server.handleShadowReceipt)                      // Phase 21: Shadow receipt viewer
+	mux.HandleFunc("/shadow/receipt/dismiss", server.handleShadowReceiptDismiss)       // Phase 21: Dismiss receipt cue
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18: App routes (authenticated)
@@ -4001,6 +4016,553 @@ func (s *Server) handleTrustDismiss(w http.ResponseWriter, r *http.Request) {
 
 	// Redirect back to trust page
 	http.Redirect(w, r, "/trust", http.StatusFound)
+}
+
+// handleOnboarding serves the unified onboarding page.
+//
+// Phase 21: Unified Onboarding
+//
+// CRITICAL: Calm, minimal, truthful copy.
+// CRITICAL: Shows mode indicator (Demo/Connected/Shadow).
+// CRITICAL: No goroutines. Deterministic rendering.
+func (s *Server) handleOnboarding(w http.ResponseWriter, r *http.Request) {
+	// Check for Gmail connection (use demo-circle as default)
+	circleID := "demo-circle"
+	hasGmail := false
+	if s.gmailHandler != nil {
+		hasConn, err := s.gmailHandler.HasConnection(r.Context(), circleID)
+		if err == nil && hasConn {
+			hasGmail = true
+		}
+	}
+
+	// Get shadow config
+	shadowCfg := s.multiCircleConfig.Shadow
+
+	// Get latest shadow receipt for the circle
+	var latestReceipt *domainshadow.ShadowReceipt
+	if receipt, ok := s.shadowReceiptStore.GetLatestForCircle(identity.EntityID(circleID)); ok {
+		latestReceipt = receipt
+	}
+
+	// Derive current mode
+	modeInput := mode.DeriveModeInput{
+		HasGmailConnection:   hasGmail,
+		ShadowProviderIsStub: shadowCfg.ProviderKind == "" || shadowCfg.ProviderKind == "stub",
+		ShadowRealAllowed:    shadowCfg.RealAllowed,
+		LatestShadowReceipt:  latestReceipt,
+	}
+	modeIndicator := s.modeEngine.DeriveModeIndicator(modeInput)
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase21OnboardingViewed,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"mode": string(modeIndicator.Mode),
+		},
+	})
+
+	// Render page with inline template
+	const onboardingHTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #fafafa;
+            color: #333;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+        }
+        .container {
+            max-width: 480px;
+            width: 100%;
+            text-align: center;
+        }
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 400;
+            color: #333;
+            margin-bottom: 1.5rem;
+        }
+        .tagline {
+            font-size: 0.95rem;
+            color: #666;
+            margin-bottom: 2rem;
+            line-height: 1.6;
+        }
+        .mode-indicator {
+            display: inline-block;
+            padding: 0.5rem 1rem;
+            background: #f0f0f0;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            color: #666;
+            margin-bottom: 2rem;
+        }
+        .mode-demo { background: #fff3e0; color: #e65100; }
+        .mode-connected { background: #e3f2fd; color: #1565c0; }
+        .mode-shadow { background: #e8f5e9; color: #2e7d32; }
+        .section {
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+            text-align: left;
+        }
+        .section-title {
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: #555;
+            margin-bottom: 0.75rem;
+        }
+        .section-body {
+            font-size: 0.85rem;
+            color: #666;
+            line-height: 1.5;
+        }
+        .actions {
+            margin-top: 2rem;
+        }
+        .btn {
+            display: inline-block;
+            padding: 0.75rem 1.5rem;
+            background: #333;
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            margin: 0.5rem;
+        }
+        .btn:hover { background: #555; }
+        .btn-secondary {
+            background: transparent;
+            color: #666;
+            border: 1px solid #ddd;
+        }
+        .btn-secondary:hover { background: #f5f5f5; }
+        .footer {
+            margin-top: 2rem;
+            font-size: 0.75rem;
+            color: #999;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>QuantumLife</h1>
+        <p class="tagline">
+            We watch your email so you don't have to.<br>
+            Nothing happens unless you say so.
+        </p>
+
+        {{if .Mode}}
+        <div class="mode-indicator mode-{{.Mode.Mode}}">
+            {{.Mode.DisplayText}}
+        </div>
+        {{end}}
+
+        <div class="section">
+            <div class="section-title">What we do</div>
+            <p class="section-body">
+                We read your email headers (never content).
+                We notice patterns. We suggest, never act.
+                All proofs are recorded.
+            </p>
+        </div>
+
+        <div class="section">
+            <div class="section-title">What we don't do</div>
+            <p class="section-body">
+                We never send emails. We never make purchases.
+                We never share data. We never nag.
+            </p>
+        </div>
+
+        <div class="actions">
+            <a href="/connections" class="btn">Connect accounts</a>
+            <a href="/today" class="btn btn-secondary">View today</a>
+        </div>
+
+        <div class="footer">
+            Deterministic. Synchronous. Quiet.
+        </div>
+    </div>
+</body>
+</html>`
+
+	tmpl, err := template.New("onboarding").Parse(onboardingHTML)
+	if err != nil {
+		http.Error(w, "Template error", http.StatusInternalServerError)
+		return
+	}
+
+	data := struct {
+		Mode *mode.ModeIndicator
+	}{
+		Mode: &modeIndicator,
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := tmpl.Execute(w, data); err != nil {
+		log.Printf("Template execution error: %v", err)
+	}
+}
+
+// handleShadowReceipt serves the shadow receipt proof page.
+//
+// Phase 21: Shadow Receipt Viewer
+//
+// CRITICAL: Shows ONLY abstract buckets and hashes.
+// CRITICAL: No raw content. No identifiable information.
+// CRITICAL: No goroutines. Deterministic rendering.
+func (s *Server) handleShadowReceipt(w http.ResponseWriter, r *http.Request) {
+	// Check for Gmail connection (use demo-circle as default)
+	circleID := "demo-circle"
+	hasGmail := false
+	if s.gmailHandler != nil {
+		hasConn, err := s.gmailHandler.HasConnection(r.Context(), circleID)
+		if err == nil && hasConn {
+			hasGmail = true
+		}
+	}
+
+	// Get latest shadow receipt for the circle
+	var receipt *domainshadow.ShadowReceipt
+	if r, ok := s.shadowReceiptStore.GetLatestForCircle(identity.EntityID(circleID)); ok {
+		receipt = r
+	}
+
+	// Get calibration data (Phase 19.4+)
+	// For now, we derive from period-based vote counts
+	var agreementBucket, voteBucket string
+	periodBucket := s.clk.Now().UTC().Format("2006-01-02")
+	useful, unnecessary := s.shadowCalibrationStore.CountVotesByPeriod(periodBucket)
+	if useful > 0 || unnecessary > 0 {
+		if useful > unnecessary {
+			voteBucket = "mostly_useful"
+		} else if unnecessary > useful {
+			voteBucket = "mostly_unnecessary"
+		} else {
+			voteBucket = "mixed"
+		}
+	}
+	// Agreement bucket from diff distribution (simplified)
+	diffs := s.shadowCalibrationStore.ListDiffsByPeriod(periodBucket)
+	if len(diffs) > 0 {
+		matchCount := 0
+		for _, d := range diffs {
+			if d.Agreement == "match" {
+				matchCount++
+			}
+		}
+		if matchCount == len(diffs) {
+			agreementBucket = "all_match"
+		} else if matchCount > len(diffs)/2 {
+			agreementBucket = "mostly_match"
+		} else {
+			agreementBucket = "mixed"
+		}
+	}
+
+	// Build the page
+	pageInput := shadowview.BuildPageInput{
+		Receipt:              receipt,
+		HasGmailConnection:   hasGmail,
+		CalibrationAgreement: agreementBucket,
+		CalibrationVote:      voteBucket,
+	}
+	page := s.shadowviewEngine.BuildPage(pageInput)
+
+	// Mark as viewed in ack store
+	if receipt != nil {
+		_ = s.shadowviewAckStore.Record(shadowview.AckViewed, receipt.Hash(), periodBucket, s.clk.Now())
+	}
+
+	// Derive mode for page
+	shadowCfg := s.multiCircleConfig.Shadow
+	modeInput := mode.DeriveModeInput{
+		HasGmailConnection:   hasGmail,
+		ShadowProviderIsStub: shadowCfg.ProviderKind == "" || shadowCfg.ProviderKind == "stub",
+		ShadowRealAllowed:    shadowCfg.RealAllowed,
+		LatestShadowReceipt:  receipt,
+	}
+	modeIndicator := s.modeEngine.DeriveModeIndicator(modeInput)
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase21ShadowReceiptViewed,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"has_receipt":  fmt.Sprintf("%v", page.HasReceipt),
+			"receipt_hash": page.ReceiptHash,
+			"mode":         string(modeIndicator.Mode),
+		},
+	})
+
+	// Render page with inline template
+	const shadowReceiptHTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shadow Receipt</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #fafafa;
+            color: #333;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+        }
+        .container {
+            max-width: 520px;
+            width: 100%;
+        }
+        h1 {
+            font-size: 1.1rem;
+            font-weight: 400;
+            color: #666;
+            margin-bottom: 0.5rem;
+            text-align: center;
+        }
+        .subtitle {
+            text-align: center;
+            font-size: 0.85rem;
+            color: #999;
+            margin-bottom: 2rem;
+        }
+        .mode-indicator {
+            display: block;
+            text-align: center;
+            padding: 0.4rem 0.8rem;
+            background: #f0f0f0;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            color: #666;
+            margin: 0 auto 2rem auto;
+            width: fit-content;
+        }
+        .mode-demo { background: #fff3e0; color: #e65100; }
+        .mode-connected { background: #e3f2fd; color: #1565c0; }
+        .mode-shadow { background: #e8f5e9; color: #2e7d32; }
+        .section {
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 1.25rem;
+            margin-bottom: 1rem;
+        }
+        .section-title {
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: #999;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 0.75rem;
+        }
+        .section-body {
+            font-size: 0.9rem;
+            color: #555;
+            line-height: 1.5;
+        }
+        .chip {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            background: #f0f0f0;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            color: #666;
+            margin-right: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+        .restraint-list {
+            list-style: none;
+        }
+        .restraint-list li {
+            padding: 0.25rem 0;
+            font-size: 0.85rem;
+            color: #2e7d32;
+        }
+        .restraint-list li::before {
+            content: "✓ ";
+            color: #4caf50;
+        }
+        .hash {
+            font-family: "SF Mono", Monaco, monospace;
+            font-size: 0.7rem;
+            color: #999;
+            word-break: break-all;
+            background: #f5f5f5;
+            padding: 0.5rem;
+            border-radius: 4px;
+            margin-top: 0.5rem;
+        }
+        .back {
+            display: block;
+            text-align: center;
+            margin-top: 2rem;
+            font-size: 0.85rem;
+            color: #999;
+            text-decoration: none;
+        }
+        .back:hover { color: #666; }
+        .empty {
+            text-align: center;
+            color: #999;
+            font-size: 0.9rem;
+            padding: 3rem 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Shadow Receipt</h1>
+        <p class="subtitle">Proof of observation, not action</p>
+
+        {{if .Mode}}
+        <div class="mode-indicator mode-{{.Mode.Mode}}">
+            {{.Mode.DisplayText}}
+        </div>
+        {{end}}
+
+        {{if not .Page.HasReceipt}}
+        <div class="empty">
+            No shadow receipt recorded yet.<br>
+            Connect an account and run shadow mode.
+        </div>
+        {{else}}
+
+        <div class="section">
+            <div class="section-title">Source</div>
+            <p class="section-body">{{.Page.Source.Statement}}</p>
+        </div>
+
+        <div class="section">
+            <div class="section-title">Observation</div>
+            <p class="section-body">{{.Page.Observation.Statement}}</p>
+            <div style="margin-top: 0.75rem;">
+                <span class="chip">{{.Page.Observation.Magnitude}}</span>
+                <span class="chip">{{.Page.Observation.Horizon}}</span>
+                {{range .Page.Observation.Categories}}
+                <span class="chip">{{.}}</span>
+                {{end}}
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-title">Confidence</div>
+            <p class="section-body">
+                <span class="chip">{{.Page.Confidence.Bucket}}</span>
+                {{.Page.Confidence.Statement}}
+            </p>
+        </div>
+
+        <div class="section">
+            <div class="section-title">Restraint</div>
+            <ul class="restraint-list">
+                {{range .Page.Restraint.Statements}}
+                <li>{{.}}</li>
+                {{end}}
+            </ul>
+        </div>
+
+        {{if .Page.Calibration.HasCalibration}}
+        <div class="section">
+            <div class="section-title">Calibration</div>
+            <p class="section-body">{{.Page.Calibration.Statement}}</p>
+        </div>
+        {{end}}
+
+        <div class="section">
+            <div class="section-title">Trust Anchor</div>
+            <p class="section-body">
+                Period: {{.Page.TrustAnchor.PeriodLabel}}<br>
+                {{.Page.TrustAnchor.Statement}}
+            </p>
+            {{if .Page.TrustAnchor.ReceiptHash}}
+            <div class="hash">{{.Page.TrustAnchor.ReceiptHash}}</div>
+            {{end}}
+        </div>
+
+        {{end}}
+
+        <a class="back" href="/today">← back</a>
+    </div>
+</body>
+</html>`
+
+	tmpl, err := template.New("shadowreceipt").Parse(shadowReceiptHTML)
+	if err != nil {
+		http.Error(w, "Template error", http.StatusInternalServerError)
+		return
+	}
+
+	data := struct {
+		Mode *mode.ModeIndicator
+		Page *shadowview.ShadowReceiptPage
+	}{
+		Mode: &modeIndicator,
+		Page: &page,
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := tmpl.Execute(w, data); err != nil {
+		log.Printf("Template execution error: %v", err)
+	}
+}
+
+// handleShadowReceiptDismiss dismisses the shadow receipt cue for the current period.
+//
+// Phase 21: Whisper rule integration
+//
+// CRITICAL: Stores ONLY hash - never raw content.
+// CRITICAL: Dismissal is per-period (daily bucket).
+func (s *Server) handleShadowReceiptDismiss(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	receiptHash := r.FormValue("receipt_hash")
+	if receiptHash == "" {
+		http.Redirect(w, r, "/today", http.StatusFound)
+		return
+	}
+
+	// Record dismissal
+	periodBucket := s.clk.Now().UTC().Format("2006-01-02")
+	if err := s.shadowviewAckStore.Record(shadowview.AckDismissed, receiptHash, periodBucket, s.clk.Now()); err != nil {
+		log.Printf("Failed to record shadow receipt dismissal: %v", err)
+	}
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase21ShadowReceiptDismissed,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"receipt_hash":  receiptHash,
+			"period_bucket": periodBucket,
+		},
+	})
+
+	// Redirect back to today page
+	http.Redirect(w, r, "/today", http.StatusFound)
 }
 
 // handleDemo serves the deterministic demo page.

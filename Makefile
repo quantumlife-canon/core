@@ -63,6 +63,7 @@ help:
 	@echo "  make demo-phase19-5 - Run Phase 19.5 shadow gating demo"
 	@echo "  make demo-phase19-6 - Run Phase 19.6 rule pack export demo"
 	@echo "  make demo-phase20 - Run Phase 20 trust accrual demo"
+	@echo "  make demo-phase21 - Run Phase 21 onboarding/shadow receipt demo"
 	@echo ""
 	@echo "Web Server:"
 	@echo "  make web          - Run web server on :8080 (real mode)"
@@ -572,6 +573,17 @@ demo-phase20:
 check-trust-accrual:
 	@echo "Checking trust accrual constraints (Phase 20)..."
 	@./scripts/guardrails/trust_accrual_enforced.sh
+
+# Phase 21 Demo: Unified Onboarding + Shadow Receipt Viewer
+# Reference: docs/ADR/ADR-0051-phase21-onboarding-modes-shadow-receipt-viewer.md
+demo-phase21:
+	@echo "Running Phase 21 Demo: Unified Onboarding + Shadow Receipt Viewer..."
+	go test -v ./internal/demo_phase21_onboarding_shadow_receipt/...
+
+# Check Phase 21 onboarding/shadowview constraints
+check-phase21:
+	@echo "Checking Phase 21 constraints..."
+	@./scripts/guardrails/phase21_onboarding_shadow_receipt_enforced.sh
 
 # =============================================================================
 # Web Server Targets
