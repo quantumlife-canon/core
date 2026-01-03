@@ -64,6 +64,7 @@ help:
 	@echo "  make demo-phase19-6 - Run Phase 19.6 rule pack export demo"
 	@echo "  make demo-phase20 - Run Phase 20 trust accrual demo"
 	@echo "  make demo-phase21 - Run Phase 21 onboarding/shadow receipt demo"
+	@echo "  make demo-phase22 - Run Phase 22 quiet inbox mirror demo"
 	@echo ""
 	@echo "Web Server:"
 	@echo "  make web          - Run web server on :8080 (real mode)"
@@ -584,6 +585,17 @@ demo-phase21:
 check-phase21:
 	@echo "Checking Phase 21 constraints..."
 	@./scripts/guardrails/phase21_onboarding_shadow_receipt_enforced.sh
+
+# Phase 22 Demo: Quiet Inbox Mirror (First Real Value Moment)
+# Reference: docs/ADR/ADR-0052-phase22-quiet-inbox-mirror.md
+demo-phase22:
+	@echo "Running Phase 22 Demo: Quiet Inbox Mirror..."
+	go test -v ./internal/demo_phase22_quiet_inbox_mirror/...
+
+# Check Phase 22 quiet inbox mirror constraints
+check-phase22:
+	@echo "Checking Phase 22 constraints..."
+	@./scripts/guardrails/quiet_inbox_mirror_enforced.sh
 
 # =============================================================================
 # Web Server Targets

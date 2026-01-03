@@ -1147,6 +1147,37 @@ const (
 	Phase18_8GmailSyncFailed EventType = "phase18_8.gmail.sync_failed"
 
 	// ═══════════════════════════════════════════════════════════════════════════
+	// PHASE 18 WEB CONTROL CENTER
+	// Reference: Phase 18 "Nothing Needs You" Control Center specification
+	//
+	// CRITICAL: All views read-only (no automatic execution).
+	// CRITICAL: Approval tokens use Ed25519 signatures.
+	// CRITICAL: Run logs are deterministic and replayable.
+	// ═══════════════════════════════════════════════════════════════════════════
+
+	// Web view events
+	Phase18WebApproveViewed      EventType = "phase18.web.approve.viewed"
+	Phase18WebRunsViewed         EventType = "phase18.web.runs.viewed"
+	Phase18WebRunDetailViewed    EventType = "phase18.web.run_detail.viewed"
+	Phase18WebSuppressionsViewed EventType = "phase18.web.suppressions.viewed"
+
+	// Approval token events
+	Phase18ApprovalTokenVerified EventType = "phase18.approval.token.verified"
+	Phase18ApprovalTokenExpired  EventType = "phase18.approval.token.expired"
+	Phase18ApprovalTokenInvalid  EventType = "phase18.approval.token.invalid"
+
+	// Run log events
+	Phase18RunSnapshotCreated EventType = "phase18.run.snapshot.created"
+	Phase18RunReplayRequested EventType = "phase18.run.replay.requested"
+	Phase18RunReplaySucceeded EventType = "phase18.run.replay.succeeded"
+	Phase18RunReplayFailed    EventType = "phase18.run.replay.failed"
+
+	// Suppression events
+	Phase18SuppressionCreated EventType = "phase18.suppression.created"
+	Phase18SuppressionRemoved EventType = "phase18.suppression.removed"
+	Phase18SuppressionExpired EventType = "phase18.suppression.expired"
+
+	// ═══════════════════════════════════════════════════════════════════════════
 	// PHASE 19: LLM Shadow-Mode Contract
 	// Reference: docs/ADR/ADR-0043-phase19-shadow-mode-contract.md
 	//
@@ -1377,6 +1408,25 @@ const (
 	Phase21ShadowReceiptViewed    EventType = "phase21.shadow.receipt.viewed"
 	Phase21ShadowReceiptDismissed EventType = "phase21.shadow.receipt.dismissed"
 	Phase21ShadowReceiptCueShown  EventType = "phase21.shadow.receipt.cue.shown"
+
+	// ======================================================================
+	// Phase 22: Quiet Inbox Mirror (First Real Value Moment)
+	// ======================================================================
+	//
+	// CRITICAL INVARIANTS:
+	//   - Events contain ONLY hashes, never content/counts/identifiers
+	//   - Abstraction over explanation
+	//   - Silence is success
+	//   - No engagement loops
+
+	// Quiet mirror lifecycle events
+	Phase22QuietMirrorComputed EventType = "phase22.quiet_mirror.computed"
+	Phase22QuietMirrorViewed   EventType = "phase22.quiet_mirror.viewed"
+	Phase22QuietMirrorAbsent   EventType = "phase22.quiet_mirror.absent"
+
+	// Whisper cue events
+	Phase22WhisperCueShown     EventType = "phase22.whisper_cue.shown"
+	Phase22WhisperCueDismissed EventType = "phase22.whisper_cue.dismissed"
 )
 
 // Event represents a system event for audit and observability.

@@ -46,6 +46,7 @@ import (
 	"quantumlife/internal/obligations"
 	"quantumlife/internal/persist"
 	"quantumlife/internal/proof"
+	internalquietmirror "quantumlife/internal/quietmirror"
 	rulepackengine "quantumlife/internal/rulepack"
 	"quantumlife/internal/shadowcalibration"
 	shadowdiffengine "quantumlife/internal/shadowdiff"
@@ -58,6 +59,7 @@ import (
 	"quantumlife/internal/todayquietly"
 	trustengine "quantumlife/internal/trust"
 	"quantumlife/pkg/clock"
+	"quantumlife/pkg/domain/approvaltoken"
 	pkgconfig "quantumlife/pkg/domain/config"
 	"quantumlife/pkg/domain/connection"
 	"quantumlife/pkg/domain/draft"
@@ -67,10 +69,13 @@ import (
 	domainmirror "quantumlife/pkg/domain/mirror"
 	"quantumlife/pkg/domain/obligation"
 	"quantumlife/pkg/domain/policy"
+	quietmirror "quantumlife/pkg/domain/quietmirror"
 	domainrulepack "quantumlife/pkg/domain/rulepack"
+	"quantumlife/pkg/domain/runlog"
 	"quantumlife/pkg/domain/shadowdiff"
 	domainshadowgate "quantumlife/pkg/domain/shadowgate"
 	domainshadow "quantumlife/pkg/domain/shadowllm"
+	"quantumlife/pkg/domain/suppress"
 	domaintrust "quantumlife/pkg/domain/trust"
 	"quantumlife/pkg/events"
 )
@@ -90,33 +95,40 @@ type Server struct {
 	execRouter             *execrouter.Router
 	execExecutor           *execexecutor.Executor
 	multiCircleConfig      *config.MultiCircleConfig
-	identityRepo           *identity.InMemoryRepository     // Phase 13.1: Identity graph
-	interestStore          *interest.Store                  // Phase 18.1: Interest capture
-	todayEngine            *todayquietly.Engine             // Phase 18.2: Today, quietly
-	preferenceStore        *todayquietly.PreferenceStore    // Phase 18.2: Preference capture
-	heldEngine             *held.Engine                     // Phase 18.3: Held, not shown
-	heldStore              *held.SummaryStore               // Phase 18.3: Summary store
-	surfaceEngine          *surface.Engine                  // Phase 18.4: Quiet Shift
-	surfaceStore           *surface.ActionStore             // Phase 18.4: Action store
-	proofEngine            *proof.Engine                    // Phase 18.5: Quiet Proof
-	proofAckStore          *proof.AckStore                  // Phase 18.5: Ack store
-	connectionStore        *persist.InMemoryConnectionStore // Phase 18.6: First Connect
-	mirrorEngine           *mirror.Engine                   // Phase 18.7: Mirror Proof
-	mirrorAckStore         *mirror.AckStore                 // Phase 18.7: Mirror Ack store
-	tokenBroker            auth.TokenBroker                 // Phase 18.8: OAuth token broker
-	oauthStateManager      *oauth.StateManager              // Phase 18.8: OAuth state management
-	gmailHandler           *oauth.GmailHandler              // Phase 18.8: Gmail OAuth handler
-	syncReceiptStore       *persist.SyncReceiptStore        // Phase 19.1: Sync receipt store
-	shadowEngine           *shadowllm.Engine                // Phase 19.2: Shadow mode engine
-	shadowReceiptStore     *persist.ShadowReceiptStore      // Phase 19.2: Shadow receipt store
-	shadowCalibrationStore *persist.ShadowCalibrationStore  // Phase 19.4: Shadow calibration store
-	shadowGateStore        *persist.ShadowGateStore         // Phase 19.5: Shadow gating store
-	rulepackStore          *persist.RulePackStore           // Phase 19.6: Rule pack store
-	trustStore             *persist.TrustStore              // Phase 20: Trust store
-	trustEngine            *trustengine.Engine              // Phase 20: Trust engine
-	modeEngine             *mode.Engine                     // Phase 21: Mode derivation engine
-	shadowviewEngine       *shadowview.Engine               // Phase 21: Shadow receipt viewer engine
-	shadowviewAckStore     *shadowview.AckStore             // Phase 21: Shadow receipt acknowledgement store
+	identityRepo           *identity.InMemoryRepository       // Phase 13.1: Identity graph
+	interestStore          *interest.Store                    // Phase 18.1: Interest capture
+	todayEngine            *todayquietly.Engine               // Phase 18.2: Today, quietly
+	preferenceStore        *todayquietly.PreferenceStore      // Phase 18.2: Preference capture
+	heldEngine             *held.Engine                       // Phase 18.3: Held, not shown
+	heldStore              *held.SummaryStore                 // Phase 18.3: Summary store
+	surfaceEngine          *surface.Engine                    // Phase 18.4: Quiet Shift
+	surfaceStore           *surface.ActionStore               // Phase 18.4: Action store
+	proofEngine            *proof.Engine                      // Phase 18.5: Quiet Proof
+	proofAckStore          *proof.AckStore                    // Phase 18.5: Ack store
+	connectionStore        *persist.InMemoryConnectionStore   // Phase 18.6: First Connect
+	mirrorEngine           *mirror.Engine                     // Phase 18.7: Mirror Proof
+	mirrorAckStore         *mirror.AckStore                   // Phase 18.7: Mirror Ack store
+	tokenBroker            auth.TokenBroker                   // Phase 18.8: OAuth token broker
+	oauthStateManager      *oauth.StateManager                // Phase 18.8: OAuth state management
+	gmailHandler           *oauth.GmailHandler                // Phase 18.8: Gmail OAuth handler
+	syncReceiptStore       *persist.SyncReceiptStore          // Phase 19.1: Sync receipt store
+	shadowEngine           *shadowllm.Engine                  // Phase 19.2: Shadow mode engine
+	shadowReceiptStore     *persist.ShadowReceiptStore        // Phase 19.2: Shadow receipt store
+	shadowCalibrationStore *persist.ShadowCalibrationStore    // Phase 19.4: Shadow calibration store
+	shadowGateStore        *persist.ShadowGateStore           // Phase 19.5: Shadow gating store
+	rulepackStore          *persist.RulePackStore             // Phase 19.6: Rule pack store
+	trustStore             *persist.TrustStore                // Phase 20: Trust store
+	trustEngine            *trustengine.Engine                // Phase 20: Trust engine
+	modeEngine             *mode.Engine                       // Phase 21: Mode derivation engine
+	shadowviewEngine       *shadowview.Engine                 // Phase 21: Shadow receipt viewer engine
+	shadowviewAckStore     *shadowview.AckStore               // Phase 21: Shadow receipt acknowledgement store
+	quietMirrorEngine      *internalquietmirror.Engine        // Phase 22: Quiet Inbox Mirror engine
+	quietMirrorStore       *persist.QuietMirrorStore          // Phase 22: Quiet Inbox Mirror store
+	quietMirrorDismissals  *persist.QuietMirrorDismissalStore // Phase 22: Whisper dismissal store
+	// Phase 18 Web Control Center
+	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
+	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
+	approvalLedger *persist.ApprovalLedger  // Approval ledger for /approve
 }
 
 // eventLogger logs events.
@@ -192,6 +204,14 @@ type templateData struct {
 	ModeIndicator     *mode.ModeIndicator
 	ShadowReceiptPage *shadowview.ShadowReceiptPage
 	ShadowReceiptCue  *shadowview.ReceiptCue // Whisper cue for proof page link
+	// Phase 18 Web Control Center
+	RunSnapshots     []*runlog.RunSnapshot      // List of run snapshots for /runs
+	RunSnapshot      *runlog.RunSnapshot        // Single run snapshot for /runs/:id
+	ReplayResult     *runlog.ReplayResult       // Replay result for /runs/:id
+	SuppressionRules []suppress.SuppressionRule // Active suppression rules
+	SuppressionStats *suppress.Stats            // Suppression statistics
+	ApprovalResult   *approvalResultInfo        // Approval token result for /approve
+	PendingApprovals []*pendingApprovalInfo     // Pending approvals for person
 }
 
 // personInfo contains person data for display. Phase 13.1.
@@ -236,6 +256,38 @@ type circleConfigInfo struct {
 	EmailIntegrations    []string
 	CalendarIntegrations []string
 	FinanceIntegrations  []string
+}
+
+// approvalResultInfo contains approval token verification result. Phase 18 Web Control Center.
+type approvalResultInfo struct {
+	Valid        bool
+	TokenID      string
+	StateID      string
+	PersonID     string
+	ActionType   string
+	ActionClass  string
+	Description  string
+	ExpiresAt    string
+	IsExpired    bool
+	IsApproved   bool
+	IsRejected   bool
+	Message      string
+	ErrorMessage string
+}
+
+// pendingApprovalInfo contains pending approval for display. Phase 18 Web Control Center.
+type pendingApprovalInfo struct {
+	StateID      string
+	TargetType   string
+	TargetID     string
+	ActionClass  string
+	Description  string
+	Threshold    int
+	CurrentCount int
+	ExpiresAt    string
+	IsExpired    bool
+	ApproveURL   string
+	RejectURL    string
 }
 
 // mockIdentityRepo implements IdentityRepository for obligations engine.
@@ -470,6 +522,10 @@ func main() {
 		populateMockTrustSummaries(trustStore, now)
 	}
 
+	// Phase 18 Web Control Center: Create stores
+	runStore := runlog.NewInMemoryRunStore()
+	suppressionSet := suppress.NewSuppressionSet()
+
 	// Create server
 	server := &Server{
 		engine:                 engine,
@@ -479,33 +535,40 @@ func main() {
 		execRouter:             execRouter,
 		execExecutor:           execExecutor,
 		multiCircleConfig:      multiCfg,
-		identityRepo:           identityRepo,                  // Phase 13.1
-		interestStore:          interestStore,                 // Phase 18.1
-		todayEngine:            todayEngine,                   // Phase 18.2
-		preferenceStore:        preferenceStore,               // Phase 18.2
-		heldEngine:             heldEngine,                    // Phase 18.3
-		heldStore:              heldStore,                     // Phase 18.3
-		surfaceEngine:          surfaceEngine,                 // Phase 18.4
-		surfaceStore:           surfaceStore,                  // Phase 18.4
-		proofEngine:            proofEngine,                   // Phase 18.5
-		proofAckStore:          proofAckStore,                 // Phase 18.5
-		connectionStore:        connectionStore,               // Phase 18.6
-		mirrorEngine:           mirrorEngine,                  // Phase 18.7
-		mirrorAckStore:         mirrorAckStore,                // Phase 18.7
-		tokenBroker:            tokenBroker,                   // Phase 18.8
-		oauthStateManager:      oauthStateManager,             // Phase 18.8
-		gmailHandler:           gmailHandler,                  // Phase 18.8
-		syncReceiptStore:       syncReceiptStore,              // Phase 19.1
-		shadowEngine:           shadowEngine,                  // Phase 19.2
-		shadowReceiptStore:     shadowReceiptStore,            // Phase 19.2
-		shadowCalibrationStore: shadowCalibrationStore,        // Phase 19.4
-		shadowGateStore:        shadowGateStore,               // Phase 19.5
-		rulepackStore:          rulepackStore,                 // Phase 19.6
-		trustStore:             trustStore,                    // Phase 20
-		trustEngine:            trustEng,                      // Phase 20
-		modeEngine:             mode.NewEngine(clk.Now),       // Phase 21
-		shadowviewEngine:       shadowview.NewEngine(clk.Now), // Phase 21
-		shadowviewAckStore:     shadowview.NewAckStore(0),     // Phase 21
+		identityRepo:           identityRepo,                                  // Phase 13.1
+		interestStore:          interestStore,                                 // Phase 18.1
+		todayEngine:            todayEngine,                                   // Phase 18.2
+		preferenceStore:        preferenceStore,                               // Phase 18.2
+		heldEngine:             heldEngine,                                    // Phase 18.3
+		heldStore:              heldStore,                                     // Phase 18.3
+		surfaceEngine:          surfaceEngine,                                 // Phase 18.4
+		surfaceStore:           surfaceStore,                                  // Phase 18.4
+		proofEngine:            proofEngine,                                   // Phase 18.5
+		proofAckStore:          proofAckStore,                                 // Phase 18.5
+		connectionStore:        connectionStore,                               // Phase 18.6
+		mirrorEngine:           mirrorEngine,                                  // Phase 18.7
+		mirrorAckStore:         mirrorAckStore,                                // Phase 18.7
+		tokenBroker:            tokenBroker,                                   // Phase 18.8
+		oauthStateManager:      oauthStateManager,                             // Phase 18.8
+		gmailHandler:           gmailHandler,                                  // Phase 18.8
+		syncReceiptStore:       syncReceiptStore,                              // Phase 19.1
+		shadowEngine:           shadowEngine,                                  // Phase 19.2
+		shadowReceiptStore:     shadowReceiptStore,                            // Phase 19.2
+		shadowCalibrationStore: shadowCalibrationStore,                        // Phase 19.4
+		shadowGateStore:        shadowGateStore,                               // Phase 19.5
+		rulepackStore:          rulepackStore,                                 // Phase 19.6
+		trustStore:             trustStore,                                    // Phase 20
+		trustEngine:            trustEng,                                      // Phase 20
+		modeEngine:             mode.NewEngine(clk.Now),                       // Phase 21
+		shadowviewEngine:       shadowview.NewEngine(clk.Now),                 // Phase 21
+		shadowviewAckStore:     shadowview.NewAckStore(0),                     // Phase 21
+		quietMirrorEngine:      internalquietmirror.NewEngine(clk.Now),        // Phase 22
+		quietMirrorStore:       persist.NewQuietMirrorStore(clk.Now),          // Phase 22
+		quietMirrorDismissals:  persist.NewQuietMirrorDismissalStore(clk.Now), // Phase 22
+		// Phase 18 Web Control Center
+		runStore:       runStore,
+		suppressionSet: suppressionSet,
+		// approvalLedger: nil, // Will be set when file-backed storage is needed
 	}
 
 	// Set up routes
@@ -554,7 +617,15 @@ func main() {
 	mux.HandleFunc("/onboarding", server.handleOnboarding)                             // Phase 21: Unified onboarding
 	mux.HandleFunc("/shadow/receipt", server.handleShadowReceipt)                      // Phase 21: Shadow receipt viewer
 	mux.HandleFunc("/shadow/receipt/dismiss", server.handleShadowReceiptDismiss)       // Phase 21: Dismiss receipt cue
+	mux.HandleFunc("/mirror/inbox", server.handleQuietInboxMirror)                     // Phase 22: Quiet Inbox Mirror
+	mux.HandleFunc("/mirror/inbox/dismiss", server.handleQuietMirrorDismiss)           // Phase 22: Dismiss whisper cue
 	mux.HandleFunc("/demo", server.handleDemo)
+
+	// Phase 18 Web Control Center: Core routes
+	mux.HandleFunc("/approve", server.handleApprove)           // Approval token verification
+	mux.HandleFunc("/runs", server.handleRuns)                 // Run log list
+	mux.HandleFunc("/runs/", server.handleRunDetail)           // Run log detail
+	mux.HandleFunc("/suppressions", server.handleSuppressions) // Suppression management
 
 	// Phase 18: App routes (authenticated)
 	mux.HandleFunc("/app", server.handleAppHome)
@@ -4565,6 +4636,208 @@ func (s *Server) handleShadowReceiptDismiss(w http.ResponseWriter, r *http.Reque
 	http.Redirect(w, r, "/today", http.StatusFound)
 }
 
+// handleQuietInboxMirror serves the Phase 22 Quiet Inbox Mirror page.
+//
+// CRITICAL INVARIANTS:
+//   - Whisper-level typography
+//   - No buttons, no actions, no lists, no counts
+//   - Single calm statement
+//   - Optional abstract category chips (max 3)
+//
+// Reference: docs/ADR/ADR-0052-phase22-quiet-inbox-mirror.md
+func (s *Server) handleQuietInboxMirror(w http.ResponseWriter, r *http.Request) {
+	now := s.clk.Now()
+	period := now.Format("2006-01-02")
+	circleID := identity.EntityID("default")
+	circleIDStr := string(circleID)
+
+	// Check Gmail connection
+	hasConnection, _ := s.gmailHandler.HasConnection(r.Context(), circleIDStr)
+
+	// Get latest sync receipt
+	var receipt *persist.SyncReceipt
+	if hasConnection {
+		receipt = s.syncReceiptStore.GetLatestByCircle(circleID)
+	}
+
+	// Build category presence from obligations (abstract only)
+	categoryPresence := make(map[quietmirror.MirrorCategory]bool)
+	if receipt != nil && receipt.Success {
+		// Use abstract category detection from receipt magnitude
+		if receipt.MagnitudeBucket != persist.MagnitudeNone {
+			// Default to work category for email activity
+			categoryPresence[quietmirror.CategoryWork] = true
+		}
+	}
+
+	// Compute the mirror input
+	input := s.quietMirrorEngine.ComputeInput(circleID, hasConnection, receipt, categoryPresence)
+
+	// Compute the summary
+	summary := s.quietMirrorEngine.Compute(input)
+
+	// Store the summary
+	if err := s.quietMirrorStore.Store(summary); err != nil {
+		log.Printf("Failed to store quiet mirror summary: %v", err)
+	}
+
+	// Build the page
+	page := s.quietMirrorEngine.BuildPage(summary)
+
+	// Emit event
+	eventType := events.Phase22QuietMirrorViewed
+	if !summary.HasMirror {
+		eventType = events.Phase22QuietMirrorAbsent
+	}
+	s.eventEmitter.Emit(events.Event{
+		Type:      eventType,
+		Timestamp: now,
+		CircleID:  string(circleID),
+		Metadata: map[string]string{
+			"period":       period,
+			"magnitude":    string(summary.Magnitude),
+			"has_mirror":   fmt.Sprintf("%t", summary.HasMirror),
+			"summary_hash": summary.Hash(),
+		},
+	})
+
+	// Render inline template (whisper-level UI)
+	const quietMirrorTemplate = `<!DOCTYPE html>
+<html>
+<head>
+    <title>{{.Title}}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #fafafa;
+            color: #333;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+        }
+        .container {
+            max-width: 420px;
+            text-align: center;
+        }
+        .title {
+            font-size: 1.5rem;
+            font-weight: 300;
+            color: #666;
+            margin-bottom: 2rem;
+            letter-spacing: 0.02em;
+        }
+        .statement {
+            font-size: 1.1rem;
+            color: #444;
+            line-height: 1.6;
+            margin-bottom: 2rem;
+            font-weight: 400;
+        }
+        .categories {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-bottom: 2rem;
+        }
+        .category-chip {
+            background: #f0f0f0;
+            color: #666;
+            padding: 0.25rem 0.75rem;
+            border-radius: 1rem;
+            font-size: 0.8rem;
+            font-weight: 400;
+        }
+        .footer {
+            font-size: 0.85rem;
+            color: #999;
+            font-style: italic;
+        }
+        .back-link {
+            margin-top: 3rem;
+        }
+        .back-link a {
+            color: #999;
+            text-decoration: none;
+            font-size: 0.85rem;
+        }
+        .back-link a:hover {
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="title">{{.Title}}</h1>
+        <p class="statement">{{.Statement}}</p>
+        {{if .Categories}}
+        <div class="categories">
+            {{range .Categories}}
+            <span class="category-chip">{{.}}</span>
+            {{end}}
+        </div>
+        {{end}}
+        <p class="footer">{{.Footer}}</p>
+        <div class="back-link">
+            <a href="/today">&larr; Back</a>
+        </div>
+    </div>
+</body>
+</html>`
+
+	tmpl, err := template.New("quietmirror").Parse(quietMirrorTemplate)
+	if err != nil {
+		http.Error(w, "Template error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := tmpl.Execute(w, page); err != nil {
+		log.Printf("Failed to render quiet mirror page: %v", err)
+	}
+}
+
+// handleQuietMirrorDismiss handles dismissal of the whisper cue.
+//
+// CRITICAL: POST-only, explicit action required.
+func (s *Server) handleQuietMirrorDismiss(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	summaryHash := r.FormValue("summary_hash")
+	if summaryHash == "" {
+		http.Redirect(w, r, "/today", http.StatusFound)
+		return
+	}
+
+	// Record dismissal
+	now := s.clk.Now()
+	period := now.Format("2006-01-02")
+	circleID := identity.EntityID("default")
+
+	s.quietMirrorDismissals.RecordDismissal(circleID, period, summaryHash)
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase22WhisperCueDismissed,
+		Timestamp: now,
+		CircleID:  string(circleID),
+		Metadata: map[string]string{
+			"summary_hash": summaryHash,
+			"period":       period,
+		},
+	})
+
+	// Redirect back to today page
+	http.Redirect(w, r, "/today", http.StatusFound)
+}
+
 // handleDemo serves the deterministic demo page.
 // Same seed = same output, always.
 func (s *Server) handleDemo(w http.ResponseWriter, r *http.Request) {
@@ -5360,6 +5633,152 @@ func generateMockDraftsFromObligations(engine *drafts.Engine, circleID identity.
 		WithEvidence(obligation.EvidenceKeySubject, "Q1 Budget Review")
 
 	engine.Process(circleID, "", obl, now)
+}
+
+// ============================================================================
+// Phase 18 Web Control Center Handlers
+// ============================================================================
+
+// handleApprove handles approval token verification. Phase 18 Web Control Center.
+func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
+	s.eventEmitter.Emit(events.Event{
+		Type:     events.Phase18WebApproveViewed,
+		Metadata: map[string]string{"path": r.URL.Path},
+	})
+
+	tokenParam := r.URL.Query().Get("t")
+
+	data := templateData{
+		Title:       "Approval",
+		CurrentTime: s.clk.Now().Format("2006-01-02 15:04:05"),
+	}
+
+	if tokenParam == "" {
+		// No token provided - show error
+		data.ApprovalResult = &approvalResultInfo{
+			Valid:        false,
+			ErrorMessage: "No approval token provided. Use ?t=<token> to verify a token.",
+		}
+		s.render(w, "approve", data)
+		return
+	}
+
+	// Decode the token
+	token, err := approvaltoken.Decode(tokenParam)
+	if err != nil {
+		data.ApprovalResult = &approvalResultInfo{
+			Valid:        false,
+			ErrorMessage: "Invalid token format: " + err.Error(),
+		}
+		s.render(w, "approve", data)
+		return
+	}
+
+	// Check if token is expired
+	now := s.clk.Now()
+	isExpired := token.IsExpired(now)
+
+	// Build result info
+	data.ApprovalResult = &approvalResultInfo{
+		Valid:      true,
+		TokenID:    token.TokenID,
+		StateID:    token.StateID,
+		PersonID:   string(token.PersonID),
+		ActionType: string(token.ActionType),
+		ExpiresAt:  token.ExpiresAt.Format("2006-01-02 15:04:05"),
+		IsExpired:  isExpired,
+		IsApproved: token.ActionType == approvaltoken.ActionTypeApprove,
+		IsRejected: token.ActionType == approvaltoken.ActionTypeReject,
+	}
+
+	if isExpired {
+		data.ApprovalResult.Message = "This approval token has expired."
+	} else if token.ActionType == approvaltoken.ActionTypeApprove {
+		data.ApprovalResult.Message = "This is a valid approval token."
+	} else {
+		data.ApprovalResult.Message = "This is a valid rejection token."
+	}
+
+	s.render(w, "approve", data)
+}
+
+// handleRuns handles run log listing. Phase 18 Web Control Center.
+func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
+	s.eventEmitter.Emit(events.Event{
+		Type:     events.Phase18WebRunsViewed,
+		Metadata: map[string]string{"path": r.URL.Path},
+	})
+
+	snapshots, err := s.runStore.List()
+	if err != nil {
+		http.Error(w, "Failed to list runs: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Reverse to show most recent first
+	reversed := make([]*runlog.RunSnapshot, len(snapshots))
+	for i, snap := range snapshots {
+		reversed[len(snapshots)-1-i] = snap
+	}
+
+	data := templateData{
+		Title:        "Run History",
+		CurrentTime:  s.clk.Now().Format("2006-01-02 15:04:05"),
+		RunSnapshots: reversed,
+	}
+
+	s.render(w, "runs", data)
+}
+
+// handleRunDetail handles run log detail view. Phase 18 Web Control Center.
+func (s *Server) handleRunDetail(w http.ResponseWriter, r *http.Request) {
+	// Extract run ID from path /runs/{id}
+	path := r.URL.Path
+	if len(path) <= 6 {
+		http.Redirect(w, r, "/runs", http.StatusFound)
+		return
+	}
+	runID := path[6:] // Remove "/runs/"
+
+	s.eventEmitter.Emit(events.Event{
+		Type:     events.Phase18WebRunDetailViewed,
+		Metadata: map[string]string{"run_id": runID},
+	})
+
+	snapshot, err := s.runStore.Get(runID)
+	if err != nil {
+		http.Error(w, "Run not found: "+runID, http.StatusNotFound)
+		return
+	}
+
+	data := templateData{
+		Title:       "Run: " + runID[:16] + "...",
+		CurrentTime: s.clk.Now().Format("2006-01-02 15:04:05"),
+		RunSnapshot: snapshot,
+	}
+
+	s.render(w, "run_detail", data)
+}
+
+// handleSuppressions handles suppression rule management. Phase 18 Web Control Center.
+func (s *Server) handleSuppressions(w http.ResponseWriter, r *http.Request) {
+	s.eventEmitter.Emit(events.Event{
+		Type:     events.Phase18WebSuppressionsViewed,
+		Metadata: map[string]string{"path": r.URL.Path},
+	})
+
+	now := s.clk.Now()
+	activeRules := s.suppressionSet.ListActive(now)
+	stats := s.suppressionSet.GetStats(now)
+
+	data := templateData{
+		Title:            "Suppressions",
+		CurrentTime:      now.Format("2006-01-02 15:04:05"),
+		SuppressionRules: activeRules,
+		SuppressionStats: &stats,
+	}
+
+	s.render(w, "suppressions", data)
 }
 
 // templates contains all HTML templates.
@@ -6906,6 +7325,292 @@ const templates = `
         <a href="/mirror" class="quiet-check-mirror-link">What we noticed</a>
         <span class="quiet-check-divider">·</span>
         <a href="/today" class="quiet-check-today-link">Today, quietly</a>
+    </footer>
+</div>
+{{end}}
+
+{{/* ================================================================
+     Phase 18 Web Control Center: Approval Token Verification
+     ================================================================ */}}
+{{define "approve"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "approve-content"}}
+<div class="approve-page">
+    <header class="approve-header">
+        <h1 class="approve-title">Approval Verification</h1>
+        <p class="approve-subtitle">Verify and process household approval tokens.</p>
+    </header>
+
+    {{if .ApprovalResult}}
+    <section class="approve-result">
+        {{if .ApprovalResult.Valid}}
+        <div class="approve-valid">
+            <p class="approve-status {{if .ApprovalResult.IsExpired}}approve-status-expired{{else if .ApprovalResult.IsApproved}}approve-status-approve{{else}}approve-status-reject{{end}}">
+                {{if .ApprovalResult.IsExpired}}Expired{{else if .ApprovalResult.IsApproved}}Approve{{else}}Reject{{end}}
+            </p>
+            <p class="approve-message">{{.ApprovalResult.Message}}</p>
+
+            <dl class="approve-details">
+                <dt>Token ID</dt>
+                <dd>{{slice .ApprovalResult.TokenID 0 12}}...</dd>
+
+                <dt>State ID</dt>
+                <dd>{{slice .ApprovalResult.StateID 0 12}}...</dd>
+
+                <dt>Person ID</dt>
+                <dd>{{slice .ApprovalResult.PersonID 0 12}}...</dd>
+
+                <dt>Action Type</dt>
+                <dd>{{.ApprovalResult.ActionType}}</dd>
+
+                <dt>Expires At</dt>
+                <dd>{{.ApprovalResult.ExpiresAt}}</dd>
+            </dl>
+        </div>
+        {{else}}
+        <div class="approve-invalid">
+            <p class="approve-status approve-status-error">Invalid Token</p>
+            <p class="approve-error">{{.ApprovalResult.ErrorMessage}}</p>
+        </div>
+        {{end}}
+    </section>
+    {{end}}
+
+    <footer class="approve-footer">
+        <a href="/today" class="approve-back-link">Back to Today</a>
+        <span class="approve-divider">|</span>
+        <a href="/app" class="approve-app-link">Control Center</a>
+    </footer>
+</div>
+{{end}}
+
+{{/* ================================================================
+     Phase 18 Web Control Center: Run History
+     ================================================================ */}}
+{{define "runs"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "runs-content"}}
+<div class="runs-page">
+    <header class="runs-header">
+        <h1 class="runs-title">Run History</h1>
+        <p class="runs-subtitle">Deterministic quiet loop run snapshots.</p>
+    </header>
+
+    {{if .RunSnapshots}}
+    <section class="runs-list">
+        <table class="runs-table">
+            <thead>
+                <tr>
+                    <th>Run ID</th>
+                    <th>Started</th>
+                    <th>Duration</th>
+                    <th>Events</th>
+                    <th>Interruptions</th>
+                    <th>Drafts</th>
+                    <th>Hash</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .RunSnapshots}}
+                <tr class="runs-row">
+                    <td><a href="/runs/{{.RunID}}">{{slice .RunID 0 12}}...</a></td>
+                    <td>{{formatTime .StartTime}}</td>
+                    <td>{{.Duration}}</td>
+                    <td>{{.EventsIngested}}</td>
+                    <td>{{.InterruptionsCreated}}</td>
+                    <td>{{.DraftsCreated}}</td>
+                    <td class="runs-hash">{{slice .ResultHash 0 12}}...</td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </section>
+    {{else}}
+    <section class="runs-empty">
+        <p class="runs-empty-text">No run snapshots recorded.</p>
+        <p class="runs-empty-hint">Run the daily loop to create run snapshots.</p>
+    </section>
+    {{end}}
+
+    <footer class="runs-footer">
+        <a href="/today" class="runs-back-link">Back to Today</a>
+        <span class="runs-divider">|</span>
+        <a href="/app" class="runs-app-link">Control Center</a>
+    </footer>
+</div>
+{{end}}
+
+{{/* ================================================================
+     Phase 18 Web Control Center: Run Detail
+     ================================================================ */}}
+{{define "run_detail"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "run_detail-content"}}
+<div class="run-detail-page">
+    {{if .RunSnapshot}}
+    <header class="run-detail-header">
+        <h1 class="run-detail-title">Run Snapshot</h1>
+        <p class="run-detail-id">{{.RunSnapshot.RunID}}</p>
+    </header>
+
+    <section class="run-detail-summary">
+        <dl class="run-detail-stats">
+            <dt>Started</dt>
+            <dd>{{formatTime .RunSnapshot.StartTime}}</dd>
+
+            <dt>Ended</dt>
+            <dd>{{formatTime .RunSnapshot.EndTime}}</dd>
+
+            <dt>Duration</dt>
+            <dd>{{.RunSnapshot.Duration}}</dd>
+
+            <dt>Circle ID</dt>
+            <dd>{{if .RunSnapshot.CircleID}}{{.RunSnapshot.CircleID}}{{else}}(all circles){{end}}</dd>
+        </dl>
+    </section>
+
+    <section class="run-detail-counts">
+        <h2>Counts</h2>
+        <dl class="run-detail-stats">
+            <dt>Events Ingested</dt>
+            <dd>{{.RunSnapshot.EventsIngested}}</dd>
+
+            <dt>Interruptions Created</dt>
+            <dd>{{.RunSnapshot.InterruptionsCreated}}</dd>
+
+            <dt>Interruptions Deduplicated</dt>
+            <dd>{{.RunSnapshot.InterruptionsDeduplicated}}</dd>
+
+            <dt>Drafts Created</dt>
+            <dd>{{.RunSnapshot.DraftsCreated}}</dd>
+
+            <dt>NeedsYou Items</dt>
+            <dd>{{.RunSnapshot.NeedsYouItems}}</dd>
+        </dl>
+    </section>
+
+    <section class="run-detail-hashes">
+        <h2>Hashes</h2>
+        <dl class="run-detail-stats">
+            <dt>Result Hash</dt>
+            <dd class="run-detail-hash">{{.RunSnapshot.ResultHash}}</dd>
+
+            <dt>Config Hash</dt>
+            <dd class="run-detail-hash">{{.RunSnapshot.ConfigHash}}</dd>
+
+            <dt>NeedsYou Hash</dt>
+            <dd class="run-detail-hash">{{.RunSnapshot.NeedsYouHash}}</dd>
+        </dl>
+    </section>
+
+    {{if .ReplayResult}}
+    <section class="run-detail-replay">
+        <h2>Replay Verification</h2>
+        {{if .ReplayResult.Success}}
+        <p class="run-detail-replay-success">Replay verification passed. Deterministic.</p>
+        {{else}}
+        <p class="run-detail-replay-fail">Replay verification failed.</p>
+        <p>Original hash: {{.ReplayResult.OriginalHash}}</p>
+        <p>Replay hash: {{.ReplayResult.ReplayHash}}</p>
+        {{if .ReplayResult.Differences}}
+        <ul>
+            {{range .ReplayResult.Differences}}
+            <li>{{.}}</li>
+            {{end}}
+        </ul>
+        {{end}}
+        {{end}}
+    </section>
+    {{end}}
+    {{else}}
+    <section class="run-detail-notfound">
+        <p>Run snapshot not found.</p>
+    </section>
+    {{end}}
+
+    <footer class="run-detail-footer">
+        <a href="/runs" class="run-detail-back-link">Back to Run History</a>
+        <span class="run-detail-divider">|</span>
+        <a href="/today" class="run-detail-today-link">Today</a>
+    </footer>
+</div>
+{{end}}
+
+{{/* ================================================================
+     Phase 18 Web Control Center: Suppressions
+     ================================================================ */}}
+{{define "suppressions"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "suppressions-content"}}
+<div class="suppressions-page">
+    <header class="suppressions-header">
+        <h1 class="suppressions-title">Suppressions</h1>
+        <p class="suppressions-subtitle">Items you have asked to hold back.</p>
+    </header>
+
+    {{if .SuppressionStats}}
+    <section class="suppressions-stats">
+        <dl class="suppressions-stat-list">
+            <dt>Total Rules</dt>
+            <dd>{{.SuppressionStats.TotalRules}}</dd>
+
+            <dt>Active</dt>
+            <dd>{{.SuppressionStats.ActiveRules}}</dd>
+
+            <dt>Expired</dt>
+            <dd>{{.SuppressionStats.ExpiredRules}}</dd>
+        </dl>
+    </section>
+    {{end}}
+
+    {{if .SuppressionRules}}
+    <section class="suppressions-list">
+        <table class="suppressions-table">
+            <thead>
+                <tr>
+                    <th>Rule ID</th>
+                    <th>Circle</th>
+                    <th>Scope</th>
+                    <th>Key</th>
+                    <th>Reason</th>
+                    <th>Expires</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{range .SuppressionRules}}
+                <tr class="suppressions-row">
+                    <td>{{slice .RuleID 0 12}}...</td>
+                    <td>{{slice .CircleID 0 8}}...</td>
+                    <td>{{.Scope}}</td>
+                    <td>{{.Key}}</td>
+                    <td>{{.Reason}}</td>
+                    <td>{{if .ExpiresAt}}{{formatTime .ExpiresAt}}{{else}}permanent{{end}}</td>
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </section>
+    {{else}}
+    <section class="suppressions-empty">
+        <p class="suppressions-empty-text">No active suppression rules.</p>
+        <p class="suppressions-empty-hint">Suppressions are created when you dismiss or hide items.</p>
+    </section>
+    {{end}}
+
+    <footer class="suppressions-footer">
+        <a href="/today" class="suppressions-back-link">Back to Today</a>
+        <span class="suppressions-divider">|</span>
+        <a href="/policies" class="suppressions-policies-link">Policies</a>
+        <span class="suppressions-divider">|</span>
+        <a href="/app" class="suppressions-app-link">Control Center</a>
     </footer>
 </div>
 {{end}}
