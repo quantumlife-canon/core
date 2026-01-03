@@ -65,6 +65,7 @@ help:
 	@echo "  make demo-phase20 - Run Phase 20 trust accrual demo"
 	@echo "  make demo-phase21 - Run Phase 21 onboarding/shadow receipt demo"
 	@echo "  make demo-phase22 - Run Phase 22 quiet inbox mirror demo"
+	@echo "  make demo-phase23 - Run Phase 23 gentle invitation demo"
 	@echo ""
 	@echo "Web Server:"
 	@echo "  make web          - Run web server on :8080 (real mode)"
@@ -596,6 +597,17 @@ demo-phase22:
 check-phase22:
 	@echo "Checking Phase 22 constraints..."
 	@./scripts/guardrails/quiet_inbox_mirror_enforced.sh
+
+# Phase 23 Demo: Gentle Action Invitation (Trust-Preserving)
+# Reference: docs/ADR/ADR-0053-phase23-gentle-invitation.md
+demo-phase23:
+	@echo "Running Phase 23 Demo: Gentle Action Invitation..."
+	go test -v ./internal/demo_phase23_gentle_invitation/...
+
+# Check Phase 23 gentle invitation constraints
+check-phase23:
+	@echo "Checking Phase 23 constraints..."
+	@./scripts/guardrails/gentle_invitation_enforced.sh
 
 # =============================================================================
 # Web Server Targets

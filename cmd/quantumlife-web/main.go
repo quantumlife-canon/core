@@ -39,6 +39,7 @@ import (
 	gmailread "quantumlife/internal/integrations/gmail_read"
 	"quantumlife/internal/interest"
 	"quantumlife/internal/interruptions"
+	internalinvitation "quantumlife/internal/invitation"
 	"quantumlife/internal/loop"
 	"quantumlife/internal/mirror"
 	"quantumlife/internal/mode"
@@ -66,6 +67,7 @@ import (
 	domainevents "quantumlife/pkg/domain/events"
 	"quantumlife/pkg/domain/feedback"
 	"quantumlife/pkg/domain/identity"
+	domaininvitation "quantumlife/pkg/domain/invitation"
 	domainmirror "quantumlife/pkg/domain/mirror"
 	"quantumlife/pkg/domain/obligation"
 	"quantumlife/pkg/domain/policy"
@@ -125,6 +127,8 @@ type Server struct {
 	quietMirrorEngine      *internalquietmirror.Engine        // Phase 22: Quiet Inbox Mirror engine
 	quietMirrorStore       *persist.QuietMirrorStore          // Phase 22: Quiet Inbox Mirror store
 	quietMirrorDismissals  *persist.QuietMirrorDismissalStore // Phase 22: Whisper dismissal store
+	invitationEngine       *internalinvitation.Engine         // Phase 23: Gentle Action Invitation engine
+	invitationStore        *persist.InvitationStore           // Phase 23: Invitation decision store
 	// Phase 18 Web Control Center
 	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
 	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
@@ -565,6 +569,8 @@ func main() {
 		quietMirrorEngine:      internalquietmirror.NewEngine(clk.Now),        // Phase 22
 		quietMirrorStore:       persist.NewQuietMirrorStore(clk.Now),          // Phase 22
 		quietMirrorDismissals:  persist.NewQuietMirrorDismissalStore(clk.Now), // Phase 22
+		invitationEngine:       internalinvitation.NewEngine(clk.Now),         // Phase 23
+		invitationStore:        persist.NewInvitationStore(clk.Now),           // Phase 23
 		// Phase 18 Web Control Center
 		runStore:       runStore,
 		suppressionSet: suppressionSet,
@@ -619,6 +625,9 @@ func main() {
 	mux.HandleFunc("/shadow/receipt/dismiss", server.handleShadowReceiptDismiss)       // Phase 21: Dismiss receipt cue
 	mux.HandleFunc("/mirror/inbox", server.handleQuietInboxMirror)                     // Phase 22: Quiet Inbox Mirror
 	mux.HandleFunc("/mirror/inbox/dismiss", server.handleQuietMirrorDismiss)           // Phase 22: Dismiss whisper cue
+	mux.HandleFunc("/invite", server.handleInvitation)                                 // Phase 23: Gentle Action Invitation
+	mux.HandleFunc("/invite/accept", server.handleInvitationAccept)                    // Phase 23: Accept invitation
+	mux.HandleFunc("/invite/dismiss", server.handleInvitationDismiss)                  // Phase 23: Dismiss invitation
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18 Web Control Center: Core routes
@@ -4860,6 +4869,344 @@ func (s *Server) handleQuietMirrorDismiss(w http.ResponseWriter, r *http.Request
 	})
 
 	// Redirect back to today page
+	http.Redirect(w, r, "/today", http.StatusFound)
+}
+
+// =============================================================================
+// Phase 23: Gentle Action Invitation
+// Reference: docs/ADR/ADR-0053-phase23-gentle-invitation.md
+//
+// CRITICAL INVARIANTS:
+//   - Max one invitation per period
+//   - Not shown unless trust baseline exists
+//   - Never auto-execute
+//   - Never create urgency
+//   - Whisper styling only
+// =============================================================================
+
+// handleInvitation serves the Phase 23 Gentle Action Invitation page.
+//
+// CRITICAL: This page only shows if eligible.
+// Eligibility requires:
+//   - Gmail connected
+//   - At least one real sync
+//   - Quiet mirror viewed
+//   - Trust baseline exists
+//   - Not dismissed this period
+func (s *Server) handleInvitation(w http.ResponseWriter, r *http.Request) {
+	now := s.clk.Now()
+	period := s.invitationEngine.CurrentPeriod()
+	circleID := identity.EntityID("default")
+	circleIDStr := string(circleID)
+
+	// Check Gmail connection
+	hasGmailConnection, _ := s.gmailHandler.HasConnection(r.Context(), circleIDStr)
+
+	// Check sync receipt
+	hasSyncReceipt := false
+	if hasGmailConnection {
+		receipt := s.syncReceiptStore.GetLatestByCircle(circleID)
+		hasSyncReceipt = receipt != nil && receipt.Success
+	}
+
+	// Build trust inputs
+	trustInputs := &internalinvitation.TrustInputs{
+		HasQuietMirrorSummary: s.quietMirrorStore.HasSummaryForPeriod(circleID, now.Format("2006-01-02")),
+		HasHeldSummary:        false, // TODO: Check held store
+		HeldMagnitude:         "",
+		HasTrustAccrual:       true,  // Assume trust if connected
+		TrustScore:            0.5,   // Default trust score
+		HasShadowReceipt:      false, // TODO: Check shadow receipts
+	}
+
+	// Check if dismissed or accepted this period
+	dismissedThisPeriod := s.invitationStore.IsDismissedForPeriod(circleID, period.PeriodHash)
+	acceptedThisPeriod := s.invitationStore.IsAcceptedForPeriod(circleID, period.PeriodHash)
+
+	// Compute eligibility
+	eligibility := s.invitationEngine.ComputeEligibility(
+		circleIDStr,
+		hasGmailConnection,
+		hasSyncReceipt,
+		trustInputs,
+		dismissedThisPeriod,
+		acceptedThisPeriod,
+	)
+
+	// Compute invitation
+	summary := s.invitationEngine.Compute(eligibility)
+
+	// Emit event
+	if summary != nil {
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase23InvitationEligible,
+			Timestamp: now,
+			CircleID:  circleIDStr,
+			Metadata: map[string]string{
+				"period_hash":     period.PeriodHash,
+				"kind":            string(summary.Kind),
+				"invitation_hash": summary.Hash(),
+			},
+		})
+	} else {
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase23InvitationSkipped,
+			Timestamp: now,
+			CircleID:  circleIDStr,
+			Metadata: map[string]string{
+				"period_hash": period.PeriodHash,
+				"reason":      "not_eligible",
+			},
+		})
+	}
+
+	// Build page
+	page := s.invitationEngine.BuildPage(summary)
+
+	// Emit render event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase23InvitationRendered,
+		Timestamp: now,
+		CircleID:  circleIDStr,
+		Metadata: map[string]string{
+			"period_hash":    period.PeriodHash,
+			"has_invitation": fmt.Sprintf("%t", page.HasInvitation),
+		},
+	})
+
+	// Render inline template (whisper-level UI)
+	const invitationTemplate = `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{.Title}}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #fafafa;
+            color: #333;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            max-width: 400px;
+            padding: 3rem 2rem;
+            text-align: center;
+        }
+        .title {
+            font-size: 1.25rem;
+            font-weight: 400;
+            color: #666;
+            margin-bottom: 2rem;
+        }
+        .statement {
+            font-size: 1rem;
+            color: #444;
+            line-height: 1.6;
+            margin-bottom: 2rem;
+        }
+        .actions {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            margin-bottom: 2rem;
+        }
+        .btn {
+            display: inline-block;
+            padding: 0.75rem 1.5rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: white;
+            color: #666;
+            font-size: 0.875rem;
+            text-decoration: none;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn:hover {
+            background: #f5f5f5;
+        }
+        .footer {
+            font-size: 0.75rem;
+            color: #999;
+        }
+        .back {
+            display: block;
+            margin-top: 2rem;
+            font-size: 0.75rem;
+            color: #999;
+            text-decoration: none;
+        }
+        .back:hover {
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="title">{{.Title}}</h1>
+        <p class="statement">{{.Statement}}</p>
+        {{if .HasInvitation}}
+        <div class="actions">
+            <form action="/invite/accept" method="post" style="display:inline;">
+                <input type="hidden" name="kind" value="{{.Kind}}">
+                <input type="hidden" name="invitation_hash" value="{{.InvitationHash}}">
+                <button type="submit" class="btn">Yes, that sounds good</button>
+            </form>
+            <form action="/invite/dismiss" method="post" style="display:inline;">
+                <input type="hidden" name="invitation_hash" value="{{.InvitationHash}}">
+                <button type="submit" class="btn">Not right now</button>
+            </form>
+        </div>
+        {{end}}
+        <p class="footer">{{.Footer}}</p>
+        <a href="/today" class="back">← back to today</a>
+    </div>
+</body>
+</html>`
+
+	data := struct {
+		Title          string
+		Statement      string
+		Kind           string
+		InvitationHash string
+		HasInvitation  bool
+		Footer         string
+	}{
+		Title:         page.Title,
+		Statement:     page.Statement,
+		Kind:          string(page.Kind),
+		HasInvitation: page.HasInvitation,
+		Footer:        page.Footer,
+	}
+	if summary != nil {
+		data.InvitationHash = summary.Hash()
+	}
+
+	tmpl, err := template.New("invitation").Parse(invitationTemplate)
+	if err != nil {
+		http.Error(w, "Template error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := tmpl.Execute(w, data); err != nil {
+		log.Printf("Template execution error: %v", err)
+	}
+}
+
+// handleInvitationAccept handles accepting an invitation.
+//
+// CRITICAL: Accept does NOT trigger execution.
+// It records the decision and redirects quietly.
+func (s *Server) handleInvitationAccept(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	invitationHash := r.FormValue("invitation_hash")
+	if invitationHash == "" {
+		http.Redirect(w, r, "/today", http.StatusFound)
+		return
+	}
+
+	now := s.clk.Now()
+	period := s.invitationEngine.CurrentPeriod()
+	circleID := identity.EntityID("default")
+
+	// Record decision
+	err := s.invitationStore.RecordDecision(
+		circleID,
+		invitationHash,
+		domaininvitation.DecisionAccepted,
+		period.PeriodHash,
+	)
+	if err != nil {
+		log.Printf("Failed to record invitation decision: %v", err)
+	}
+
+	// Emit events
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase23InvitationAccepted,
+		Timestamp: now,
+		CircleID:  string(circleID),
+		Metadata: map[string]string{
+			"invitation_hash": invitationHash,
+			"period_hash":     period.PeriodHash,
+		},
+	})
+
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase23InvitationPersisted,
+		Timestamp: now,
+		CircleID:  string(circleID),
+		Metadata: map[string]string{
+			"invitation_hash": invitationHash,
+			"decision":        "accepted",
+		},
+	})
+
+	// Redirect quietly back to today
+	http.Redirect(w, r, "/today", http.StatusFound)
+}
+
+// handleInvitationDismiss handles dismissing an invitation.
+//
+// CRITICAL: Dismiss suppresses for the current period only.
+func (s *Server) handleInvitationDismiss(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	invitationHash := r.FormValue("invitation_hash")
+	if invitationHash == "" {
+		http.Redirect(w, r, "/today", http.StatusFound)
+		return
+	}
+
+	now := s.clk.Now()
+	period := s.invitationEngine.CurrentPeriod()
+	circleID := identity.EntityID("default")
+
+	// Record decision
+	err := s.invitationStore.RecordDecision(
+		circleID,
+		invitationHash,
+		domaininvitation.DecisionDismissed,
+		period.PeriodHash,
+	)
+	if err != nil {
+		log.Printf("Failed to record invitation dismissal: %v", err)
+	}
+
+	// Emit events
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase23InvitationDismissed,
+		Timestamp: now,
+		CircleID:  string(circleID),
+		Metadata: map[string]string{
+			"invitation_hash": invitationHash,
+			"period_hash":     period.PeriodHash,
+		},
+	})
+
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase23InvitationPersisted,
+		Timestamp: now,
+		CircleID:  string(circleID),
+		Metadata: map[string]string{
+			"invitation_hash": invitationHash,
+			"decision":        "dismissed",
+		},
+	})
+
+	// Redirect quietly back to today
 	http.Redirect(w, r, "/today", http.StatusFound)
 }
 

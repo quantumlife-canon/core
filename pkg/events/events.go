@@ -1427,6 +1427,30 @@ const (
 	// Whisper cue events
 	Phase22WhisperCueShown     EventType = "phase22.whisper_cue.shown"
 	Phase22WhisperCueDismissed EventType = "phase22.whisper_cue.dismissed"
+
+	// ==========================================================================
+	// Phase 23: Gentle Action Invitation
+	// Reference: docs/ADR/ADR-0053-phase23-gentle-invitation.md
+	// ==========================================================================
+
+	// Phase23InvitationEligible - invitation eligibility computed.
+	// Payload: hashes only, enums only, no text.
+	Phase23InvitationEligible EventType = "phase23.invitation.eligible"
+
+	// Phase23InvitationRendered - invitation page rendered.
+	Phase23InvitationRendered EventType = "phase23.invitation.rendered"
+
+	// Phase23InvitationAccepted - user accepted an invitation.
+	Phase23InvitationAccepted EventType = "phase23.invitation.accepted"
+
+	// Phase23InvitationDismissed - user dismissed an invitation.
+	Phase23InvitationDismissed EventType = "phase23.invitation.dismissed"
+
+	// Phase23InvitationPersisted - invitation decision persisted.
+	Phase23InvitationPersisted EventType = "phase23.invitation.persisted"
+
+	// Phase23InvitationSkipped - invitation not shown (not eligible).
+	Phase23InvitationSkipped EventType = "phase23.invitation.skipped"
 )
 
 // Event represents a system event for audit and observability.
