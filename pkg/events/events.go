@@ -1472,6 +1472,42 @@ const (
 
 	// Phase24PeriodClosed - period was closed (action taken or dismissed).
 	Phase24PeriodClosed EventType = "phase24.period.closed"
+
+	// ==========================================================================
+	// Phase 25: First Undoable Execution Events
+	// Reference: docs/ADR/ADR-0055-phase25-first-undoable-execution.md
+	// ==========================================================================
+	// CRITICAL: All payloads contain hashes only - never identifiers.
+
+	// Phase25UndoableViewed - undoable action page was viewed.
+	Phase25UndoableViewed EventType = "phase25.undoable.viewed"
+
+	// Phase25EligibleComputed - eligibility was computed.
+	Phase25EligibleComputed EventType = "phase25.undoable.eligible.computed"
+
+	// Phase25RunRequested - execution was requested.
+	Phase25RunRequested EventType = "phase25.undoable.run.requested"
+
+	// Phase25RunExecuted - execution completed via calendar boundary.
+	Phase25RunExecuted EventType = "phase25.undoable.run.executed"
+
+	// Phase25RecordPersisted - undo record was persisted.
+	Phase25RecordPersisted EventType = "phase25.undoable.record.persisted"
+
+	// Phase25UndoViewed - undo page was viewed.
+	Phase25UndoViewed EventType = "phase25.undoable.undo.viewed"
+
+	// Phase25UndoRequested - undo was requested.
+	Phase25UndoRequested EventType = "phase25.undoable.undo.requested"
+
+	// Phase25UndoExecuted - undo completed via calendar boundary.
+	Phase25UndoExecuted EventType = "phase25.undoable.undo.executed"
+
+	// Phase25AckPersisted - undo acknowledgement was persisted.
+	Phase25AckPersisted EventType = "phase25.undoable.ack.persisted"
+
+	// Phase25Dismissed - undoable action was dismissed.
+	Phase25Dismissed EventType = "phase25.undoable.dismissed"
 )
 
 // Event represents a system event for audit and observability.

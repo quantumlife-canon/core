@@ -173,6 +173,11 @@ type CalendarDraftContent struct {
 	// Response is the response type (accept, decline, tentative, propose_new_time).
 	Response CalendarResponse
 
+	// PreviousResponseStatus is the response status before this draft.
+	// Used for Phase 25 undoable execution to enable reversal.
+	// Defaults to "needs_action" if not set (backward compatible).
+	PreviousResponseStatus CalendarResponse
+
 	// Message is an optional message to include with the response.
 	Message string
 
@@ -187,6 +192,15 @@ type CalendarDraftContent struct {
 
 	// CalendarID identifies the specific calendar.
 	CalendarID string
+}
+
+// GetPreviousResponseStatus returns the previous response status.
+// Returns "needs_action" if not explicitly set (backward compatible).
+func (c CalendarDraftContent) GetPreviousResponseStatus() CalendarResponse {
+	if c.PreviousResponseStatus == "" {
+		return "needs_action"
+	}
+	return c.PreviousResponseStatus
 }
 
 // ContentType returns the draft type for calendar content.

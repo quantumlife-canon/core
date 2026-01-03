@@ -77,6 +77,11 @@ const (
 	// CRITICAL: Contains ONLY abstract data (buckets, hashes) - never content.
 	RecordTypeShadowDiff        = "SHADOW_DIFF"
 	RecordTypeShadowCalibration = "SHADOW_CALIBRATION"
+
+	// Phase 25: Undoable Execution record types
+	// CRITICAL: Contains ONLY hashes and enums - never identifiers.
+	RecordTypeUndoExecRecord = "UNDO_EXEC_RECORD"
+	RecordTypeUndoExecAck    = "UNDO_EXEC_ACK"
 )
 
 // Common errors

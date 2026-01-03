@@ -60,6 +60,7 @@ import (
 	"quantumlife/internal/surface"
 	"quantumlife/internal/todayquietly"
 	trustengine "quantumlife/internal/trust"
+	"quantumlife/internal/undoableexec"
 	"quantumlife/pkg/clock"
 	"quantumlife/pkg/domain/approvaltoken"
 	pkgconfig "quantumlife/pkg/domain/config"
@@ -81,6 +82,7 @@ import (
 	domainshadow "quantumlife/pkg/domain/shadowllm"
 	"quantumlife/pkg/domain/suppress"
 	domaintrust "quantumlife/pkg/domain/trust"
+	domainundoableexec "quantumlife/pkg/domain/undoableexec"
 	"quantumlife/pkg/events"
 )
 
@@ -133,6 +135,8 @@ type Server struct {
 	invitationStore        *persist.InvitationStore           // Phase 23: Invitation decision store
 	firstActionEngine      *internalfirstaction.Engine        // Phase 24: First Reversible Action engine
 	firstActionStore       *persist.FirstActionStore          // Phase 24: First action store
+	undoableExecEngine     *undoableexec.Engine               // Phase 25: Undoable execution engine
+	undoableExecStore      *persist.UndoableExecStore         // Phase 25: Undoable execution store
 	// Phase 18 Web Control Center
 	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
 	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
@@ -216,6 +220,12 @@ type templateData struct {
 	FirstActionPage    *domainfirstaction.ActionPage
 	FirstActionPreview *domainfirstaction.PreviewPage
 	FirstActionPeriod  string // Period hash for form submission
+	// Phase 25: Undoable Execution
+	UndoablePage    *domainundoableexec.UndoablePage
+	UndoDonePage    *domainundoableexec.DonePage
+	UndoPage        *domainundoableexec.UndoPage
+	UndoRecordID    string // For undo form submission
+	UndoEligibility *domainundoableexec.ActionEligibility
 	// Phase 18 Web Control Center
 	RunSnapshots     []*runlog.RunSnapshot      // List of run snapshots for /runs
 	RunSnapshot      *runlog.RunSnapshot        // Single run snapshot for /runs/:id
@@ -581,6 +591,7 @@ func main() {
 		invitationStore:        persist.NewInvitationStore(clk.Now),           // Phase 23
 		firstActionEngine:      internalfirstaction.NewEngine(clk.Now),        // Phase 24
 		firstActionStore:       persist.NewFirstActionStore(clk.Now),          // Phase 24
+		undoableExecStore:      persist.NewUndoableExecStore(clk.Now),         // Phase 25
 		// Phase 18 Web Control Center
 		runStore:       runStore,
 		suppressionSet: suppressionSet,
@@ -641,6 +652,12 @@ func main() {
 	mux.HandleFunc("/action/once", server.handleFirstAction)                           // Phase 24: First Reversible Action
 	mux.HandleFunc("/action/once/run", server.handleFirstActionRun)                    // Phase 24: Execute preview
 	mux.HandleFunc("/action/once/dismiss", server.handleFirstActionDismiss)            // Phase 24: Dismiss invitation
+	mux.HandleFunc("/action/undoable", server.handleUndoable)                          // Phase 25: Undoable execution
+	mux.HandleFunc("/action/undoable/run", server.handleUndoableRun)                   // Phase 25: Run undoable
+	mux.HandleFunc("/action/undoable/done", server.handleUndoableDone)                 // Phase 25: Done page
+	mux.HandleFunc("/action/undoable/undo", server.handleUndoableUndo)                 // Phase 25: Undo page
+	mux.HandleFunc("/action/undoable/undo/run", server.handleUndoableUndoRun)          // Phase 25: Execute undo
+	mux.HandleFunc("/action/undoable/dismiss", server.handleUndoableDismiss)           // Phase 25: Dismiss
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18 Web Control Center: Core routes
@@ -5442,6 +5459,285 @@ func (s *Server) handleFirstActionDismiss(w http.ResponseWriter, r *http.Request
 	})
 
 	// Redirect back to today - silence resumes
+	http.Redirect(w, r, "/today", http.StatusFound)
+}
+
+// handleUndoable serves the undoable execution page.
+// Phase 25: First Undoable Execution (Opt-In, Single-Shot).
+// CRITICAL: Only calendar respond is undoable.
+func (s *Server) handleUndoable(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := identity.EntityID("default")
+
+	// Check eligibility
+	var eligibility *domainundoableexec.ActionEligibility
+	if s.undoableExecEngine != nil {
+		eligibility = s.undoableExecEngine.EligibleAction(r.Context(), circleID)
+	} else {
+		eligibility = &domainundoableexec.ActionEligibility{
+			Eligible: false,
+			Reason:   "engine not initialized",
+			CircleID: string(circleID),
+		}
+	}
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase25UndoableViewed,
+		Timestamp: now,
+		CircleID:  string(circleID),
+	})
+
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase25EligibleComputed,
+		Timestamp: now,
+		CircleID:  string(circleID),
+		Metadata: map[string]string{
+			"eligible": fmt.Sprintf("%t", eligibility.Eligible),
+			"reason":   eligibility.Reason,
+		},
+	})
+
+	// Build page
+	page := domainundoableexec.NewUndoablePage(eligibility.Eligible)
+
+	data := templateData{
+		Title:           "Once, quietly",
+		CurrentTime:     now.Format("2006-01-02 15:04"),
+		UndoablePage:    page,
+		UndoEligibility: eligibility,
+	}
+
+	s.render(w, "undoable", data)
+}
+
+// handleUndoableRun executes the undoable action.
+// Phase 25: Single-shot execution via calendar boundary.
+// CRITICAL: This performs a real external write.
+func (s *Server) handleUndoableRun(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := identity.EntityID("default")
+
+	// Emit request event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase25RunRequested,
+		Timestamp: now,
+		CircleID:  string(circleID),
+	})
+
+	// Check engine availability
+	if s.undoableExecEngine == nil {
+		http.Redirect(w, r, "/action/undoable", http.StatusFound)
+		return
+	}
+
+	// Check eligibility
+	eligibility := s.undoableExecEngine.EligibleAction(r.Context(), circleID)
+	if !eligibility.Eligible {
+		http.Redirect(w, r, "/action/undoable", http.StatusFound)
+		return
+	}
+
+	// Execute
+	result := s.undoableExecEngine.RunOnce(r.Context(), circleID, eligibility.DraftID)
+	if !result.Success {
+		// Failed - redirect back
+		http.Redirect(w, r, "/action/undoable", http.StatusFound)
+		return
+	}
+
+	// Emit success events
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase25RunExecuted,
+		Timestamp: now,
+		CircleID:  string(circleID),
+		Metadata: map[string]string{
+			"record_id": result.UndoRecord.ID,
+		},
+	})
+
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase25RecordPersisted,
+		Timestamp: now,
+		CircleID:  string(circleID),
+		Metadata: map[string]string{
+			"record_id":   result.UndoRecord.ID,
+			"period_key":  result.UndoRecord.PeriodKey,
+			"action_kind": string(result.UndoRecord.ActionKind),
+		},
+	})
+
+	// Redirect to done page
+	http.Redirect(w, r, "/action/undoable/done?id="+result.UndoRecord.ID, http.StatusFound)
+}
+
+// handleUndoableDone shows the done confirmation page.
+// Phase 25: Shows undo availability.
+func (s *Server) handleUndoableDone(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	_ = identity.EntityID("default") // Reserved for future circle-scoped undo
+	recordID := r.URL.Query().Get("id")
+
+	// Check if undo is still available
+	undoAvailable := false
+	if s.undoableExecEngine != nil && recordID != "" {
+		record, found := s.undoableExecEngine.GetUndoRecord(recordID)
+		if found && record.IsUndoAvailable(now) {
+			undoAvailable = true
+		}
+	}
+
+	// Build page
+	page := domainundoableexec.NewDonePage(undoAvailable)
+
+	data := templateData{
+		Title:        "Done",
+		CurrentTime:  now.Format("2006-01-02 15:04"),
+		UndoDonePage: page,
+		UndoRecordID: recordID,
+	}
+
+	s.render(w, "undoable-done", data)
+}
+
+// handleUndoableUndo shows the undo confirmation page.
+// Phase 25: Allows reversal within undo window.
+func (s *Server) handleUndoableUndo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := identity.EntityID("default")
+	recordID := r.URL.Query().Get("id")
+
+	// Emit viewed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase25UndoViewed,
+		Timestamp: now,
+		CircleID:  string(circleID),
+		Metadata: map[string]string{
+			"record_id": recordID,
+		},
+	})
+
+	// Check if undo is still available
+	canUndo := false
+	if s.undoableExecEngine != nil && recordID != "" {
+		record, found := s.undoableExecEngine.GetUndoRecord(recordID)
+		if found && record.IsUndoAvailable(now) {
+			canUndo = true
+		}
+	}
+
+	// Build page
+	page := domainundoableexec.NewUndoPage(canUndo)
+
+	data := templateData{
+		Title:        "Undo",
+		CurrentTime:  now.Format("2006-01-02 15:04"),
+		UndoPage:     page,
+		UndoRecordID: recordID,
+	}
+
+	s.render(w, "undoable-undo", data)
+}
+
+// handleUndoableUndoRun executes the undo.
+// Phase 25: Reverses the previous action via calendar boundary.
+func (s *Server) handleUndoableUndoRun(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := identity.EntityID("default")
+	recordID := r.FormValue("record_id")
+
+	// Emit request event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase25UndoRequested,
+		Timestamp: now,
+		CircleID:  string(circleID),
+		Metadata: map[string]string{
+			"record_id": recordID,
+		},
+	})
+
+	// Check engine availability
+	if s.undoableExecEngine == nil || recordID == "" {
+		http.Redirect(w, r, "/today", http.StatusFound)
+		return
+	}
+
+	// Execute undo
+	result := s.undoableExecEngine.Undo(r.Context(), recordID)
+	if !result.Success {
+		// Failed - redirect to undo page
+		http.Redirect(w, r, "/action/undoable/undo?id="+recordID, http.StatusFound)
+		return
+	}
+
+	// Emit success events
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase25UndoExecuted,
+		Timestamp: now,
+		CircleID:  string(circleID),
+		Metadata: map[string]string{
+			"record_id": recordID,
+		},
+	})
+
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase25AckPersisted,
+		Timestamp: now,
+		CircleID:  string(circleID),
+		Metadata: map[string]string{
+			"record_id": recordID,
+			"new_state": string(result.Ack.NewState),
+		},
+	})
+
+	// Redirect to today - silence resumes
+	http.Redirect(w, r, "/today", http.StatusFound)
+}
+
+// handleUndoableDismiss dismisses the undoable action offer.
+// Phase 25: Circle declines, silence resumes.
+func (s *Server) handleUndoableDismiss(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := identity.EntityID("default")
+
+	// Emit dismissed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase25Dismissed,
+		Timestamp: now,
+		CircleID:  string(circleID),
+	})
+
+	// Redirect to today - silence resumes
 	http.Redirect(w, r, "/today", http.StatusFound)
 }
 

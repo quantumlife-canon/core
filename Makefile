@@ -67,6 +67,7 @@ help:
 	@echo "  make demo-phase22 - Run Phase 22 quiet inbox mirror demo"
 	@echo "  make demo-phase23 - Run Phase 23 gentle invitation demo"
 	@echo "  make demo-phase24 - Run Phase 24 first action demo"
+	@echo "  make demo-phase25 - Run Phase 25 undoable execution demo"
 	@echo ""
 	@echo "Web Server:"
 	@echo "  make web          - Run web server on :8080 (real mode)"
@@ -111,6 +112,7 @@ help:
 	@echo "  make check-shadow-gating - Check shadow gating constraints (Phase 19.5)"
 	@echo "  make check-rulepack-export - Check rule pack export constraints (Phase 19.6)"
 	@echo "  make check-trust-accrual - Check trust accrual constraints (Phase 20)"
+	@echo "  make check-phase25 - Check undoable execution constraints (Phase 25)"
 	@echo ""
 	@echo "iOS (Phase 19):"
 	@echo "  make ios-open   - Open iOS project in Xcode (macOS only)"
@@ -620,6 +622,17 @@ demo-phase24:
 check-phase24:
 	@echo "Checking Phase 24 constraints..."
 	@./scripts/guardrails/first_action_enforced.sh
+
+# Run Phase 25 demo: First Undoable Execution
+# Reference: docs/ADR/ADR-0055-phase25-first-undoable-execution.md
+demo-phase25:
+	@echo "Running Phase 25 Demo: First Undoable Execution..."
+	go test -v ./internal/demo_phase25_first_undoable_execution/...
+
+# Check Phase 25 undoable execution constraints
+check-phase25:
+	@echo "Checking Phase 25 constraints..."
+	@./scripts/guardrails/undoable_execution_enforced.sh
 
 # =============================================================================
 # Web Server Targets
