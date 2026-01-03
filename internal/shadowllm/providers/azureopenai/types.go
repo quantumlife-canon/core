@@ -12,10 +12,10 @@ package azureopenai
 // ChatRequest is the Azure OpenAI chat request structure.
 // Used by both Provider and ChatProvider.
 type ChatRequest struct {
-	Messages       []ChatMessage        `json:"messages"`
-	MaxTokens      int                  `json:"max_tokens,omitempty"`
-	Temperature    float64              `json:"temperature,omitempty"`
-	ResponseFormat *ChatResponseFormat  `json:"response_format,omitempty"`
+	Messages       []ChatMessage       `json:"messages"`
+	MaxTokens      int                 `json:"max_tokens,omitempty"`
+	Temperature    float64             `json:"temperature,omitempty"`
+	ResponseFormat *ChatResponseFormat `json:"response_format,omitempty"`
 }
 
 // ChatMessage is a single message in the chat conversation.

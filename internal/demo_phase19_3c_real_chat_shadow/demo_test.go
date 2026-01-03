@@ -197,7 +197,7 @@ func TestMaxSuggestionsClamping(t *testing.T) {
 		input    int
 		expected int
 	}{
-		{0, config.DefaultMaxSuggestions}, // Zero defaults to 3
+		{0, config.DefaultMaxSuggestions},  // Zero defaults to 3
 		{-1, config.DefaultMaxSuggestions}, // Negative defaults to 3
 		{1, 1},                             // Min valid
 		{3, 3},                             // Default
@@ -277,11 +277,11 @@ func TestChatProviderMaxSuggestionsClamping(t *testing.T) {
 		input    int
 		expected int
 	}{
-		{0, 3},   // Zero defaults to 3
-		{-5, 3},  // Negative defaults to 3
-		{1, 1},   // Min valid
-		{5, 5},   // Max valid
-		{10, 5},  // Clamped to 5
+		{0, 3},  // Zero defaults to 3
+		{-5, 3}, // Negative defaults to 3
+		{1, 1},  // Min valid
+		{5, 5},  // Max valid
+		{10, 5}, // Clamped to 5
 	}
 
 	for _, tt := range tests {

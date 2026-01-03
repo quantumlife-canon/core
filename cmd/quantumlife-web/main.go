@@ -51,9 +51,9 @@ import (
 	shadowdiffengine "quantumlife/internal/shadowdiff"
 	shadowgate "quantumlife/internal/shadowgate"
 	"quantumlife/internal/shadowllm"
-	"quantumlife/internal/shadowview"
 	"quantumlife/internal/shadowllm/providers/azureopenai"
 	"quantumlife/internal/shadowllm/stub"
+	"quantumlife/internal/shadowview"
 	"quantumlife/internal/surface"
 	"quantumlife/internal/todayquietly"
 	trustengine "quantumlife/internal/trust"
@@ -189,9 +189,9 @@ type templateData struct {
 	TrustSummary  *domaintrust.TrustSummary
 	TrustCueShown bool
 	// Phase 21: Onboarding + Shadow Receipt Viewer
-	ModeIndicator       *mode.ModeIndicator
-	ShadowReceiptPage   *shadowview.ShadowReceiptPage
-	ShadowReceiptCue    *shadowview.ReceiptCue // Whisper cue for proof page link
+	ModeIndicator     *mode.ModeIndicator
+	ShadowReceiptPage *shadowview.ShadowReceiptPage
+	ShadowReceiptCue  *shadowview.ReceiptCue // Whisper cue for proof page link
 }
 
 // personInfo contains person data for display. Phase 13.1.
@@ -479,33 +479,33 @@ func main() {
 		execRouter:             execRouter,
 		execExecutor:           execExecutor,
 		multiCircleConfig:      multiCfg,
-		identityRepo:           identityRepo,           // Phase 13.1
-		interestStore:          interestStore,          // Phase 18.1
-		todayEngine:            todayEngine,            // Phase 18.2
-		preferenceStore:        preferenceStore,        // Phase 18.2
-		heldEngine:             heldEngine,             // Phase 18.3
-		heldStore:              heldStore,              // Phase 18.3
-		surfaceEngine:          surfaceEngine,          // Phase 18.4
-		surfaceStore:           surfaceStore,           // Phase 18.4
-		proofEngine:            proofEngine,            // Phase 18.5
-		proofAckStore:          proofAckStore,          // Phase 18.5
-		connectionStore:        connectionStore,        // Phase 18.6
-		mirrorEngine:           mirrorEngine,           // Phase 18.7
-		mirrorAckStore:         mirrorAckStore,         // Phase 18.7
-		tokenBroker:            tokenBroker,            // Phase 18.8
-		oauthStateManager:      oauthStateManager,      // Phase 18.8
-		gmailHandler:           gmailHandler,           // Phase 18.8
-		syncReceiptStore:       syncReceiptStore,       // Phase 19.1
-		shadowEngine:           shadowEngine,           // Phase 19.2
-		shadowReceiptStore:     shadowReceiptStore,     // Phase 19.2
-		shadowCalibrationStore: shadowCalibrationStore, // Phase 19.4
-		shadowGateStore:        shadowGateStore,        // Phase 19.5
-		rulepackStore:          rulepackStore,          // Phase 19.6
-		trustStore:             trustStore,             // Phase 20
-		trustEngine:            trustEng,               // Phase 20
-		modeEngine:             mode.NewEngine(clk.Now),             // Phase 21
-		shadowviewEngine:       shadowview.NewEngine(clk.Now),       // Phase 21
-		shadowviewAckStore:     shadowview.NewAckStore(0),           // Phase 21
+		identityRepo:           identityRepo,                  // Phase 13.1
+		interestStore:          interestStore,                 // Phase 18.1
+		todayEngine:            todayEngine,                   // Phase 18.2
+		preferenceStore:        preferenceStore,               // Phase 18.2
+		heldEngine:             heldEngine,                    // Phase 18.3
+		heldStore:              heldStore,                     // Phase 18.3
+		surfaceEngine:          surfaceEngine,                 // Phase 18.4
+		surfaceStore:           surfaceStore,                  // Phase 18.4
+		proofEngine:            proofEngine,                   // Phase 18.5
+		proofAckStore:          proofAckStore,                 // Phase 18.5
+		connectionStore:        connectionStore,               // Phase 18.6
+		mirrorEngine:           mirrorEngine,                  // Phase 18.7
+		mirrorAckStore:         mirrorAckStore,                // Phase 18.7
+		tokenBroker:            tokenBroker,                   // Phase 18.8
+		oauthStateManager:      oauthStateManager,             // Phase 18.8
+		gmailHandler:           gmailHandler,                  // Phase 18.8
+		syncReceiptStore:       syncReceiptStore,              // Phase 19.1
+		shadowEngine:           shadowEngine,                  // Phase 19.2
+		shadowReceiptStore:     shadowReceiptStore,            // Phase 19.2
+		shadowCalibrationStore: shadowCalibrationStore,        // Phase 19.4
+		shadowGateStore:        shadowGateStore,               // Phase 19.5
+		rulepackStore:          rulepackStore,                 // Phase 19.6
+		trustStore:             trustStore,                    // Phase 20
+		trustEngine:            trustEng,                      // Phase 20
+		modeEngine:             mode.NewEngine(clk.Now),       // Phase 21
+		shadowviewEngine:       shadowview.NewEngine(clk.Now), // Phase 21
+		shadowviewAckStore:     shadowview.NewAckStore(0),     // Phase 21
 	}
 
 	// Set up routes

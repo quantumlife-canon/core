@@ -363,10 +363,10 @@ func (p *ChatProvider) validateSuggestionsArray(raw []prompt.SuggestionSchema) (
 		}
 
 		suggestion := shadowllm.ShadowSuggestion{
-			Category:   category,
-			Horizon:    horizon,
-			Magnitude:  magnitude,
-			Confidence: confidence,
+			Category:       category,
+			Horizon:        horizon,
+			Magnitude:      magnitude,
+			Confidence:     confidence,
 			SuggestionType: shadowllm.SuggestHold, // Default
 		}
 		suggestions = append(suggestions, suggestion)
