@@ -170,27 +170,167 @@ type ShadowConfig struct {
 
 // AzureOpenAIConfig contains Azure OpenAI provider settings.
 //
+// Phase 19.3b: Extended with embeddings deployment and explicit env var names.
+//
 // CRITICAL: API key should come from environment variable, not config file.
-// Config file only stores endpoint and deployment name.
+// Config file only stores endpoint and deployment names.
 type AzureOpenAIConfig struct {
 	// Endpoint is the Azure OpenAI endpoint URL.
 	// Example: "https://your-resource.openai.azure.com"
 	// Read from AZURE_OPENAI_ENDPOINT env var if empty.
 	Endpoint string
 
-	// Deployment is the model deployment name.
+	// Deployment is the chat model deployment name (alias for ChatDeployment).
 	// Example: "gpt-4o-mini"
 	// Read from AZURE_OPENAI_DEPLOYMENT env var if empty.
 	Deployment string
+
+	// ChatDeployment is the chat model deployment name.
+	// Takes precedence over Deployment if both are set.
+	// Read from AZURE_OPENAI_CHAT_DEPLOYMENT env var if empty.
+	ChatDeployment string
+
+	// EmbedDeployment is the embeddings model deployment name.
+	// Optional - only required for embeddings healthcheck.
+	// Read from AZURE_OPENAI_EMBED_DEPLOYMENT env var if empty.
+	EmbedDeployment string
 
 	// APIVersion is the Azure OpenAI API version.
 	// Default: "2024-02-15-preview"
 	// Read from AZURE_OPENAI_API_VERSION env var if empty.
 	APIVersion string
+
+	// APIKeyEnvName is the environment variable name containing the API key.
+	// Default: "AZURE_OPENAI_API_KEY"
+	// CRITICAL: Never store actual keys in config files.
+	APIKeyEnvName string
+}
+
+// GetChatDeployment returns the effective chat deployment name.
+func (c *AzureOpenAIConfig) GetChatDeployment() string {
+	if c.ChatDeployment != "" {
+		return c.ChatDeployment
+	}
+	return c.Deployment
+}
+
+// GetAPIKeyEnvName returns the effective API key environment variable name.
+func (c *AzureOpenAIConfig) GetAPIKeyEnvName() string {
+	if c.APIKeyEnvName != "" {
+		return c.APIKeyEnvName
+	}
+	return DefaultAzureAPIKeyEnvName
+}
+
+// HasEmbeddings returns true if embeddings deployment is configured.
+func (c *AzureOpenAIConfig) HasEmbeddings() bool {
+	return c.EmbedDeployment != ""
+}
+
+// CanonicalString returns a deterministic string representation.
+// CRITICAL: Never includes actual API keys.
+func (c *AzureOpenAIConfig) CanonicalString() string {
+	return "AZURE_CONFIG|v1|endpoint:" + c.Endpoint +
+		"|chat:" + c.GetChatDeployment() +
+		"|embed:" + c.EmbedDeployment +
+		"|api_version:" + c.APIVersion +
+		"|key_env:" + c.GetAPIKeyEnvName()
 }
 
 // DefaultAzureOpenAIAPIVersion is the default Azure OpenAI API version.
 const DefaultAzureOpenAIAPIVersion = "2024-02-15-preview"
+
+// DefaultAzureAPIKeyEnvName is the default environment variable for Azure API key.
+const DefaultAzureAPIKeyEnvName = "AZURE_OPENAI_API_KEY"
+
+// =============================================================================
+// Phase 19.3b: Shadow Runtime Flags and Embed Health Types
+// =============================================================================
+
+// ShadowRuntimeFlags captures the effective runtime state of shadow mode.
+// Used for health reporting and debugging.
+type ShadowRuntimeFlags struct {
+	// Enabled indicates if shadow mode is enabled (mode != "off").
+	Enabled bool
+
+	// RealAllowed indicates if real providers are permitted.
+	RealAllowed bool
+
+	// ProviderKind is the effective provider kind.
+	ProviderKind string
+
+	// ChatConfigured indicates if chat deployment is configured.
+	ChatConfigured bool
+
+	// EmbedConfigured indicates if embeddings deployment is configured.
+	EmbedConfigured bool
+}
+
+// CanonicalString returns a deterministic string representation.
+func (f *ShadowRuntimeFlags) CanonicalString() string {
+	enabled := "false"
+	if f.Enabled {
+		enabled = "true"
+	}
+	realAllowed := "false"
+	if f.RealAllowed {
+		realAllowed = "true"
+	}
+	chatCfg := "false"
+	if f.ChatConfigured {
+		chatCfg = "true"
+	}
+	embedCfg := "false"
+	if f.EmbedConfigured {
+		embedCfg = "true"
+	}
+	return "SHADOW_FLAGS|v1|enabled:" + enabled +
+		"|real_allowed:" + realAllowed +
+		"|provider:" + f.ProviderKind +
+		"|chat:" + chatCfg +
+		"|embed:" + embedCfg
+}
+
+// EmbedStatus indicates the result of an embeddings healthcheck.
+type EmbedStatus string
+
+const (
+	// EmbedStatusOK indicates embeddings healthcheck succeeded.
+	EmbedStatusOK EmbedStatus = "ok"
+
+	// EmbedStatusFail indicates embeddings healthcheck failed.
+	EmbedStatusFail EmbedStatus = "fail"
+
+	// EmbedStatusSkipped indicates embeddings healthcheck was skipped.
+	EmbedStatusSkipped EmbedStatus = "skipped"
+
+	// EmbedStatusNotConfigured indicates embeddings not configured.
+	EmbedStatusNotConfigured EmbedStatus = "not_configured"
+)
+
+// EmbedHealth captures the result of an embeddings healthcheck.
+type EmbedHealth struct {
+	// Status indicates the healthcheck result.
+	Status EmbedStatus
+
+	// LatencyBucket indicates response latency.
+	LatencyBucket string
+
+	// VectorHash is SHA256 of the embedding vector bytes.
+	// Deterministic for a given input/model.
+	VectorHash string
+
+	// ErrorBucket contains abstract error category if failed.
+	ErrorBucket string
+}
+
+// CanonicalString returns a deterministic string representation.
+func (h *EmbedHealth) CanonicalString() string {
+	return "EMBED_HEALTH|v1|status:" + string(h.Status) +
+		"|latency:" + h.LatencyBucket +
+		"|vector_hash:" + h.VectorHash +
+		"|error:" + h.ErrorBucket
+}
 
 // DefaultShadowConfig returns the default shadow configuration.
 // CRITICAL: Mode is OFF by default.

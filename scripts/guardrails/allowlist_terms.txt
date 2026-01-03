@@ -254,3 +254,10 @@ pkg/domain/rulepack/types_test.go
 # interacting with the UI to dismiss a trust summary. This is domain terminology
 # for the trust dismissal workflow, NOT QuantumLife identity.
 pkg/domain/trust/types.go
+
+# Phase 19.3b: Go Real Azure + Embeddings (ADR-0049)
+# These files use "user" in comments about safety invariants (e.g., "never user data")
+# to describe that embeddings must ONLY use safe constant input, NOT arbitrary user
+# content. This is security documentation, NOT QuantumLife identity terminology.
+internal/demo_phase19_3b_go_real/*.go
+internal/shadowllm/engine.go

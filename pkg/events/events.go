@@ -1319,6 +1319,29 @@ const (
 	Phase19_6PackDismissed      EventType = "phase19_6.pack.dismissed"
 
 	// =========================================================================
+	// Phase 19.3b: Go Real Azure + Embeddings Health Events
+	// =========================================================================
+	//
+	// Reference: docs/ADR/ADR-0049-phase19-3b-go-real-azure-and-embeddings.md
+	//
+	// CRITICAL INVARIANTS:
+	//   - No secrets logged
+	//   - No identifiers sent to provider
+	//   - Safe constant input only for embeddings healthcheck
+
+	// Health page events
+	Phase19_3bHealthViewed       EventType = "phase19_3b.health.viewed"
+	Phase19_3bHealthRunBlocked   EventType = "phase19_3b.health.run.blocked"
+	Phase19_3bHealthRunFailed    EventType = "phase19_3b.health.run.failed"
+	Phase19_3bHealthRunCompleted EventType = "phase19_3b.health.run.completed"
+
+	// Embeddings healthcheck events
+	Phase19_3bEmbedHealthRequested EventType = "phase19_3b.embed.health.requested"
+	Phase19_3bEmbedHealthCompleted EventType = "phase19_3b.embed.health.completed"
+	Phase19_3bEmbedHealthFailed    EventType = "phase19_3b.embed.health.failed"
+	Phase19_3bEmbedHealthSkipped   EventType = "phase19_3b.embed.health.skipped"
+
+	// =========================================================================
 	// Phase 20: Trust Accrual Layer (Proof Over Time)
 	// =========================================================================
 	//

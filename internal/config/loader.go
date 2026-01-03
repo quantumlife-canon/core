@@ -171,9 +171,18 @@ func LoadFromFile(path string, loadedAt time.Time) (*MultiCircleConfig, error) {
 			case "azure_deployment":
 				// Phase 19.3: Azure OpenAI deployment name (optional - env var preferred)
 				config.Shadow.AzureOpenAI.Deployment = value
+			case "azure_chat_deployment":
+				// Phase 19.3b: Explicit chat deployment name
+				config.Shadow.AzureOpenAI.ChatDeployment = value
+			case "azure_embed_deployment":
+				// Phase 19.3b: Embeddings deployment name (optional)
+				config.Shadow.AzureOpenAI.EmbedDeployment = value
 			case "azure_api_version":
 				// Phase 19.3: Azure OpenAI API version
 				config.Shadow.AzureOpenAI.APIVersion = value
+			case "azure_key_env_name":
+				// Phase 19.3b: Environment variable name for API key
+				config.Shadow.AzureOpenAI.APIKeyEnvName = value
 			default:
 				return nil, &ParseError{Line: lineNum, Message: "unknown shadow key: " + key}
 			}

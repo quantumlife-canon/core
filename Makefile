@@ -57,6 +57,7 @@ help:
 	@echo "  make demo-phase19-1 - Run Phase 19.1 real Gmail connection demo"
 	@echo "  make demo-phase19-2 - Run Phase 19.2 shadow mode demo"
 	@echo "  make demo-phase19-3 - Run Phase 19.3 Azure shadow provider demo"
+	@echo "  make demo-phase19-3b - Run Phase 19.3b Go Real Azure + Embeddings demo"
 	@echo "  make demo-phase19-4 - Run Phase 19.4 shadow diff + calibration demo"
 	@echo "  make demo-phase19-5 - Run Phase 19.5 shadow gating demo"
 	@echo "  make demo-phase19-6 - Run Phase 19.6 rule pack export demo"
@@ -98,6 +99,7 @@ help:
 	@echo "  make check-real-gmail-quiet - Check real Gmail quiet constraints (Phase 19.1)"
 	@echo "  make check-shadow-mode - Check shadow mode constraints (Phase 19.2)"
 	@echo "  make check-shadow-azure - Check Azure shadow constraints (Phase 19.3)"
+	@echo "  make check-go-real-azure - Check go real azure constraints (Phase 19.3b)"
 	@echo "  make check-real-shadow-config - Check real shadow config (Phase 19.3)"
 	@echo "  make check-shadow-diff - Check shadow diff constraints (Phase 19.4)"
 	@echo "  make check-shadow-gating - Check shadow gating constraints (Phase 19.5)"
@@ -502,6 +504,17 @@ check-shadow-mode:
 check-shadow-azure:
 	@echo "Checking Azure shadow provider constraints (Phase 19.3)..."
 	@./scripts/guardrails/shadow_azure_enforced.sh
+
+# Phase 19.3b Demo: Go Real Azure + Embeddings
+# Reference: docs/ADR/ADR-0049-phase19-3b-go-real-azure-and-embeddings.md
+demo-phase19-3b:
+	@echo "Running Phase 19.3b Demo: Go Real Azure + Embeddings..."
+	go test -v ./internal/demo_phase19_3b_go_real/...
+
+# Check go real azure constraints (Phase 19.3b)
+check-go-real-azure:
+	@echo "Checking go real azure constraints (Phase 19.3b)..."
+	@./scripts/guardrails/go_real_azure_enforced.sh
 
 # Phase 19.4 Demo: Shadow Diff + Calibration
 # Reference: docs/ADR/ADR-0045-phase19-4-shadow-diff-calibration.md

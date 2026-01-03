@@ -2,6 +2,7 @@
 //
 // Phase 19.2: LLM Shadow Mode Contract
 // Phase 19.3: Azure OpenAI Shadow Provider
+// Phase 19.3b: Go Real Azure + Embeddings Healthcheck
 //
 // CRITICAL INVARIANTS:
 //   - Shadow mode produces METADATA ONLY (abstract buckets, hashes) - never content
@@ -10,10 +11,12 @@
 //   - No goroutines in internal/. No time.Now() - clock injection only.
 //   - Stub provider: Deterministic (same inputs + same clock => identical receipt hash)
 //   - Real providers: Non-deterministic OK but receipts include provenance
+//   - Embeddings: Input is ALWAYS safe constant, output is hash only
 //   - Stdlib only. No external dependencies.
 //
 // Reference: docs/ADR/ADR-0043-phase19-2-shadow-mode-contract.md
 // Reference: docs/ADR/ADR-0044-phase19-3-azure-openai-shadow-provider.md
+// Reference: docs/ADR/ADR-0049-phase19-3b-go-real-azure-and-embeddings.md
 package shadowllm
 
 import (
@@ -282,4 +285,80 @@ func suggestionTypeFromKind(k shadowllm.ShadowSignalKind) shadowllm.SuggestionTy
 	default:
 		return shadowllm.SuggestHold
 	}
+}
+
+// =============================================================================
+// Phase 19.3b: Embeddings Healthcheck
+// =============================================================================
+
+// EmbedHealthchecker is the interface for embeddings healthcheck.
+//
+// CRITICAL: Input is ALWAYS a safe constant - never user data.
+// CRITICAL: Output is hash only - never raw embeddings.
+type EmbedHealthchecker interface {
+	// Healthcheck performs a single embeddings call with safe constant input.
+	// Returns status, latency bucket, and vector hash.
+	Healthcheck() (*EmbedHealthResult, error)
+}
+
+// EmbedHealthResult contains the result of an embeddings healthcheck.
+type EmbedHealthResult struct {
+	// Status indicates the healthcheck result.
+	Status EmbedStatus
+
+	// LatencyBucket indicates response latency.
+	LatencyBucket string
+
+	// VectorHash is SHA256 of the embedding vector bytes.
+	VectorHash string
+
+	// ErrorBucket contains abstract error category if failed.
+	ErrorBucket string
+}
+
+// EmbedStatus indicates the result of an embeddings healthcheck.
+type EmbedStatus string
+
+const (
+	// EmbedStatusOK indicates healthcheck succeeded.
+	EmbedStatusOK EmbedStatus = "ok"
+
+	// EmbedStatusFail indicates healthcheck failed.
+	EmbedStatusFail EmbedStatus = "fail"
+
+	// EmbedStatusSkipped indicates healthcheck was skipped.
+	EmbedStatusSkipped EmbedStatus = "skipped"
+
+	// EmbedStatusNotConfigured indicates embeddings not configured.
+	EmbedStatusNotConfigured EmbedStatus = "not_configured"
+)
+
+// StubEmbedHealthchecker is a deterministic stub for embeddings healthcheck.
+//
+// CRITICAL: Returns deterministic results based on deployment name.
+type StubEmbedHealthchecker struct {
+	Deployment string
+}
+
+// Healthcheck returns a deterministic stub result.
+func (s *StubEmbedHealthchecker) Healthcheck() (*EmbedHealthResult, error) {
+	// Deterministic vector hash based on deployment
+	vectorHash := computeStubVectorHash(s.Deployment)
+
+	return &EmbedHealthResult{
+		Status:        EmbedStatusOK,
+		LatencyBucket: "na", // Stub has no latency
+		VectorHash:    vectorHash,
+		ErrorBucket:   "",
+	}, nil
+}
+
+// computeStubVectorHash creates a deterministic hash for stub embeddings.
+func computeStubVectorHash(deployment string) string {
+	h := sha256.New()
+	h.Write([]byte("STUB_EMBED_VECTOR|"))
+	h.Write([]byte(deployment))
+	h.Write([]byte("|quantumlife-shadow-healthcheck"))
+	sum := h.Sum(nil)
+	return hex.EncodeToString(sum[:])
 }

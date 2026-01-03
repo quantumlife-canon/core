@@ -55,6 +55,7 @@ import (
 	"quantumlife/pkg/clock"
 	"quantumlife/pkg/domain/connection"
 	"quantumlife/pkg/domain/draft"
+	pkgconfig "quantumlife/pkg/domain/config"
 	domainevents "quantumlife/pkg/domain/events"
 	"quantumlife/pkg/domain/feedback"
 	"quantumlife/pkg/domain/identity"
@@ -534,6 +535,8 @@ func main() {
 	mux.HandleFunc("/shadow/packs", server.handleRulePackList)           // Phase 19.6: List packs
 	mux.HandleFunc("/shadow/packs/", server.handleRulePackDetail)        // Phase 19.6: Pack detail
 	mux.HandleFunc("/shadow/packs/build", server.handleRulePackBuild)    // Phase 19.6: Build pack
+	mux.HandleFunc("/shadow/health", server.handleShadowHealth)          // Phase 19.3b: Shadow health
+	mux.HandleFunc("/shadow/health/run", server.handleShadowHealthRun)   // Phase 19.3b: Shadow health run
 	mux.HandleFunc("/trust", server.handleTrust)                        // Phase 20: Trust accrual
 	mux.HandleFunc("/trust/dismiss", server.handleTrustDismiss)         // Phase 20: Dismiss trust cue
 	mux.HandleFunc("/demo", server.handleDemo)
@@ -2993,6 +2996,327 @@ func (s *Server) handleShadowCandidatesPropose(w http.ResponseWriter, r *http.Re
 
 	// Redirect back to candidates page
 	http.Redirect(w, r, "/shadow/candidates", http.StatusFound)
+}
+
+// =============================================================================
+// Phase 19.3b: Shadow Health (Go Real Azure + Embeddings)
+// =============================================================================
+
+// handleShadowHealth shows the shadow provider health status page.
+//
+// Phase 19.3b: Go Real Azure + Embeddings
+// CRITICAL: Does NOT expose secrets.
+func (s *Server) handleShadowHealth(w http.ResponseWriter, r *http.Request) {
+	// GET only
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Build runtime flags
+	flags := s.getShadowRuntimeFlags()
+
+	// Get last receipt if available
+	var lastReceiptHTML string
+	// Get latest receipt for first circle (or "personal" default)
+	circleID := identity.EntityID("personal")
+	if s.multiCircleConfig != nil {
+		ids := s.multiCircleConfig.CircleIDs()
+		if len(ids) > 0 {
+			circleID = ids[0]
+		}
+	}
+	lastReceipt, hasReceipt := s.shadowReceiptStore.GetLatestForCircle(circleID)
+	if hasReceipt {
+		r := lastReceipt
+		receiptID := r.ReceiptID
+		if len(receiptID) > 16 {
+			receiptID = receiptID[:16] + "..."
+		}
+		lastReceiptHTML = fmt.Sprintf(`
+            <div class="receipt">
+                <div class="receipt-label">Last Receipt</div>
+                <div class="receipt-row"><span>ID:</span> <span>%s</span></div>
+                <div class="receipt-row"><span>Provider:</span> <span>%s</span></div>
+                <div class="receipt-row"><span>Status:</span> <span>%s</span></div>
+                <div class="receipt-row"><span>Latency:</span> <span>%s</span></div>
+                <div class="receipt-row"><span>Created:</span> <span>%s</span></div>
+            </div>`,
+			receiptID,
+			string(r.Provenance.ProviderKind),
+			string(r.Provenance.Status),
+			string(r.Provenance.LatencyBucket),
+			r.CreatedAt.Format("2006-01-02 15:04"),
+		)
+	} else {
+		lastReceiptHTML = `<p class="no-receipt">No receipts yet</p>`
+	}
+
+	// Emit viewed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase19_3bHealthViewed,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"provider_kind": flags.ProviderKind,
+			"real_allowed":  boolToString(flags.RealAllowed),
+		},
+	})
+
+	// Check for query params
+	errorMsg := r.URL.Query().Get("error")
+	successMsg := ""
+	if r.URL.Query().Get("success") == "true" {
+		successMsg = "Shadow run completed successfully"
+	}
+
+	// Render inline HTML (whisper-style)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shadow Health</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; color: #333; background: #fafafa; }
+        h1 { font-size: 1.2rem; font-weight: normal; color: #666; }
+        .summary { font-size: 0.9rem; color: #888; margin: 20px 0; }
+        .status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 24px 0; }
+        .status-item { background: white; padding: 16px; border-radius: 8px; border: 1px solid #e0e0e0; }
+        .status-label { font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 0.05em; }
+        .status-value { font-size: 1rem; margin-top: 4px; }
+        .status-value.enabled { color: #2e7d32; }
+        .status-value.disabled { color: #757575; }
+        .receipt { background: white; padding: 16px; border-radius: 8px; border: 1px solid #e0e0e0; margin: 24px 0; }
+        .receipt-label { font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; }
+        .receipt-row { display: flex; justify-content: space-between; font-size: 0.9rem; padding: 4px 0; }
+        .no-receipt { color: #888; font-size: 0.9rem; }
+        .reassurance { font-size: 0.8rem; color: #888; margin: 24px 0; padding: 12px; background: #f5f5f5; border-radius: 4px; }
+        .run-form { margin: 24px 0; }
+        .run-btn { background: #1976d2; color: white; border: none; padding: 12px 24px; border-radius: 6px; cursor: pointer; font-size: 0.9rem; }
+        .run-btn:hover { background: #1565c0; }
+        .run-btn:disabled { background: #bdbdbd; cursor: not-allowed; }
+        .error { color: #c62828; background: #ffebee; padding: 12px; border-radius: 4px; margin: 16px 0; }
+        .success { color: #2e7d32; background: #e8f5e9; padding: 12px; border-radius: 4px; margin: 16px 0; }
+        .back-link { font-size: 0.85rem; color: #666; text-decoration: none; }
+        .back-link:hover { color: #333; }
+    </style>
+</head>
+<body>
+    <a href="/shadow/report" class="back-link">← Back to Shadow Report</a>
+    <h1>Shadow Health</h1>
+    <p class="summary">Provider status and health verification</p>
+    `)
+
+	// Show error/success messages
+	if errorMsg != "" {
+		fmt.Fprintf(w, `<div class="error">Error: %s</div>`, errorMsg)
+	}
+	if successMsg != "" {
+		fmt.Fprintf(w, `<div class="success">%s</div>`, successMsg)
+	}
+
+	// Status grid
+	enabledClass := "disabled"
+	enabledText := "Off"
+	if flags.Enabled {
+		enabledClass = "enabled"
+		enabledText = "Observe"
+	}
+
+	realClass := "disabled"
+	realText := "No"
+	if flags.RealAllowed {
+		realClass = "enabled"
+		realText = "Yes"
+	}
+
+	chatClass := "disabled"
+	chatText := "No"
+	if flags.ChatConfigured {
+		chatClass = "enabled"
+		chatText = "Yes"
+	}
+
+	embedClass := "disabled"
+	embedText := "No"
+	if flags.EmbedConfigured {
+		embedClass = "enabled"
+		embedText = "Yes"
+	}
+
+	fmt.Fprintf(w, `
+    <div class="status-grid">
+        <div class="status-item">
+            <div class="status-label">Shadow Mode</div>
+            <div class="status-value %s">%s</div>
+        </div>
+        <div class="status-item">
+            <div class="status-label">Provider</div>
+            <div class="status-value">%s</div>
+        </div>
+        <div class="status-item">
+            <div class="status-label">Real Allowed</div>
+            <div class="status-value %s">%s</div>
+        </div>
+        <div class="status-item">
+            <div class="status-label">Chat Configured</div>
+            <div class="status-value %s">%s</div>
+        </div>
+        <div class="status-item">
+            <div class="status-label">Embed Configured</div>
+            <div class="status-value %s">%s</div>
+        </div>
+    </div>
+    `, enabledClass, enabledText, flags.ProviderKind, realClass, realText, chatClass, chatText, embedClass, embedText)
+
+	// Last receipt
+	fmt.Fprint(w, lastReceiptHTML)
+
+	// Run button
+	disabled := ""
+	if !flags.Enabled {
+		disabled = "disabled"
+	}
+	fmt.Fprintf(w, `
+    <form class="run-form" method="POST" action="/shadow/health/run">
+        <button type="submit" class="run-btn" %s>Run Health Check</button>
+    </form>
+    `, disabled)
+
+	// Reassurance
+	fmt.Fprint(w, `
+    <div class="reassurance">
+        No secrets stored. No identifiers sent. Safe constant input only.
+    </div>
+</body>
+</html>`)
+}
+
+// handleShadowHealthRun triggers a shadow health run with safe demo input.
+//
+// Phase 19.3b: Go Real Azure + Embeddings
+// CRITICAL: POST only - explicit action required.
+func (s *Server) handleShadowHealthRun(w http.ResponseWriter, r *http.Request) {
+	// POST only
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	flags := s.getShadowRuntimeFlags()
+
+	// Check if enabled
+	if !flags.Enabled {
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase19_3bHealthRunBlocked,
+			Timestamp: s.clk.Now(),
+			Metadata: map[string]string{
+				"reason": "shadow_mode_disabled",
+			},
+		})
+		http.Redirect(w, r, "/shadow/health?error=disabled", http.StatusFound)
+		return
+	}
+
+	// Run shadow with demo circle and safe seed
+	demoCircleID := "personal"
+	if s.multiCircleConfig != nil {
+		ids := s.multiCircleConfig.CircleIDs()
+		if len(ids) > 0 {
+			demoCircleID = string(ids[0])
+		}
+	}
+
+	// Build minimal demo digest
+	digest := domainshadow.ShadowInputDigest{
+		CircleID: identity.EntityID(demoCircleID),
+		ObligationCountByCategory: map[domainshadow.AbstractCategory]domainshadow.MagnitudeBucket{
+			domainshadow.CategoryMoney: domainshadow.MagnitudeAFew,
+		},
+		HeldCountByCategory:   map[domainshadow.AbstractCategory]domainshadow.MagnitudeBucket{},
+		SurfaceCandidateCount: domainshadow.MagnitudeNothing,
+		DraftCandidateCount:   domainshadow.MagnitudeNothing,
+		TriggersSeen:          false,
+		MirrorBucket:          domainshadow.MagnitudeNothing,
+	}
+
+	// Run shadow engine
+	input := shadowllm.RunInput{
+		CircleID: identity.EntityID(demoCircleID),
+		Digest:   digest,
+		Seed:     19_3, // Deterministic demo seed for 19.3b
+	}
+
+	output, err := s.shadowEngine.Run(input)
+	if err != nil {
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase19_3bHealthRunFailed,
+			Timestamp: s.clk.Now(),
+			Metadata: map[string]string{
+				"error_bucket": "engine_error",
+			},
+		})
+		http.Redirect(w, r, "/shadow/health?error=failed", http.StatusFound)
+		return
+	}
+
+	// Store receipt
+	_ = s.shadowReceiptStore.Append(&output.Receipt)
+
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase19_3bHealthRunCompleted,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"receipt_id":    output.Receipt.ReceiptID[:16],
+			"provider_kind": string(output.Receipt.Provenance.ProviderKind),
+			"status":        string(output.Receipt.Provenance.Status),
+		},
+	})
+
+	http.Redirect(w, r, "/shadow/health?success=true", http.StatusFound)
+}
+
+// getShadowRuntimeFlags builds the current shadow runtime flags.
+func (s *Server) getShadowRuntimeFlags() pkgconfig.ShadowRuntimeFlags {
+	cfg := s.multiCircleConfig.Shadow
+	azureCfg := cfg.AzureOpenAI
+
+	// Check if chat is configured (env var or config)
+	chatConfigured := azureCfg.GetChatDeployment() != "" ||
+		os.Getenv("AZURE_OPENAI_DEPLOYMENT") != "" ||
+		os.Getenv("AZURE_OPENAI_CHAT_DEPLOYMENT") != ""
+
+	// Check if embeddings configured
+	embedConfigured := azureCfg.EmbedDeployment != "" ||
+		os.Getenv("AZURE_OPENAI_EMBED_DEPLOYMENT") != ""
+
+	return pkgconfig.ShadowRuntimeFlags{
+		Enabled:         cfg.Mode == "observe",
+		RealAllowed:     cfg.RealAllowed || os.Getenv("QL_SHADOW_REAL_ALLOWED") == "true",
+		ProviderKind:    getEffectiveProviderKind(cfg),
+		ChatConfigured:  chatConfigured,
+		EmbedConfigured: embedConfigured,
+	}
+}
+
+// getEffectiveProviderKind returns the effective provider kind from config/env.
+func getEffectiveProviderKind(cfg pkgconfig.ShadowConfig) string {
+	if envKind := os.Getenv("QL_SHADOW_PROVIDER_KIND"); envKind != "" {
+		return envKind
+	}
+	if cfg.ProviderKind != "" && cfg.ProviderKind != "none" {
+		return cfg.ProviderKind
+	}
+	return "stub"
+}
+
+// boolToString converts bool to "true"/"false" string.
+func boolToString(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
 }
 
 // =============================================================================
