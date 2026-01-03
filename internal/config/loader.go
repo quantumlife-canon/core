@@ -165,6 +165,12 @@ func LoadFromFile(path string, loadedAt time.Time) (*MultiCircleConfig, error) {
 			case "real_allowed":
 				// Phase 19.3: explicit opt-in for real providers
 				config.Shadow.RealAllowed = value == "true"
+			case "max_suggestions":
+				// Phase 19.3c: max suggestions per run
+				n := parsePositiveInt(value)
+				if n > 0 {
+					config.Shadow.MaxSuggestions = n
+				}
 			case "azure_endpoint":
 				// Phase 19.3: Azure OpenAI endpoint (optional - env var preferred)
 				config.Shadow.AzureOpenAI.Endpoint = value
@@ -285,6 +291,22 @@ func parseCSV(value string) []string {
 		}
 	}
 	return result
+}
+
+// parsePositiveInt parses a positive integer from string.
+// Returns 0 if parsing fails or value is <= 0.
+func parsePositiveInt(s string) int {
+	if s == "" {
+		return 0
+	}
+	n := 0
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return 0
+		}
+		n = n*10 + int(c-'0')
+	}
+	return n
 }
 
 // ParseError represents a parsing error with line information.

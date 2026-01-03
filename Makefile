@@ -58,6 +58,7 @@ help:
 	@echo "  make demo-phase19-2 - Run Phase 19.2 shadow mode demo"
 	@echo "  make demo-phase19-3 - Run Phase 19.3 Azure shadow provider demo"
 	@echo "  make demo-phase19-3b - Run Phase 19.3b Go Real Azure + Embeddings demo"
+	@echo "  make demo-phase19-3c - Run Phase 19.3c Real Azure Chat Shadow demo"
 	@echo "  make demo-phase19-4 - Run Phase 19.4 shadow diff + calibration demo"
 	@echo "  make demo-phase19-5 - Run Phase 19.5 shadow gating demo"
 	@echo "  make demo-phase19-6 - Run Phase 19.6 rule pack export demo"
@@ -100,6 +101,7 @@ help:
 	@echo "  make check-shadow-mode - Check shadow mode constraints (Phase 19.2)"
 	@echo "  make check-shadow-azure - Check Azure shadow constraints (Phase 19.3)"
 	@echo "  make check-go-real-azure - Check go real azure constraints (Phase 19.3b)"
+	@echo "  make check-shadow-real-chat - Check shadow real chat constraints (Phase 19.3c)"
 	@echo "  make check-real-shadow-config - Check real shadow config (Phase 19.3)"
 	@echo "  make check-shadow-diff - Check shadow diff constraints (Phase 19.4)"
 	@echo "  make check-shadow-gating - Check shadow gating constraints (Phase 19.5)"
@@ -515,6 +517,17 @@ demo-phase19-3b:
 check-go-real-azure:
 	@echo "Checking go real azure constraints (Phase 19.3b)..."
 	@./scripts/guardrails/go_real_azure_enforced.sh
+
+# Phase 19.3c Demo: Real Azure Chat Shadow Run
+# Reference: docs/ADR/ADR-0050-phase19-3c-real-azure-chat-shadow.md
+demo-phase19-3c:
+	@echo "Running Phase 19.3c Demo: Real Azure Chat Shadow Run..."
+	go test -v ./internal/demo_phase19_3c_real_chat_shadow/...
+
+# Check shadow real chat constraints (Phase 19.3c)
+check-shadow-real-chat:
+	@echo "Checking shadow real chat constraints (Phase 19.3c)..."
+	@./scripts/guardrails/shadow_real_chat_enforced.sh
 
 # Phase 19.4 Demo: Shadow Diff + Calibration
 # Reference: docs/ADR/ADR-0045-phase19-4-shadow-diff-calibration.md

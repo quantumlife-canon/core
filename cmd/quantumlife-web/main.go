@@ -806,6 +806,51 @@ func createShadowProvider(cfg *config.MultiCircleConfig, emitter *eventLogger) (
 		return wrapAzureProvider(provider), "azure_openai (RealAllowed: true)"
 	}
 
+	// Phase 19.3c: Azure Chat provider with strict JSON output
+	if providerKind == "azure_openai_chat" {
+		// Check if chat-specific env vars are configured
+		if !azureopenai.IsChatConfigured() {
+			// Fall back to stub with event
+			emitter.Emit(events.Event{
+				Type: events.Phase19_3ProviderFallback,
+				Metadata: map[string]string{
+					"requested": "azure_openai_chat",
+					"fallback":  "stub",
+					"reason":    "missing_chat_env_vars",
+				},
+			})
+			return stub.NewStubModel(), "stub (RealAllowed: true, fallback: missing AZURE_OPENAI_CHAT_* env vars)"
+		}
+
+		// Create Azure chat provider from env
+		chatProvider, err := azureopenai.NewChatProviderFromEnv()
+		if err != nil {
+			// Fall back to stub with event
+			emitter.Emit(events.Event{
+				Type: events.Phase19_3ProviderFallback,
+				Metadata: map[string]string{
+					"requested": "azure_openai_chat",
+					"fallback":  "stub",
+					"reason":    "chat_provider_init_failed",
+				},
+			})
+			return stub.NewStubModel(), "stub (RealAllowed: true, fallback: chat provider init failed)"
+		}
+
+		maxSuggestions := cfg.Shadow.GetMaxSuggestions()
+		emitter.Emit(events.Event{
+			Type: events.Phase19_3ProviderSelected,
+			Metadata: map[string]string{
+				"provider":        "azure_openai_chat",
+				"deployment":      chatProvider.Deployment(),
+				"real_allowed":    "true",
+				"max_suggestions": fmt.Sprintf("%d", maxSuggestions),
+			},
+		})
+		// CRITICAL: Never log API key or endpoint details
+		return wrapAzureChatProvider(chatProvider), "azure_openai_chat (RealAllowed: true)"
+	}
+
 	// Unknown provider kind - fall back to stub
 	emitter.Emit(events.Event{
 		Type: events.Phase19_3ProviderFallback,
@@ -844,6 +889,35 @@ func (w *azureProviderWrapper) Observe(ctx domainshadow.ShadowContext) (domainsh
 		CircleID:  ctx.CircleID,
 		ModelSpec: w.provider.Name(),
 		Signals:   nil, // Azure provider returns suggestions, not legacy signals
+	}, nil
+}
+
+// Phase 19.3c: azureChatProviderWrapper wraps the Azure Chat provider.
+type azureChatProviderWrapper struct {
+	provider *azureopenai.ChatProvider
+}
+
+func wrapAzureChatProvider(p *azureopenai.ChatProvider) domainshadow.ShadowModel {
+	return &azureChatProviderWrapper{provider: p}
+}
+
+func (w *azureChatProviderWrapper) Name() string {
+	return w.provider.Name()
+}
+
+func (w *azureChatProviderWrapper) ProviderKind() domainshadow.ProviderKind {
+	return domainshadow.ProviderKindAzureOpenAI
+}
+
+func (w *azureChatProviderWrapper) Observe(ctx domainshadow.ShadowContext) (domainshadow.ShadowRun, error) {
+	// Phase 19.3c: The chat provider uses privacy.ShadowInput interface.
+	// For ShadowModel compatibility, we return a run with the provider name.
+	// Full integration is done via the chat-specific endpoint.
+	return domainshadow.ShadowRun{
+		RunID:     "azure-chat-" + ctx.InputsHash[:16],
+		CircleID:  ctx.CircleID,
+		ModelSpec: w.provider.Name(),
+		Signals:   nil, // Chat provider returns suggestions via Complete(), not Observe()
 	}, nil
 }
 

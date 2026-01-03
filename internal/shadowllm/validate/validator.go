@@ -1,6 +1,6 @@
 // Package validate provides output validation for shadow LLM responses.
 //
-// Phase 19.3: Azure OpenAI Shadow Provider
+// Phase 19.3c: Real Azure Chat Shadow Run
 //
 // CRITICAL INVARIANTS:
 //   - Output MUST match expected JSON schema
@@ -10,7 +10,7 @@
 //   - No goroutines. No time.Now().
 //   - Stdlib only.
 //
-// Reference: docs/ADR/ADR-0044-phase19-3-azure-openai-shadow-provider.md
+// Reference: docs/ADR/ADR-0050-phase19-3c-real-azure-chat-shadow.md
 package validate
 
 import (
@@ -119,7 +119,7 @@ func (v *Validator) ParseAndValidate(jsonOutput string) *ValidatedOutput {
 	}
 
 	// Validate confidence bucket
-	conf, ok := validateConfidence(output.ConfidenceBucket)
+	conf, ok := ValidateConfidence(output.ConfidenceBucket)
 	if !ok {
 		result.ValidationError = "invalid confidence_bucket"
 		return result
@@ -127,7 +127,7 @@ func (v *Validator) ParseAndValidate(jsonOutput string) *ValidatedOutput {
 	result.Confidence = conf
 
 	// Validate horizon bucket
-	horizon, ok := validateHorizon(output.HorizonBucket)
+	horizon, ok := ValidateHorizon(output.HorizonBucket)
 	if !ok {
 		result.ValidationError = "invalid horizon_bucket"
 		return result
@@ -135,7 +135,7 @@ func (v *Validator) ParseAndValidate(jsonOutput string) *ValidatedOutput {
 	result.Horizon = horizon
 
 	// Validate magnitude bucket
-	mag, ok := validateMagnitude(output.MagnitudeBucket)
+	mag, ok := ValidateMagnitude(output.MagnitudeBucket)
 	if !ok {
 		result.ValidationError = "invalid magnitude_bucket"
 		return result
@@ -143,7 +143,7 @@ func (v *Validator) ParseAndValidate(jsonOutput string) *ValidatedOutput {
 	result.Magnitude = mag
 
 	// Validate category
-	cat, ok := validateCategory(output.Category)
+	cat, ok := ValidateCategory(output.Category)
 	if !ok {
 		result.ValidationError = "invalid category"
 		return result
@@ -159,7 +159,7 @@ func (v *Validator) ParseAndValidate(jsonOutput string) *ValidatedOutput {
 	result.SuggestedActionClass = action
 
 	// Validate why_generic for forbidden patterns
-	if err := v.validateWhyGeneric(output.WhyGeneric); err != nil {
+	if err := v.ValidateWhyGeneric(output.WhyGeneric); err != nil {
 		result.ValidationError = "why_generic: " + err.Error()
 		result.WhyGeneric = "" // Clear it but still return partial result
 		return result
@@ -170,8 +170,9 @@ func (v *Validator) ParseAndValidate(jsonOutput string) *ValidatedOutput {
 	return result
 }
 
-// validateWhyGeneric checks the generic rationale for forbidden patterns.
-func (v *Validator) validateWhyGeneric(s string) error {
+// ValidateWhyGeneric checks the generic rationale for forbidden patterns.
+// Exported for use by chat provider.
+func (v *Validator) ValidateWhyGeneric(s string) error {
 	// Check length
 	if len(s) > shadowllm.MaxWhyGenericLength {
 		return &ValidationError{Message: "exceeds max length"}
@@ -187,8 +188,9 @@ func (v *Validator) validateWhyGeneric(s string) error {
 	return nil
 }
 
-// validateConfidence validates and maps confidence bucket.
-func validateConfidence(s string) (shadowllm.ConfidenceBucket, bool) {
+// ValidateConfidence validates and maps confidence bucket.
+// Exported for use by chat provider array validation.
+func ValidateConfidence(s string) (shadowllm.ConfidenceBucket, bool) {
 	switch strings.ToLower(s) {
 	case "low":
 		return shadowllm.ConfidenceLow, true
@@ -201,8 +203,9 @@ func validateConfidence(s string) (shadowllm.ConfidenceBucket, bool) {
 	}
 }
 
-// validateHorizon validates and maps horizon bucket.
-func validateHorizon(s string) (shadowllm.Horizon, bool) {
+// ValidateHorizon validates and maps horizon bucket.
+// Exported for use by chat provider array validation.
+func ValidateHorizon(s string) (shadowllm.Horizon, bool) {
 	switch strings.ToLower(s) {
 	case "now":
 		return shadowllm.HorizonNow, true
@@ -217,8 +220,9 @@ func validateHorizon(s string) (shadowllm.Horizon, bool) {
 	}
 }
 
-// validateMagnitude validates and maps magnitude bucket.
-func validateMagnitude(s string) (shadowllm.MagnitudeBucket, bool) {
+// ValidateMagnitude validates and maps magnitude bucket.
+// Exported for use by chat provider array validation.
+func ValidateMagnitude(s string) (shadowllm.MagnitudeBucket, bool) {
 	switch strings.ToLower(s) {
 	case "nothing":
 		return shadowllm.MagnitudeNothing, true
@@ -231,8 +235,9 @@ func validateMagnitude(s string) (shadowllm.MagnitudeBucket, bool) {
 	}
 }
 
-// validateCategory validates and maps category.
-func validateCategory(s string) (shadowllm.AbstractCategory, bool) {
+// ValidateCategory validates and maps category.
+// Exported for use by chat provider array validation.
+func ValidateCategory(s string) (shadowllm.AbstractCategory, bool) {
 	switch strings.ToLower(s) {
 	case "money":
 		return shadowllm.CategoryMoney, true

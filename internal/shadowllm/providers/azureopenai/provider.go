@@ -144,8 +144,8 @@ func (p *Provider) Run(ctx context.Context, input *privacy.ShadowInput) (*RunRes
 
 	// Build request
 	systemPrompt, userPrompt := prompt.RenderPrompt(input)
-	reqBody := chatRequest{
-		Messages: []message{
+	reqBody := ChatRequest{
+		Messages: []ChatMessage{
 			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: userPrompt},
 		},
@@ -208,7 +208,7 @@ func (p *Provider) Run(ctx context.Context, input *privacy.ShadowInput) (*RunRes
 	result.ResponseStatus = "success"
 
 	// Parse response
-	var chatResp chatResponse
+	var chatResp ChatResponse
 	if err := json.Unmarshal(respBytes, &chatResp); err != nil {
 		result.ErrorBucket = "parse_error"
 		return result, &ProviderError{Code: "parse_error", Message: "failed to parse response"}
@@ -252,27 +252,6 @@ func statusBucket(code int) string {
 	default:
 		return "unknown_error"
 	}
-}
-
-// chatRequest is the Azure OpenAI chat request structure.
-type chatRequest struct {
-	Messages    []message `json:"messages"`
-	MaxTokens   int       `json:"max_tokens,omitempty"`
-	Temperature float64   `json:"temperature,omitempty"`
-}
-
-type message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
-
-// chatResponse is the Azure OpenAI chat response structure.
-type chatResponse struct {
-	Choices []choice `json:"choices"`
-}
-
-type choice struct {
-	Message message `json:"message"`
 }
 
 // ProviderError represents an Azure OpenAI provider error.

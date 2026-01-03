@@ -1,15 +1,16 @@
 // Package prompt provides the prompt template for shadow LLM providers.
 //
-// Phase 19.3: Azure OpenAI Shadow Provider
+// Phase 19.3c: Real Azure Chat Shadow Run
 //
 // CRITICAL INVARIANTS:
 //   - Prompt MUST NOT request any identifiable information
 //   - Prompt MUST instruct model to output ONLY abstract buckets
 //   - Prompt MUST enforce JSON schema for output parsing
+//   - Output MUST be array of suggestions (v1.1.0+)
 //   - No goroutines. No time.Now().
 //   - Stdlib only.
 //
-// Reference: docs/ADR/ADR-0044-phase19-3-azure-openai-shadow-provider.md
+// Reference: docs/ADR/ADR-0050-phase19-3c-real-azure-chat-shadow.md
 package prompt
 
 import (
@@ -23,7 +24,9 @@ import (
 
 // TemplateVersion identifies the prompt template version.
 // Incremented when the prompt structure changes.
-const TemplateVersion = "v1.0.0"
+// v1.0.0: Single suggestion output
+// v1.1.0: Array of suggestions output (Phase 19.3c)
+const TemplateVersion = "v1.1.0"
 
 // TemplateHash returns a hash of the current template version.
 func TemplateHash() string {
@@ -33,22 +36,27 @@ func TemplateHash() string {
 
 // systemPrompt is the system instruction for the shadow model.
 // CRITICAL: Does NOT request any identifiable information.
-const systemPrompt = `You are an assistant analyzing abstract activity patterns. You will receive ONLY abstract statistics about categories and magnitudes. You MUST output a JSON object matching the exact schema below.
+// v1.1.0: Array of suggestions output.
+const systemPrompt = `You are an assistant analyzing abstract activity patterns. You will receive ONLY abstract statistics about categories and magnitudes. You MUST output a JSON object with an array of suggestions (1-5 suggestions).
 
 CRITICAL RULES:
 1. Output ONLY valid JSON matching the schema
-2. The "why_generic" field MUST be a short generic sentence (max 140 chars)
-3. The "why_generic" MUST NOT contain: names, emails, companies, amounts, dates, or any identifiable information
-4. Use ONLY the allowed enum values for each field
+2. Output 1-5 suggestions covering the most relevant categories
+3. Each "why_generic" MUST be a short generic sentence (max 140 chars)
+4. "why_generic" MUST NOT contain: names, emails, companies, amounts, dates, or any identifiable information
+5. Use ONLY the allowed enum values for each field
 
 OUTPUT SCHEMA:
 {
-  "confidence_bucket": "low" | "medium" | "high",
-  "horizon_bucket": "now" | "soon" | "later" | "someday",
-  "magnitude_bucket": "nothing" | "a_few" | "several",
-  "category": "money" | "time" | "work" | "home" | "people" | "health" | "family" | "school" | "unknown",
-  "why_generic": "short generic sentence without any identifiers",
-  "suggested_action_class": "none" | "surface" | "hold" | "proof"
+  "suggestions": [
+    {
+      "category": "money" | "time" | "work" | "home" | "people" | "health" | "family" | "school" | "unknown",
+      "horizon": "now" | "soon" | "later" | "someday",
+      "magnitude": "nothing" | "a_few" | "several",
+      "confidence": "low" | "medium" | "high",
+      "why_generic": "short generic sentence without any identifiers"
+    }
+  ]
 }
 
 EXAMPLES OF GOOD why_generic:
@@ -61,7 +69,7 @@ EXAMPLES OF BAD why_generic (NEVER DO THIS):
 - "The $500 payment to Netflix is due."
 - "Meeting with Sarah at 3pm tomorrow."
 
-You will now receive the abstract input. Analyze it and output ONLY the JSON object.`
+You will now receive the abstract input. Analyze it and output ONLY the JSON object with your suggestions array.`
 
 // userPromptTemplate is the template for the user message.
 // Uses placeholders for abstract data.
@@ -162,7 +170,8 @@ func allCategories() []shadowllm.AbstractCategory {
 	return shadowllm.AllCategories()
 }
 
-// ModelOutputSchema describes the expected JSON output format.
+// ModelOutputSchema describes the expected JSON output format (v1.0.0 legacy).
+// Used for backward compatibility with single-suggestion responses.
 type ModelOutputSchema struct {
 	ConfidenceBucket     string `json:"confidence_bucket"`
 	HorizonBucket        string `json:"horizon_bucket"`
@@ -170,4 +179,19 @@ type ModelOutputSchema struct {
 	Category             string `json:"category"`
 	WhyGeneric           string `json:"why_generic"`
 	SuggestedActionClass string `json:"suggested_action_class"`
+}
+
+// ModelOutputArraySchema describes the v1.1.0 array output format.
+// Contains 1-5 suggestions with category-specific analysis.
+type ModelOutputArraySchema struct {
+	Suggestions []SuggestionSchema `json:"suggestions"`
+}
+
+// SuggestionSchema describes a single suggestion in the array.
+type SuggestionSchema struct {
+	Category   string `json:"category"`
+	Horizon    string `json:"horizon"`
+	Magnitude  string `json:"magnitude"`
+	Confidence string `json:"confidence"`
+	WhyGeneric string `json:"why_generic"`
 }

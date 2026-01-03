@@ -140,6 +140,7 @@ type MultiCircleConfig struct {
 //
 // Phase 19: LLM Shadow-Mode Contract
 // Phase 19.3: Azure OpenAI Shadow Provider
+// Phase 19.3c: Real Azure Chat Shadow Run
 //
 // CRITICAL: Shadow mode is OFF by default.
 // CRITICAL: Shadow mode emits METADATA ONLY - never content.
@@ -162,6 +163,10 @@ type ShadowConfig struct {
 	// RealAllowed indicates if real (non-stub) providers are permitted.
 	// CRITICAL: Default is false. Must be explicitly enabled.
 	RealAllowed bool
+
+	// Phase 19.3c: MaxSuggestions limits suggestions per shadow run.
+	// Default: 3. Clamped to 1-5.
+	MaxSuggestions int
 
 	// AzureOpenAI contains Azure OpenAI provider configuration.
 	// Only used when ProviderKind="azure_openai" and RealAllowed=true.
@@ -332,19 +337,34 @@ func (h *EmbedHealth) CanonicalString() string {
 		"|error:" + h.ErrorBucket
 }
 
+// DefaultMaxSuggestions is the default maximum suggestions per shadow run.
+const DefaultMaxSuggestions = 3
+
 // DefaultShadowConfig returns the default shadow configuration.
 // CRITICAL: Mode is OFF by default.
 // CRITICAL: RealAllowed is false by default.
 func DefaultShadowConfig() ShadowConfig {
 	return ShadowConfig{
-		Mode:         "off",
-		ModelName:    "stub",
-		ProviderKind: "stub",
-		RealAllowed:  false,
+		Mode:           "off",
+		ModelName:      "stub",
+		ProviderKind:   "stub",
+		RealAllowed:    false,
+		MaxSuggestions: DefaultMaxSuggestions,
 		AzureOpenAI: AzureOpenAIConfig{
 			APIVersion: DefaultAzureOpenAIAPIVersion,
 		},
 	}
+}
+
+// GetMaxSuggestions returns the effective max suggestions (clamped to 1-5).
+func (c *ShadowConfig) GetMaxSuggestions() int {
+	if c.MaxSuggestions <= 0 {
+		return DefaultMaxSuggestions
+	}
+	if c.MaxSuggestions > 5 {
+		return 5
+	}
+	return c.MaxSuggestions
 }
 
 // CircleIDs returns circle IDs in deterministic sorted order.
