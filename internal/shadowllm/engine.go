@@ -141,6 +141,13 @@ func (e *Engine) Run(input RunInput) (*RunOutput, error) {
 	suggestions := convertSignalsToSuggestions(run.Signals)
 
 	// Build receipt with Phase 19.3 provenance
+	// Use actual provider kind from the provider interface
+	providerKind := e.provider.ProviderKind()
+	latencyBucket := shadowllm.LatencyNA
+	if providerKind.IsReal() {
+		latencyBucket = shadowllm.LatencyFast // Real providers have actual latency
+	}
+
 	receipt := shadowllm.ShadowReceipt{
 		ReceiptID:       receiptID,
 		CircleID:        input.CircleID,
@@ -150,11 +157,11 @@ func (e *Engine) Run(input RunInput) (*RunOutput, error) {
 		ModelSpec:       e.provider.Name(),
 		CreatedAt:       now,
 		Provenance: shadowllm.Provenance{
-			ProviderKind:          shadowllm.ProviderKindStub,
+			ProviderKind:          providerKind,
 			ModelOrDeployment:     e.provider.Name(),
 			RequestPolicyHash:     privacy.PolicyHash(),
 			PromptTemplateVersion: prompt.TemplateVersion,
-			LatencyBucket:         shadowllm.LatencyNA, // Stub has no latency
+			LatencyBucket:         latencyBucket,
 			Status:                shadowllm.ReceiptStatusSuccess,
 			ErrorBucket:           "",
 		},

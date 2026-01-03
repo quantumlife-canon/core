@@ -36,6 +36,9 @@ type ShadowModel interface {
 
 	// Name returns the model name (e.g., "stub", "deterministic-v1").
 	Name() string
+
+	// ProviderKind returns the provider kind for provenance tracking.
+	ProviderKind() ProviderKind
 }
 
 // ShadowContext provides abstract inputs to the shadow model.

@@ -32,3 +32,13 @@ work_domains = company.com, corp.company.com
 personal_domains = gmail.com, yahoo.com, outlook.com
 family_members = spouse@gmail.com, child@gmail.com
 vip_senders = ceo@company.com, manager@company.com
+
+# Shadow Mode Configuration (Phase 19.3b)
+# CRITICAL: Shadow mode is observation-only, never affects canon behavior
+[shadow]
+mode = observe
+provider_kind = azure_openai
+real_allowed = true
+azure_chat_deployment = gpt-4.1-mini
+azure_embed_deployment = text-embedding-3-small
+azure_api_version = 2024-02-15-preview

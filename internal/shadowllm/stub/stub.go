@@ -38,6 +38,11 @@ func (m *StubModel) Name() string {
 	return m.name
 }
 
+// ProviderKind returns the provider kind for provenance tracking.
+func (m *StubModel) ProviderKind() shadowllm.ProviderKind {
+	return shadowllm.ProviderKindStub
+}
+
 // Observe generates deterministic signals based on the context.
 //
 // CRITICAL: This method is deterministic.

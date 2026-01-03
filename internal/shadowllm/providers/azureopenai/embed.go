@@ -24,7 +24,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	"quantumlife/pkg/domain/config"
 )
@@ -142,12 +141,12 @@ type EmbedHealthResult struct {
 // CRITICAL: Input is ALWAYS EmbedHealthcheckInput - never user data.
 // CRITICAL: Returns only hash of vector - never raw embeddings.
 // CRITICAL: Single request - NO retries.
+// NOTE: Latency is NOT measured here (no time.Now allowed in internal/).
+//       If latency measurement is needed, do it in cmd/quantumlife-web/.
 func (p *EmbedProvider) Healthcheck(ctx context.Context) (*EmbedHealthResult, error) {
-	startTime := time.Now()
-
 	result := &EmbedHealthResult{
 		Status:        config.EmbedStatusFail,
-		LatencyBucket: "na",
+		LatencyBucket: "na", // Provider does not measure latency - see note above
 	}
 
 	// Build request with safe constant input
@@ -187,10 +186,6 @@ func (p *EmbedProvider) Healthcheck(ctx context.Context) (*EmbedHealthResult, er
 		return result, &EmbedError{Code: "network_error", Message: "request failed"}
 	}
 	defer resp.Body.Close()
-
-	// Calculate latency bucket
-	elapsed := time.Since(startTime)
-	result.LatencyBucket = latencyBucket(elapsed)
 
 	// Read response (limit size)
 	bodyReader := io.LimitReader(resp.Body, 256*1024) // 256KB max for embeddings
@@ -276,18 +271,6 @@ func int64ToString(n int64) string {
 		n /= 10
 	}
 	return string(digits)
-}
-
-// latencyBucket converts duration to abstract bucket.
-func latencyBucket(d time.Duration) string {
-	switch {
-	case d < time.Second:
-		return "fast"
-	case d < 5*time.Second:
-		return "medium"
-	default:
-		return "slow"
-	}
 }
 
 // embedStatusBucket converts HTTP status code to abstract bucket.

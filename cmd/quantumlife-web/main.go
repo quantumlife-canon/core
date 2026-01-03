@@ -831,6 +831,10 @@ func (w *azureProviderWrapper) Name() string {
 	return w.provider.Name()
 }
 
+func (w *azureProviderWrapper) ProviderKind() domainshadow.ProviderKind {
+	return domainshadow.ProviderKindAzureOpenAI
+}
+
 func (w *azureProviderWrapper) Observe(ctx domainshadow.ShadowContext) (domainshadow.ShadowRun, error) {
 	// The Azure provider uses a different interface (privacy.ShadowInput).
 	// For now, we return an empty run with the provider name.
