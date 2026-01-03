@@ -17,11 +17,11 @@ type Mode string
 
 const (
 	// ModeDemo indicates no real connections and stub shadow provider.
-	// This is the default state for new users or when testing.
+	// This is the default state for new circles or when testing.
 	ModeDemo Mode = "demo"
 
 	// ModeConnected indicates Gmail is connected but no shadow receipts exist.
-	// User has connected real data but shadow analysis hasn't run yet.
+	// Circle has connected real data but shadow analysis hasn't run yet.
 	ModeConnected Mode = "connected"
 
 	// ModeShadow indicates shadow receipts exist for the current period.
