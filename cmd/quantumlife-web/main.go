@@ -7765,9 +7765,33 @@ const templates = `
     </section>
     {{end}}
 
+    {{/* Phase 26B: First Minutes cue */}}
+    {{if and .FirstMinutesCue .FirstMinutesCue.Available}}
+    <section class="whisper-cue first-minutes-cue">
+        <p class="whisper-cue-text">{{.FirstMinutesCue.CueText}}</p>
+        <a href="/first-minutes" class="whisper-cue-link">{{.FirstMinutesCue.LinkText}}</a>
+    </section>
+    {{end}}
+
+    {{/* Phase 26C: Reality cue */}}
+    {{if and .RealityCue .RealityCue.Available}}
+    <section class="whisper-cue reality-cue">
+        <p class="whisper-cue-text">{{.RealityCue.CueText}}</p>
+        <a href="/reality" class="whisper-cue-link">{{.RealityCue.LinkText}}</a>
+    </section>
+    {{end}}
+
+    {{/* Phase 27: Shadow Receipt Primary cue (lowest priority) */}}
+    {{if and .ShadowReceiptPrimaryCue .ShadowReceiptPrimaryCue.Available}}
+    <section class="whisper-cue shadow-receipt-cue">
+        <p class="whisper-cue-text">{{.ShadowReceiptPrimaryCue.CueText}}</p>
+        <a href="/shadow/receipt" class="whisper-cue-link">{{.ShadowReceiptPrimaryCue.LinkText}}</a>
+    </section>
+    {{end}}
+
     {{/* Phase 19.2: Shadow mode whisper link (very subtle) */}}
     {{/* Only show if no other whisper is active */}}
-    {{if and (not .SurfaceCue) (not .ProofCue)}}
+    {{if and (not .SurfaceCue) (not .ProofCue) (not .FirstMinutesCue) (not .RealityCue) (not .ShadowReceiptPrimaryCue)}}
     <section class="shadow-whisper">
         <form action="/run/shadow" method="POST" class="shadow-whisper-form">
             <button type="submit" class="shadow-whisper-link">If you wanted to, we could sanity-check this day.</button>
