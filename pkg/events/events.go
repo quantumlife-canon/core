@@ -1545,6 +1545,26 @@ const (
 
 	// Phase26BFirstMinutesDismissed - first minutes receipt was dismissed.
 	Phase26BFirstMinutesDismissed EventType = "phase26b.first_minutes.dismissed"
+
+	// ==========================================================================
+	// Phase 26C: Connected Reality Check
+	// ==========================================================================
+	// Reference: docs/ADR/ADR-0057-phase26C-connected-reality-check.md
+	// ==========================================================================
+	// This is NOT analytics. This is a trust proof page.
+	// CRITICAL: All payloads contain hashes only - never identifiers.
+
+	// Phase26CRealityRequested - reality page was requested.
+	Phase26CRealityRequested EventType = "phase26c.reality.requested"
+
+	// Phase26CRealityComputed - reality page was computed.
+	Phase26CRealityComputed EventType = "phase26c.reality.computed"
+
+	// Phase26CRealityViewed - reality page was viewed.
+	Phase26CRealityViewed EventType = "phase26c.reality.viewed"
+
+	// Phase26CRealityAckRecorded - reality page acknowledgement was recorded.
+	Phase26CRealityAckRecorded EventType = "phase26c.reality.ack.recorded"
 )
 
 // Event represents a system event for audit and observability.

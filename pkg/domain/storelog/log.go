@@ -92,6 +92,11 @@ const (
 	// This is NOT analytics. This is narrative proof.
 	RecordTypeFirstMinutesSummary   = "FIRST_MINUTES_SUMMARY"
 	RecordTypeFirstMinutesDismissal = "FIRST_MINUTES_DISMISSAL"
+
+	// Phase 26C: Connected Reality Check record types
+	// CRITICAL: Contains ONLY hashes and period keys - never identifiers.
+	// This is NOT analytics. This is a trust proof page.
+	RecordTypeRealityAck = "REALITY_ACK"
 )
 
 // Common errors

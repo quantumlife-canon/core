@@ -51,6 +51,7 @@ import (
 	"quantumlife/internal/persist"
 	"quantumlife/internal/proof"
 	internalquietmirror "quantumlife/internal/quietmirror"
+	internalreality "quantumlife/internal/reality"
 	rulepackengine "quantumlife/internal/rulepack"
 	"quantumlife/internal/shadowcalibration"
 	shadowdiffengine "quantumlife/internal/shadowdiff"
@@ -78,6 +79,7 @@ import (
 	"quantumlife/pkg/domain/obligation"
 	"quantumlife/pkg/domain/policy"
 	quietmirror "quantumlife/pkg/domain/quietmirror"
+	domainreality "quantumlife/pkg/domain/reality"
 	domainrulepack "quantumlife/pkg/domain/rulepack"
 	"quantumlife/pkg/domain/runlog"
 	"quantumlife/pkg/domain/shadowdiff"
@@ -144,6 +146,8 @@ type Server struct {
 	journeyDismissalStore  *persist.JourneyDismissalStore     // Phase 26A: Journey dismissal store
 	firstMinutesEngine     *internalfirstminutes.Engine       // Phase 26B: First Minutes engine
 	firstMinutesStore      *persist.FirstMinutesStore         // Phase 26B: First Minutes store
+	realityEngine          *internalreality.Engine            // Phase 26C: Reality engine
+	realityAckStore        *persist.RealityAckStore           // Phase 26C: Reality ack store
 	// Phase 18 Web Control Center
 	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
 	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
@@ -238,6 +242,9 @@ type templateData struct {
 	// Phase 26B: First Five Minutes Proof
 	FirstMinutesSummary *domainfirstminutes.FirstMinutesSummary
 	FirstMinutesCue     *domainfirstminutes.FirstMinutesCue
+	// Phase 26C: Connected Reality Check
+	RealityPage *domainreality.RealityPage
+	RealityCue  *domainreality.RealityCue
 	// Phase 18 Web Control Center
 	RunSnapshots     []*runlog.RunSnapshot      // List of run snapshots for /runs
 	RunSnapshot      *runlog.RunSnapshot        // Single run snapshot for /runs/:id
@@ -608,6 +615,8 @@ func main() {
 		journeyDismissalStore:  persist.NewJourneyDismissalStore(clk.Now),     // Phase 26A
 		firstMinutesEngine:     internalfirstminutes.NewEngine(clk.Now),       // Phase 26B
 		firstMinutesStore:      persist.NewFirstMinutesStore(clk.Now),         // Phase 26B
+		realityEngine:          internalreality.NewEngine(clk),                // Phase 26C
+		realityAckStore:        persist.NewRealityAckStore(clk.Now),           // Phase 26C
 		// Phase 18 Web Control Center
 		runStore:       runStore,
 		suppressionSet: suppressionSet,
@@ -679,6 +688,8 @@ func main() {
 	mux.HandleFunc("/journey/dismiss", server.handleJourneyDismiss)                    // Phase 26A: Dismiss journey
 	mux.HandleFunc("/first-minutes", server.handleFirstMinutes)                        // Phase 26B: First Minutes receipt
 	mux.HandleFunc("/first-minutes/dismiss", server.handleFirstMinutesDismiss)         // Phase 26B: Dismiss receipt
+	mux.HandleFunc("/reality", server.handleReality)                                   // Phase 26C: Reality check
+	mux.HandleFunc("/reality/ack", server.handleRealityAck)                            // Phase 26C: Acknowledge reality
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18 Web Control Center: Core routes
@@ -1250,11 +1261,15 @@ func (s *Server) handleToday(w http.ResponseWriter, r *http.Request) {
 
 	// Phase 18.5.1: Single whisper rule
 	// Show at most ONE whisper cue on /today.
-	// Priority: surface cue > proof cue > first-minutes cue
+	// Priority: surface cue > proof cue > first-minutes cue > reality cue
 	// If surface is available, hide proof cue (proof accessible via /surface).
 	var displaySurfaceCue *surface.SurfaceCue
 	var displayProofCue *proof.ProofCue
 	var displayFirstMinutesCue *domainfirstminutes.FirstMinutesCue
+	var displayRealityCue *domainreality.RealityCue
+
+	circleID := identity.EntityID("default")
+	now := s.clk.Now()
 
 	if surfaceCue.Available {
 		displaySurfaceCue = &surfaceCue
@@ -1262,16 +1277,43 @@ func (s *Server) handleToday(w http.ResponseWriter, r *http.Request) {
 	} else if proofCue.Available {
 		displayProofCue = &proofCue
 	} else {
-		// Phase 26B: First Minutes cue (lowest priority)
+		// Phase 26B: First Minutes cue
 		// Only show if no other cues are active
-		circleID := identity.EntityID("default")
-		now := s.clk.Now()
 		firstMinutesInputs := s.buildFirstMinutesInputs(circleID, now)
 		otherCueActive := surfaceCue.Available || proofCue.Available
 		if s.firstMinutesEngine.ShouldShowFirstMinutesCue(firstMinutesInputs, otherCueActive) {
 			cue := s.firstMinutesEngine.ComputeCue(firstMinutesInputs)
 			if cue.Available {
 				displayFirstMinutesCue = cue
+			}
+		}
+
+		// Phase 26C: Reality cue (lowest priority)
+		// Only show if no other cues are active (including first-minutes)
+		if displayFirstMinutesCue == nil {
+			realityInputs := s.buildRealityInputs(circleID, now)
+			period := internalreality.PeriodKey(now)
+
+			// Check if already acknowledged
+			acked := false
+			if s.realityAckStore != nil {
+				page := s.realityEngine.BuildPage(realityInputs)
+				acked = s.realityAckStore.IsAcked(period, page.StatusHash)
+			}
+
+			// Check if reality cue should show
+			if s.realityEngine.ShouldShowRealityCue(
+				realityInputs,
+				acked,
+				surfaceCue.Available,
+				proofCue.Available,
+				false, // journeyCueActive - not tracked separately here
+				displayFirstMinutesCue != nil,
+			) {
+				cue := s.realityEngine.ComputeCue(realityInputs, acked)
+				if cue.Available {
+					displayRealityCue = cue
+				}
 			}
 		}
 	}
@@ -1283,6 +1325,7 @@ func (s *Server) handleToday(w http.ResponseWriter, r *http.Request) {
 		SurfaceCue:      displaySurfaceCue,
 		ProofCue:        displayProofCue,
 		FirstMinutesCue: displayFirstMinutesCue,
+		RealityCue:      displayRealityCue,
 	}
 
 	s.render(w, "today", data)
@@ -6197,6 +6240,215 @@ func mapTrustMagnitude(m domainshadow.MagnitudeBucket) domainfirstminutes.Magnit
 	default:
 		return domainfirstminutes.MagnitudeNothing
 	}
+}
+
+// =============================================================================
+// Phase 26C: Connected Reality Check Handlers
+// =============================================================================
+// This is NOT analytics. This is a trust proof page.
+// Proves "this is real" without showing content, identifiers, or secrets.
+// Reference: docs/ADR/ADR-0057-phase26C-connected-reality-check.md
+// =============================================================================
+
+// handleReality serves the reality check page.
+// Phase 26C: A single calm page proving connected status without showing content.
+func (s *Server) handleReality(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := identity.EntityID("default")
+	period := internalreality.PeriodKey(now)
+
+	// Build inputs by gathering state from various stores
+	inputs := s.buildRealityInputs(circleID, now)
+
+	// Emit requested event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase26CRealityRequested,
+		Timestamp: now,
+		CircleID:  string(circleID),
+		Metadata: map[string]string{
+			"period": period,
+		},
+	})
+
+	// Build the page
+	page := s.realityEngine.BuildPage(inputs)
+
+	// Emit computed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase26CRealityComputed,
+		Timestamp: now,
+		CircleID:  string(circleID),
+		Metadata: map[string]string{
+			"period":          period,
+			"status_hash":     page.StatusHash,
+			"gmail_connected": boolToYesNoString(inputs.GmailConnected),
+		},
+	})
+
+	// Emit viewed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase26CRealityViewed,
+		Timestamp: now,
+		CircleID:  string(circleID),
+		Metadata: map[string]string{
+			"period":      period,
+			"status_hash": page.StatusHash,
+		},
+	})
+
+	data := templateData{
+		Title:       "Reality",
+		CurrentTime: now.Format("2006-01-02 15:04"),
+		RealityPage: page,
+		CircleID:    string(circleID),
+	}
+
+	s.render(w, "reality", data)
+}
+
+// handleRealityAck acknowledges the reality page for the current period.
+// Phase 26C: Store hash-only acknowledgement, redirect to /today.
+func (s *Server) handleRealityAck(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := identity.EntityID("default")
+	period := internalreality.PeriodKey(now)
+
+	// Get status_hash from form
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+	statusHash := r.FormValue("status_hash")
+
+	// Verify status hash matches current state
+	inputs := s.buildRealityInputs(circleID, now)
+	page := s.realityEngine.BuildPage(inputs)
+
+	if statusHash != "" && statusHash != page.StatusHash {
+		// Status changed since page was rendered - redirect back to reality
+		http.Redirect(w, r, "/reality", http.StatusFound)
+		return
+	}
+
+	// Record acknowledgement
+	if s.realityAckStore != nil {
+		_ = s.realityAckStore.RecordAck(period, page.StatusHash)
+	}
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase26CRealityAckRecorded,
+		Timestamp: now,
+		CircleID:  string(circleID),
+		Metadata: map[string]string{
+			"period":      period,
+			"status_hash": page.StatusHash,
+		},
+	})
+
+	// Redirect to today - back to quiet
+	http.Redirect(w, r, "/today", http.StatusFound)
+}
+
+// buildRealityInputs gathers state from various stores to build reality inputs.
+// Phase 26C: Reads ONLY from existing stores - no new data collection.
+// CRITICAL: Never exposes secrets, identifiers, or raw content.
+func (s *Server) buildRealityInputs(circleID identity.EntityID, now time.Time) *domainreality.RealityInputs {
+	period := internalreality.PeriodKey(now)
+
+	inputs := &domainreality.RealityInputs{
+		CircleID:  string(circleID),
+		NowBucket: period,
+	}
+
+	// Check Gmail connection status (from connection store)
+	if s.connectionStore != nil {
+		stateSet := s.connectionStore.State()
+		if stateSet != nil {
+			emailState := stateSet.Get(connection.KindEmail)
+			if emailState != nil && emailState.Status != connection.StatusNotConnected {
+				inputs.GmailConnected = true
+			}
+		}
+	}
+
+	// Check sync status (from sync receipt store)
+	if s.syncReceiptStore != nil {
+		latestReceipt := s.syncReceiptStore.GetLatestByCircle(circleID)
+		if latestReceipt != nil {
+			inputs.SyncBucket = internalreality.ComputeSyncBucket(latestReceipt.TimeBucket, now)
+			inputs.SyncMagnitude = internalreality.MapSyncReceiptMagnitude(string(latestReceipt.MagnitudeBucket))
+		} else {
+			inputs.SyncBucket = domainreality.SyncBucketNever
+			inputs.SyncMagnitude = domainreality.MagnitudeNA
+		}
+	} else {
+		inputs.SyncBucket = domainreality.SyncBucketNever
+		inputs.SyncMagnitude = domainreality.MagnitudeNA
+	}
+
+	// Obligations held - always true per canon (quiet baseline)
+	inputs.ObligationsHeld = true
+
+	// Auto-surface - always false per canon
+	inputs.AutoSurface = false
+
+	// Shadow mode configuration (from config)
+	if s.multiCircleConfig != nil {
+		shadowCfg := s.multiCircleConfig.Shadow
+
+		// Map provider kind
+		inputs.ShadowProviderKind = internalreality.MapProviderKind(
+			shadowCfg.ProviderKind,
+			shadowCfg.Mode,
+		)
+		inputs.ShadowRealAllowed = shadowCfg.RealAllowed
+
+		// Check chat/embed configuration
+		azureCfg := shadowCfg.AzureOpenAI
+		inputs.ChatConfigured = azureCfg.GetChatDeployment() != ""
+		inputs.EmbedConfigured = azureCfg.HasEmbeddings()
+		inputs.EndpointConfigured = azureCfg.Endpoint != ""
+
+		// Region - only show if explicitly in config, never derive from URL
+		// This is safe to show as it's non-identifying config
+		// For now we don't parse region from config, omit it
+		inputs.Region = ""
+	} else {
+		inputs.ShadowProviderKind = domainreality.ProviderOff
+		inputs.ShadowRealAllowed = false
+		inputs.ChatConfigured = false
+		inputs.EmbedConfigured = false
+		inputs.EndpointConfigured = false
+	}
+
+	// Shadow receipts magnitude (from shadow receipt store)
+	if s.shadowReceiptStore != nil && inputs.ShadowProviderKind != domainreality.ProviderOff {
+		receipts := s.shadowReceiptStore.ListForCircle(circleID)
+		inputs.ShadowMagnitude = internalreality.MapShadowReceiptCount(len(receipts))
+	} else {
+		inputs.ShadowMagnitude = domainreality.MagnitudeNA
+	}
+
+	return inputs
+}
+
+// boolToYesNoString converts a bool to "yes" or "no" string for event metadata.
+func boolToYesNoString(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
 }
 
 // handleDemo serves the deterministic demo page.
