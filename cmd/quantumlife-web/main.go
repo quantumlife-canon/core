@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -2460,12 +2461,15 @@ func (s *Server) handleShadowRun(w http.ResponseWriter, r *http.Request) {
 		Timestamp: s.clk.Now(),
 	})
 
-	// Get circle ID - prefer identity repo circles for consistency with loop
+	// Get circle ID - prefer query param, then first circle sorted by ID (deterministic)
 	circleID := r.URL.Query().Get("circle_id")
 	if circleID == "" {
-		// Use first circle from identity repo (matches loop engine)
+		// Sort by ID for deterministic selection (map iteration is non-deterministic)
 		entities, err := s.identityRepo.GetByType(identity.EntityTypeCircle)
 		if err == nil && len(entities) > 0 {
+			sort.Slice(entities, func(i, j int) bool {
+				return entities[i].ID() < entities[j].ID()
+			})
 			if circle, ok := entities[0].(*identity.Circle); ok {
 				circleID = string(circle.ID())
 			}
@@ -4466,8 +4470,25 @@ func (s *Server) handleOnboarding(w http.ResponseWriter, r *http.Request) {
 // CRITICAL: No raw content. No identifiable information.
 // CRITICAL: No goroutines. Deterministic rendering.
 func (s *Server) handleShadowReceipt(w http.ResponseWriter, r *http.Request) {
-	// Check for Gmail connection (use demo-circle as default)
-	circleID := "demo-circle"
+	// Get circle ID - prefer query param, then first circle sorted by ID (deterministic)
+	circleID := r.URL.Query().Get("circle_id")
+	if circleID == "" {
+		entities, err := s.identityRepo.GetByType(identity.EntityTypeCircle)
+		if err == nil && len(entities) > 0 {
+			// Sort by ID for deterministic selection (map iteration is non-deterministic)
+			sort.Slice(entities, func(i, j int) bool {
+				return entities[i].ID() < entities[j].ID()
+			})
+			if circle, ok := entities[0].(*identity.Circle); ok {
+				circleID = string(circle.ID())
+			}
+		}
+	}
+	if circleID == "" {
+		circleID = "demo-circle"
+	}
+
+	// Check for Gmail connection
 	hasGmail := false
 	if s.gmailHandler != nil {
 		hasConn, err := s.gmailHandler.HasConnection(r.Context(), circleID)
