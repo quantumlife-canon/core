@@ -36,6 +36,7 @@ import (
 	"quantumlife/internal/execexecutor"
 	"quantumlife/internal/execrouter"
 	internalfirstaction "quantumlife/internal/firstaction"
+	internalfirstminutes "quantumlife/internal/firstminutes"
 	"quantumlife/internal/held"
 	gmailread "quantumlife/internal/integrations/gmail_read"
 	"quantumlife/internal/interest"
@@ -70,6 +71,7 @@ import (
 	domainevents "quantumlife/pkg/domain/events"
 	"quantumlife/pkg/domain/feedback"
 	domainfirstaction "quantumlife/pkg/domain/firstaction"
+	domainfirstminutes "quantumlife/pkg/domain/firstminutes"
 	"quantumlife/pkg/domain/identity"
 	domaininvitation "quantumlife/pkg/domain/invitation"
 	domainmirror "quantumlife/pkg/domain/mirror"
@@ -140,6 +142,8 @@ type Server struct {
 	undoableExecStore      *persist.UndoableExecStore         // Phase 25: Undoable execution store
 	journeyEngine          *journey.Engine                    // Phase 26A: Guided Journey engine
 	journeyDismissalStore  *persist.JourneyDismissalStore     // Phase 26A: Journey dismissal store
+	firstMinutesEngine     *internalfirstminutes.Engine       // Phase 26B: First Minutes engine
+	firstMinutesStore      *persist.FirstMinutesStore         // Phase 26B: First Minutes store
 	// Phase 18 Web Control Center
 	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
 	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
@@ -231,6 +235,9 @@ type templateData struct {
 	UndoEligibility *domainundoableexec.ActionEligibility
 	// Phase 26A: Guided Journey
 	JourneyPage *journey.JourneyPage
+	// Phase 26B: First Five Minutes Proof
+	FirstMinutesSummary *domainfirstminutes.FirstMinutesSummary
+	FirstMinutesCue     *domainfirstminutes.FirstMinutesCue
 	// Phase 18 Web Control Center
 	RunSnapshots     []*runlog.RunSnapshot      // List of run snapshots for /runs
 	RunSnapshot      *runlog.RunSnapshot        // Single run snapshot for /runs/:id
@@ -599,6 +606,8 @@ func main() {
 		undoableExecStore:      persist.NewUndoableExecStore(clk.Now),         // Phase 25
 		journeyEngine:          journey.NewEngine(clk.Now),                    // Phase 26A
 		journeyDismissalStore:  persist.NewJourneyDismissalStore(clk.Now),     // Phase 26A
+		firstMinutesEngine:     internalfirstminutes.NewEngine(clk.Now),       // Phase 26B
+		firstMinutesStore:      persist.NewFirstMinutesStore(clk.Now),         // Phase 26B
 		// Phase 18 Web Control Center
 		runStore:       runStore,
 		suppressionSet: suppressionSet,
@@ -668,6 +677,8 @@ func main() {
 	mux.HandleFunc("/journey", server.handleJourney)                                   // Phase 26A: Guided Journey
 	mux.HandleFunc("/journey/next", server.handleJourneyNext)                          // Phase 26A: Journey next step
 	mux.HandleFunc("/journey/dismiss", server.handleJourneyDismiss)                    // Phase 26A: Dismiss journey
+	mux.HandleFunc("/first-minutes", server.handleFirstMinutes)                        // Phase 26B: First Minutes receipt
+	mux.HandleFunc("/first-minutes/dismiss", server.handleFirstMinutesDismiss)         // Phase 26B: Dismiss receipt
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18 Web Control Center: Core routes
@@ -1239,23 +1250,39 @@ func (s *Server) handleToday(w http.ResponseWriter, r *http.Request) {
 
 	// Phase 18.5.1: Single whisper rule
 	// Show at most ONE whisper cue on /today.
-	// Priority: surface cue > proof cue
+	// Priority: surface cue > proof cue > first-minutes cue
 	// If surface is available, hide proof cue (proof accessible via /surface).
 	var displaySurfaceCue *surface.SurfaceCue
 	var displayProofCue *proof.ProofCue
+	var displayFirstMinutesCue *domainfirstminutes.FirstMinutesCue
+
 	if surfaceCue.Available {
 		displaySurfaceCue = &surfaceCue
 		// Proof cue hidden - accessible via /surface link
 	} else if proofCue.Available {
 		displayProofCue = &proofCue
+	} else {
+		// Phase 26B: First Minutes cue (lowest priority)
+		// Only show if no other cues are active
+		circleID := identity.EntityID("default")
+		now := s.clk.Now()
+		firstMinutesInputs := s.buildFirstMinutesInputs(circleID, now)
+		otherCueActive := surfaceCue.Available || proofCue.Available
+		if s.firstMinutesEngine.ShouldShowFirstMinutesCue(firstMinutesInputs, otherCueActive) {
+			cue := s.firstMinutesEngine.ComputeCue(firstMinutesInputs)
+			if cue.Available {
+				displayFirstMinutesCue = cue
+			}
+		}
 	}
 
 	data := templateData{
-		Title:       "Today, quietly.",
-		CurrentTime: s.clk.Now().Format("2006-01-02 15:04"),
-		TodayPage:   &page,
-		SurfaceCue:  displaySurfaceCue,
-		ProofCue:    displayProofCue,
+		Title:           "Today, quietly.",
+		CurrentTime:     s.clk.Now().Format("2006-01-02 15:04"),
+		TodayPage:       &page,
+		SurfaceCue:      displaySurfaceCue,
+		ProofCue:        displayProofCue,
+		FirstMinutesCue: displayFirstMinutesCue,
 	}
 
 	s.render(w, "today", data)
@@ -5932,6 +5959,244 @@ func (s *Server) buildJourneyInputs(circleID identity.EntityID, now time.Time) *
 	}
 
 	return inputs
+}
+
+// handleFirstMinutes serves the First Five Minutes receipt page.
+// Phase 26B: A single calm receipt showing what happened during first minutes.
+// This is NOT analytics. This is narrative proof.
+func (s *Server) handleFirstMinutes(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := identity.EntityID("default")
+	period := internalfirstminutes.PeriodFromTime(now)
+
+	// Build inputs by gathering state from various stores
+	inputs := s.buildFirstMinutesInputs(circleID, now)
+
+	// Compute the summary
+	summary := s.firstMinutesEngine.ComputeSummary(inputs)
+
+	// If no meaningful signals, redirect to /today (silence is success)
+	if summary == nil {
+		http.Redirect(w, r, "/today", http.StatusFound)
+		return
+	}
+
+	// Emit events
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase26BFirstMinutesViewed,
+		Timestamp: now,
+		CircleID:  string(circleID),
+		Metadata: map[string]string{
+			"period":       string(period),
+			"status_hash":  summary.StatusHash,
+			"signal_count": fmt.Sprintf("%d", len(summary.Signals)),
+		},
+	})
+
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase26BFirstMinutesComputed,
+		Timestamp: now,
+		CircleID:  string(circleID),
+		Metadata: map[string]string{
+			"period":      string(period),
+			"status_hash": summary.StatusHash,
+		},
+	})
+
+	data := templateData{
+		Title:               "First Minutes",
+		CurrentTime:         now.Format("2006-01-02 15:04"),
+		FirstMinutesSummary: summary,
+		CircleID:            string(circleID),
+	}
+
+	s.render(w, "first-minutes", data)
+}
+
+// handleFirstMinutesDismiss dismisses the First Minutes receipt for the current period.
+// Phase 26B: Store hash-only dismissal, redirect to /today.
+func (s *Server) handleFirstMinutesDismiss(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := identity.EntityID("default")
+	period := internalfirstminutes.PeriodFromTime(now)
+
+	// Get status_hash from form
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+	statusHash := r.FormValue("status_hash")
+
+	// Verify status hash matches current state
+	inputs := s.buildFirstMinutesInputs(circleID, now)
+	summary := s.firstMinutesEngine.ComputeSummary(inputs)
+
+	if summary == nil {
+		// No summary to dismiss
+		http.Redirect(w, r, "/today", http.StatusFound)
+		return
+	}
+
+	if statusHash != "" && statusHash != summary.StatusHash {
+		// Status changed since page was rendered - redirect back to first-minutes
+		http.Redirect(w, r, "/first-minutes", http.StatusFound)
+		return
+	}
+
+	// Record dismissal
+	_, _ = s.firstMinutesStore.RecordDismissal(circleID, period, summary.StatusHash)
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase26BFirstMinutesDismissed,
+		Timestamp: now,
+		CircleID:  string(circleID),
+		Metadata: map[string]string{
+			"period":      string(period),
+			"status_hash": summary.StatusHash,
+		},
+	})
+
+	// Redirect to today - silence resumes
+	http.Redirect(w, r, "/today", http.StatusFound)
+}
+
+// buildFirstMinutesInputs gathers state from various stores to build first minutes inputs.
+// Phase 26B: Reads ONLY from existing stores - no new data collection.
+func (s *Server) buildFirstMinutesInputs(circleID identity.EntityID, now time.Time) *domainfirstminutes.FirstMinutesInputs {
+	period := internalfirstminutes.PeriodFromTime(now)
+
+	inputs := &domainfirstminutes.FirstMinutesInputs{
+		CircleID: string(circleID),
+		Period:   period,
+	}
+
+	// Check connection status (from connection store)
+	if s.connectionStore != nil {
+		stateSet := s.connectionStore.State()
+		if stateSet != nil {
+			emailState := stateSet.Get(connection.KindEmail)
+			if emailState != nil && emailState.Status != connection.StatusNotConnected {
+				inputs.HasConnection = true
+				if emailState.Status == connection.StatusConnectedMock {
+					inputs.ConnectionMode = "mock"
+				} else {
+					inputs.ConnectionMode = "real"
+				}
+			}
+		}
+	}
+
+	// Check sync receipt (from sync receipt store)
+	if s.syncReceiptStore != nil {
+		latestReceipt := s.syncReceiptStore.GetLatestByCircle(circleID)
+		if latestReceipt != nil {
+			inputs.HasSyncReceipt = true
+			inputs.SyncMagnitude = mapMagnitude(latestReceipt.MagnitudeBucket)
+		}
+	}
+
+	// Check mirror (from quiet mirror store)
+	if s.quietMirrorStore != nil {
+		periodKey := now.UTC().Format("2006-01-02")
+		summary := s.quietMirrorStore.GetLatestForPeriod(circleID, periodKey)
+		if summary != nil {
+			inputs.HasMirror = true
+			inputs.MirrorMagnitude = mapQuietMirrorMagnitude(summary.Magnitude)
+		}
+	}
+
+	// Check held items (from trust store)
+	if s.trustStore != nil {
+		trustSummary := s.trustStore.GetRecentMeaningfulSummary()
+		if trustSummary != nil {
+			inputs.HasHeldItems = true
+			inputs.HeldMagnitude = mapTrustMagnitude(trustSummary.MagnitudeBucket)
+		}
+	}
+
+	// Check action previewed (from first action store)
+	if s.firstActionStore != nil {
+		periodHash := now.UTC().Format("2006-01-02")
+		records := s.firstActionStore.GetForPeriod(circleID, periodHash)
+		if len(records) > 0 {
+			inputs.ActionPreviewed = true
+		}
+	}
+
+	// Check action executed (from undo store)
+	if s.undoableExecStore != nil {
+		periodKey := now.UTC().Format("2006-01-02")
+		records := s.undoableExecStore.GetForPeriod(circleID, periodKey)
+		for _, rec := range records {
+			if rec.State == domainundoableexec.StateExecuted ||
+				rec.State == domainundoableexec.StateUndoAvailable ||
+				rec.State == domainundoableexec.StateUndone ||
+				rec.State == domainundoableexec.StateExpired {
+				inputs.ActionExecuted = true
+				break
+			}
+		}
+	}
+
+	// Check for dismissal
+	if s.firstMinutesStore != nil {
+		inputs.DismissedSummaryHash = s.firstMinutesStore.GetDismissedSummaryHash(circleID, period)
+	}
+
+	return inputs
+}
+
+// mapMagnitude maps persist.MagnitudeBucket to domainfirstminutes.MagnitudeBucket.
+func mapMagnitude(m persist.MagnitudeBucket) domainfirstminutes.MagnitudeBucket {
+	switch m {
+	case persist.MagnitudeNone:
+		return domainfirstminutes.MagnitudeNothing
+	case persist.MagnitudeHandful:
+		return domainfirstminutes.MagnitudeAFew
+	case persist.MagnitudeSeveral, persist.MagnitudeMany:
+		return domainfirstminutes.MagnitudeSeveral
+	default:
+		return domainfirstminutes.MagnitudeNothing
+	}
+}
+
+// mapQuietMirrorMagnitude maps quietmirror.MirrorMagnitude to domainfirstminutes.MagnitudeBucket.
+func mapQuietMirrorMagnitude(m quietmirror.MirrorMagnitude) domainfirstminutes.MagnitudeBucket {
+	switch m {
+	case quietmirror.MagnitudeNothing:
+		return domainfirstminutes.MagnitudeNothing
+	case quietmirror.MagnitudeAFew:
+		return domainfirstminutes.MagnitudeAFew
+	case quietmirror.MagnitudeSeveral:
+		return domainfirstminutes.MagnitudeSeveral
+	default:
+		return domainfirstminutes.MagnitudeNothing
+	}
+}
+
+// mapTrustMagnitude maps domainshadow.MagnitudeBucket to domainfirstminutes.MagnitudeBucket.
+func mapTrustMagnitude(m domainshadow.MagnitudeBucket) domainfirstminutes.MagnitudeBucket {
+	switch m {
+	case domainshadow.MagnitudeNothing:
+		return domainfirstminutes.MagnitudeNothing
+	case domainshadow.MagnitudeAFew:
+		return domainfirstminutes.MagnitudeAFew
+	case domainshadow.MagnitudeSeveral:
+		return domainfirstminutes.MagnitudeSeveral
+	default:
+		return domainfirstminutes.MagnitudeNothing
+	}
 }
 
 // handleDemo serves the deterministic demo page.

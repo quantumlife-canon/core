@@ -1526,6 +1526,25 @@ const (
 
 	// Phase26AJourneyNextRedirected - user clicked next and was redirected.
 	Phase26AJourneyNextRedirected EventType = "phase26a.journey.next.redirected"
+
+	// ==========================================================================
+	// Phase 26B: First Five Minutes Proof Events
+	// Reference: docs/ADR/ADR-0056-phase26B-first-five-minutes-proof.md
+	// ==========================================================================
+	// This is NOT analytics. This is NOT telemetry. This is narrative proof.
+	// CRITICAL: All payloads contain hashes only - never identifiers.
+
+	// Phase26BFirstMinutesComputed - first minutes summary was computed.
+	Phase26BFirstMinutesComputed EventType = "phase26b.first_minutes.computed"
+
+	// Phase26BFirstMinutesPersisted - first minutes summary was persisted.
+	Phase26BFirstMinutesPersisted EventType = "phase26b.first_minutes.persisted"
+
+	// Phase26BFirstMinutesViewed - first minutes receipt was viewed.
+	Phase26BFirstMinutesViewed EventType = "phase26b.first_minutes.viewed"
+
+	// Phase26BFirstMinutesDismissed - first minutes receipt was dismissed.
+	Phase26BFirstMinutesDismissed EventType = "phase26b.first_minutes.dismissed"
 )
 
 // Event represents a system event for audit and observability.

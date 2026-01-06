@@ -86,6 +86,12 @@ const (
 	// Phase 26A: Guided Journey record types
 	// CRITICAL: Contains ONLY hashes and period keys - never identifiers.
 	RecordTypeJourneyDismissal = "JOURNEY_DISMISSAL"
+
+	// Phase 26B: First Five Minutes Proof record types
+	// CRITICAL: Contains ONLY hashes, abstract signals, and period keys - never identifiers.
+	// This is NOT analytics. This is narrative proof.
+	RecordTypeFirstMinutesSummary   = "FIRST_MINUTES_SUMMARY"
+	RecordTypeFirstMinutesDismissal = "FIRST_MINUTES_DISMISSAL"
 )
 
 // Common errors
