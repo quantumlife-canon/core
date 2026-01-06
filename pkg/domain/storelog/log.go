@@ -97,6 +97,13 @@ const (
 	// CRITICAL: Contains ONLY hashes and period keys - never identifiers.
 	// This is NOT analytics. This is a trust proof page.
 	RecordTypeRealityAck = "REALITY_ACK"
+
+	// Phase 27: Real Shadow Receipt (Primary Proof) record types
+	// CRITICAL: Contains ONLY hashes - never identifiers.
+	// CRITICAL: Vote does NOT change behavior.
+	// CRITICAL: Vote feeds Phase 19 calibration only.
+	RecordTypeShadowReceiptAck  = "SHADOW_RECEIPT_ACK"
+	RecordTypeShadowReceiptVote = "SHADOW_RECEIPT_VOTE"
 )
 
 // Common errors

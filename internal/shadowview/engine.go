@@ -1,14 +1,18 @@
-// Package shadowview provides the shadow receipt viewer for Phase 21.
+// Package shadowview provides the shadow receipt viewer for Phase 21 and Phase 27.
 //
 // Phase 21: Unified Onboarding + Shadow Receipt Viewer
+// Phase 27: Real Shadow Receipt (Primary Proof of Intelligence, Zero Pressure)
 //
 // CRITICAL INVARIANTS:
 //   - Deterministic projection from existing receipts
 //   - No goroutines. No time.Now().
 //   - Stdlib only.
 //   - Shows ONLY abstract buckets and hashes
+//   - Shadow remains observation-only (Phase 27)
+//   - Shadow never alters runtime behavior (Phase 27)
 //
 // Reference: docs/ADR/ADR-0051-phase21-onboarding-modes-shadow-receipt-viewer.md
+// Reference: docs/ADR/ADR-0058-phase27-real-shadow-receipt-primary-proof.md
 package shadowview
 
 import (
@@ -16,6 +20,7 @@ import (
 	"time"
 
 	"quantumlife/pkg/domain/shadowllm"
+	domainshadowview "quantumlife/pkg/domain/shadowview"
 )
 
 // Engine builds shadow receipt page views.
@@ -298,6 +303,402 @@ func (e *Engine) BuildCue(input BuildCueInput) ReceiptCue {
 		Available:   true,
 		CueText:     "Proof of observation recorded.",
 		LinkText:    "View shadow receipt",
+		ReceiptHash: input.Receipt.Hash(),
+	}
+}
+
+// =============================================================================
+// Phase 27: Primary Proof of Intelligence
+// =============================================================================
+
+// BuildPrimaryPageInput contains inputs for the Phase 27 primary proof page.
+type BuildPrimaryPageInput struct {
+	// Receipt is the shadow receipt (may be nil).
+	Receipt *shadowllm.ShadowReceipt
+
+	// ProviderKind is the configured shadow provider kind.
+	// Use empty string or "none" if not configured.
+	ProviderKind string
+
+	// HasVoted indicates if user already voted on this receipt.
+	HasVoted bool
+
+	// IsDismissed indicates if the receipt cue was dismissed.
+	IsDismissed bool
+}
+
+// BuildPrimaryPage creates the Phase 27 primary proof page.
+//
+// CRITICAL: Deterministic projection - same input => same output.
+// CRITICAL: Shows ONLY abstract buckets and hashes.
+// CRITICAL: This is proof, not marketing.
+func (e *Engine) BuildPrimaryPage(input BuildPrimaryPageInput) domainshadowview.ShadowReceiptPrimaryPage {
+	page := domainshadowview.ShadowReceiptPrimaryPage{
+		HasReceipt: input.Receipt != nil,
+		BackPath:   "/today",
+	}
+
+	// Determine provider info
+	providerKind := mapProviderKind(input.ProviderKind)
+	wasConsulted := input.Receipt != nil && providerKind != domainshadowview.ProviderNone
+
+	// Build provider disclosure
+	page.Provider = buildProviderSection(providerKind, wasConsulted)
+
+	if input.Receipt == nil {
+		// No receipt - return minimal page
+		page.Evidence = domainshadowview.ShadowReceiptEvidence{
+			Kind:      domainshadowview.EvidenceAskedNone,
+			Statement: "No model was consulted.",
+		}
+		page.ModelReturn = domainshadowview.ShadowReceiptModelReturn{
+			Horizon:    domainshadowview.HorizonNone,
+			Magnitude:  domainshadowview.MagnitudeNothing,
+			Confidence: domainshadowview.ConfidenceNA,
+			Statement:  "Nothing to report.",
+		}
+		page.Decision = domainshadowview.ShadowReceiptDecision{
+			Kind:      domainshadowview.DecisionNoModel,
+			Statement: "No action was needed.",
+		}
+		page.Reason = domainshadowview.ShadowReceiptReason{
+			Kind:      domainshadowview.ReasonNoModelConsulted,
+			Statement: "Shadow mode observed nothing requiring attention.",
+		}
+		page.VoteEligibility = domainshadowview.ShadowReceiptVoteEligibility{
+			Eligible:     false,
+			AlreadyVoted: false,
+			ReceiptHash:  "",
+		}
+		page.StatusHash = page.ComputeStatusHash()
+		return page
+	}
+
+	// Build from receipt
+	page.Evidence = buildEvidenceSection(wasConsulted)
+	page.ModelReturn = buildModelReturnSection(input.Receipt)
+	page.Decision = buildDecisionSection(input.Receipt)
+	page.Reason = buildReasonSection(input.Receipt)
+	page.VoteEligibility = domainshadowview.ShadowReceiptVoteEligibility{
+		Eligible:     !input.HasVoted && !input.IsDismissed,
+		AlreadyVoted: input.HasVoted,
+		ReceiptHash:  input.Receipt.Hash(),
+	}
+	page.StatusHash = page.ComputeStatusHash()
+
+	return page
+}
+
+// buildProviderSection creates the provider disclosure section.
+func buildProviderSection(kind domainshadowview.ProviderKind, wasConsulted bool) domainshadowview.ShadowReceiptProvider {
+	var statement string
+	if !wasConsulted {
+		statement = "No model was consulted."
+	} else {
+		switch kind {
+		case domainshadowview.ProviderStub:
+			statement = "A model was consulted (stub)."
+		case domainshadowview.ProviderAzureOpenAIChat:
+			statement = "A model was consulted (azure_openai_chat)."
+		default:
+			statement = "A model was consulted."
+		}
+	}
+
+	return domainshadowview.ShadowReceiptProvider{
+		Kind:         kind,
+		WasConsulted: wasConsulted,
+		Statement:    statement,
+	}
+}
+
+// buildEvidenceSection creates the "what we asked" section.
+func buildEvidenceSection(wasConsulted bool) domainshadowview.ShadowReceiptEvidence {
+	if !wasConsulted {
+		return domainshadowview.ShadowReceiptEvidence{
+			Kind:      domainshadowview.EvidenceAskedNone,
+			Statement: "No model was consulted.",
+		}
+	}
+	return domainshadowview.ShadowReceiptEvidence{
+		Kind:      domainshadowview.EvidenceAskedSurfaceCheck,
+		Statement: "We asked whether anything should reach you today.",
+	}
+}
+
+// buildModelReturnSection creates the "what the model returned" section.
+func buildModelReturnSection(receipt *shadowllm.ShadowReceipt) domainshadowview.ShadowReceiptModelReturn {
+	if len(receipt.Suggestions) == 0 {
+		return domainshadowview.ShadowReceiptModelReturn{
+			Horizon:    domainshadowview.HorizonNone,
+			Magnitude:  domainshadowview.MagnitudeNothing,
+			Confidence: domainshadowview.ConfidenceNA,
+			Statement:  "The model found nothing noteworthy.",
+		}
+	}
+
+	// Compute overall buckets from suggestions
+	var horizon domainshadowview.HorizonBucket = domainshadowview.HorizonSomeday
+	var magnitude domainshadowview.MagnitudeBucket = domainshadowview.MagnitudeNothing
+	var confidence domainshadowview.ConfidenceBucket = domainshadowview.ConfidenceLow
+
+	for _, sug := range receipt.Suggestions {
+		// Map horizon (most urgent wins)
+		h := mapShadowHorizon(sug.Horizon)
+		if horizonPriority(h) > horizonPriority(horizon) {
+			horizon = h
+		}
+
+		// Map magnitude (highest wins)
+		m := mapShadowMagnitude(sug.Magnitude)
+		if magnitudePriority(m) > magnitudePriority(magnitude) {
+			magnitude = m
+		}
+
+		// Map confidence (highest wins)
+		c := mapShadowConfidence(sug.Confidence)
+		if confidencePriority(c) > confidencePriority(confidence) {
+			confidence = c
+		}
+	}
+
+	// Build statement
+	statement := buildModelReturnStatement(horizon, magnitude, confidence)
+
+	return domainshadowview.ShadowReceiptModelReturn{
+		Horizon:    horizon,
+		Magnitude:  magnitude,
+		Confidence: confidence,
+		Statement:  statement,
+	}
+}
+
+// buildDecisionSection creates the "what we did" section.
+func buildDecisionSection(receipt *shadowllm.ShadowReceipt) domainshadowview.ShadowReceiptDecision {
+	// Shadow mode ALWAYS results in no surface
+	return domainshadowview.ShadowReceiptDecision{
+		Kind:      domainshadowview.DecisionNoSurface,
+		Statement: "We chose not to surface anything.",
+	}
+}
+
+// buildReasonSection creates the "why this didn't interrupt you" section.
+func buildReasonSection(receipt *shadowllm.ShadowReceipt) domainshadowview.ShadowReceiptReason {
+	// Determine primary reason based on receipt content
+	if len(receipt.Suggestions) == 0 {
+		return domainshadowview.ShadowReceiptReason{
+			Kind:      domainshadowview.ReasonBelowThreshold,
+			Statement: "No patterns reached the surfacing threshold.",
+		}
+	}
+
+	// Check for surface candidates
+	hasSurfaceCandidate := false
+	for _, sug := range receipt.Suggestions {
+		if sug.SuggestionType == shadowllm.SuggestSurfaceCandidate {
+			hasSurfaceCandidate = true
+			break
+		}
+	}
+
+	if hasSurfaceCandidate {
+		// Shadow mode found candidates but restraint won
+		return domainshadowview.ShadowReceiptReason{
+			Kind:      domainshadowview.ReasonShadowOnly,
+			Statement: "Shadow mode is observation-only. Nothing is surfaced automatically.",
+		}
+	}
+
+	// Default: default hold policy
+	return domainshadowview.ShadowReceiptReason{
+		Kind:      domainshadowview.ReasonDefaultHold,
+		Statement: "Default hold policy kept everything quiet.",
+	}
+}
+
+// buildModelReturnStatement creates a human-readable statement.
+func buildModelReturnStatement(h domainshadowview.HorizonBucket, m domainshadowview.MagnitudeBucket, c domainshadowview.ConfidenceBucket) string {
+	if m == domainshadowview.MagnitudeNothing {
+		return "The model found nothing noteworthy."
+	}
+
+	// Build description
+	var magText string
+	switch m {
+	case domainshadowview.MagnitudeAFew:
+		magText = "A few patterns"
+	case domainshadowview.MagnitudeSeveral:
+		magText = "Several patterns"
+	default:
+		magText = "Some patterns"
+	}
+
+	var horizonText string
+	switch h {
+	case domainshadowview.HorizonSoon:
+		horizonText = "soon"
+	case domainshadowview.HorizonLater:
+		horizonText = "later"
+	case domainshadowview.HorizonSomeday:
+		horizonText = "eventually"
+	default:
+		horizonText = "at some point"
+	}
+
+	var confText string
+	switch c {
+	case domainshadowview.ConfidenceHigh:
+		confText = "with high confidence"
+	case domainshadowview.ConfidenceMedium:
+		confText = "with moderate confidence"
+	default:
+		confText = "with low confidence"
+	}
+
+	return magText + " were noted for " + horizonText + ", " + confText + "."
+}
+
+// mapProviderKind maps string provider kind to domain type.
+func mapProviderKind(kind string) domainshadowview.ProviderKind {
+	switch kind {
+	case "stub":
+		return domainshadowview.ProviderStub
+	case "azure_openai", "azure_openai_chat":
+		return domainshadowview.ProviderAzureOpenAIChat
+	case "none", "":
+		return domainshadowview.ProviderNone
+	default:
+		return domainshadowview.ProviderNone
+	}
+}
+
+// mapShadowHorizon maps shadowllm.Horizon to domain type.
+func mapShadowHorizon(h shadowllm.Horizon) domainshadowview.HorizonBucket {
+	switch h {
+	case shadowllm.HorizonNow, shadowllm.HorizonSoon:
+		return domainshadowview.HorizonSoon
+	case shadowllm.HorizonLater:
+		return domainshadowview.HorizonLater
+	case shadowllm.HorizonSomeday:
+		return domainshadowview.HorizonSomeday
+	default:
+		return domainshadowview.HorizonNone
+	}
+}
+
+// mapShadowMagnitude maps shadowllm.MagnitudeBucket to domain type.
+func mapShadowMagnitude(m shadowllm.MagnitudeBucket) domainshadowview.MagnitudeBucket {
+	switch m {
+	case shadowllm.MagnitudeNothing:
+		return domainshadowview.MagnitudeNothing
+	case shadowllm.MagnitudeAFew:
+		return domainshadowview.MagnitudeAFew
+	case shadowllm.MagnitudeSeveral:
+		return domainshadowview.MagnitudeSeveral
+	default:
+		return domainshadowview.MagnitudeNothing
+	}
+}
+
+// mapShadowConfidence maps shadowllm.ConfidenceBucket to domain type.
+func mapShadowConfidence(c shadowllm.ConfidenceBucket) domainshadowview.ConfidenceBucket {
+	switch c {
+	case shadowllm.ConfidenceLow:
+		return domainshadowview.ConfidenceLow
+	case shadowllm.ConfidenceMed:
+		return domainshadowview.ConfidenceMedium
+	case shadowllm.ConfidenceHigh:
+		return domainshadowview.ConfidenceHigh
+	default:
+		return domainshadowview.ConfidenceNA
+	}
+}
+
+// horizonPriority returns priority for horizon (higher = more urgent).
+func horizonPriority(h domainshadowview.HorizonBucket) int {
+	switch h {
+	case domainshadowview.HorizonSoon:
+		return 3
+	case domainshadowview.HorizonLater:
+		return 2
+	case domainshadowview.HorizonSomeday:
+		return 1
+	default:
+		return 0
+	}
+}
+
+// magnitudePriority returns priority for magnitude (higher = more).
+func magnitudePriority(m domainshadowview.MagnitudeBucket) int {
+	switch m {
+	case domainshadowview.MagnitudeSeveral:
+		return 3
+	case domainshadowview.MagnitudeAFew:
+		return 2
+	case domainshadowview.MagnitudeNothing:
+		return 1
+	default:
+		return 0
+	}
+}
+
+// confidencePriority returns priority for confidence (higher = more confident).
+func confidencePriority(c domainshadowview.ConfidenceBucket) int {
+	switch c {
+	case domainshadowview.ConfidenceHigh:
+		return 3
+	case domainshadowview.ConfidenceMedium:
+		return 2
+	case domainshadowview.ConfidenceLow:
+		return 1
+	default:
+		return 0
+	}
+}
+
+// BuildPrimaryCueInput contains inputs for the Phase 27 whisper cue.
+type BuildPrimaryCueInput struct {
+	// Receipt is the shadow receipt (may be nil).
+	Receipt *shadowllm.ShadowReceipt
+
+	// IsDismissed indicates if the cue was dismissed.
+	IsDismissed bool
+
+	// OtherCueActive indicates if another whisper cue is active.
+	OtherCueActive bool
+
+	// ProviderKind is the configured shadow provider.
+	ProviderKind string
+}
+
+// BuildPrimaryCue builds the Phase 27 whisper cue.
+//
+// Phase 27 cue text: "We checked something — quietly."
+// Priority order: Journey > Surface > Proof > Shadow receipt (lowest)
+//
+// CRITICAL: Subject to single-whisper rule.
+// CRITICAL: Must be ignorable with zero cost.
+func (e *Engine) BuildPrimaryCue(input BuildPrimaryCueInput) domainshadowview.ShadowReceiptCue {
+	// No cue if no receipt
+	if input.Receipt == nil {
+		return domainshadowview.ShadowReceiptCue{Available: false}
+	}
+
+	// No cue if dismissed
+	if input.IsDismissed {
+		return domainshadowview.ShadowReceiptCue{Available: false}
+	}
+
+	// No cue if another whisper is active (single whisper rule)
+	if input.OtherCueActive {
+		return domainshadowview.ShadowReceiptCue{Available: false}
+	}
+
+	// Build the cue with Phase 27 text
+	return domainshadowview.ShadowReceiptCue{
+		Available:   true,
+		CueText:     domainshadowview.DefaultCueText,
+		LinkText:    domainshadowview.DefaultLinkText,
 		ReceiptHash: input.Receipt.Hash(),
 	}
 }

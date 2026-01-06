@@ -1565,6 +1565,27 @@ const (
 
 	// Phase26CRealityAckRecorded - reality page acknowledgement was recorded.
 	Phase26CRealityAckRecorded EventType = "phase26c.reality.ack.recorded"
+
+	// ==========================================================================
+	// Phase 27: Real Shadow Receipt (Primary Proof of Intelligence)
+	// ==========================================================================
+	//
+	// CRITICAL INVARIANTS:
+	//   - Shadow remains observation-only
+	//   - Shadow never alters runtime behavior
+	//   - Vote does NOT change behavior (feeds Phase 19 calibration only)
+	//   - Payloads must be hash-only
+	//
+	// Reference: docs/ADR/ADR-0058-phase27-real-shadow-receipt-primary-proof.md
+
+	// Phase27ShadowReceiptRendered - shadow receipt primary page was rendered.
+	Phase27ShadowReceiptRendered EventType = "phase27.shadow_receipt.rendered"
+
+	// Phase27ShadowReceiptVoted - user voted on shadow receipt restraint.
+	Phase27ShadowReceiptVoted EventType = "phase27.shadow_receipt.voted"
+
+	// Phase27ShadowReceiptDismissed - shadow receipt cue was dismissed.
+	Phase27ShadowReceiptDismissed EventType = "phase27.shadow_receipt.dismissed"
 )
 
 // Event represents a system event for audit and observability.

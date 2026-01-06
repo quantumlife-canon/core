@@ -673,6 +673,17 @@ check-reality-check:
 	@echo "Checking Phase 26C constraints..."
 	@./scripts/guardrails/reality_check_enforced.sh
 
+# Run Phase 27 demo: Real Shadow Receipt (Primary Proof)
+# Reference: docs/ADR/ADR-0058-phase27-real-shadow-receipt-primary-proof.md
+demo-phase27:
+	@echo "Running Phase 27 Demo: Real Shadow Receipt (Primary Proof)..."
+	go test -v ./internal/demo_phase27_shadow_receipt/...
+
+# Check Phase 27 shadow receipt primary constraints
+check-shadow-receipt-primary:
+	@echo "Checking Phase 27 constraints..."
+	@./scripts/guardrails/shadow_receipt_primary_enforced.sh
+
 # =============================================================================
 # Web Server Targets
 # =============================================================================

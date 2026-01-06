@@ -268,3 +268,11 @@ internal/shadowllm/engine.go
 # user prompt, and "Role" is the message role field. These are NOT QuantumLife identity.
 internal/demo_phase19_3c_real_chat_shadow/demo_test.go
 internal/shadowllm/providers/azureopenai/types.go
+
+# Phase 27: Real Shadow Receipt (Primary Proof) (ADR-0058)
+# Uses "user" in comments to describe the human being protected from interruptions
+# (e.g., "why this didn't interrupt the user", "user's vote on restraint usefulness").
+# This is domain terminology for describing human-in-the-loop feedback workflows
+# and restraint mechanisms, NOT QuantumLife identity.
+pkg/domain/shadowview/types.go
+internal/shadowview/engine.go

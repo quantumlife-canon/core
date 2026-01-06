@@ -85,6 +85,7 @@ import (
 	"quantumlife/pkg/domain/shadowdiff"
 	domainshadowgate "quantumlife/pkg/domain/shadowgate"
 	domainshadow "quantumlife/pkg/domain/shadowllm"
+	domainshadowview "quantumlife/pkg/domain/shadowview"
 	"quantumlife/pkg/domain/suppress"
 	domaintrust "quantumlife/pkg/domain/trust"
 	domainundoableexec "quantumlife/pkg/domain/undoableexec"
@@ -148,6 +149,7 @@ type Server struct {
 	firstMinutesStore      *persist.FirstMinutesStore         // Phase 26B: First Minutes store
 	realityEngine          *internalreality.Engine            // Phase 26C: Reality engine
 	realityAckStore        *persist.RealityAckStore           // Phase 26C: Reality ack store
+	shadowReceiptAckStore  *persist.ShadowReceiptAckStore     // Phase 27: Shadow Receipt ack/vote store
 	// Phase 18 Web Control Center
 	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
 	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
@@ -245,6 +247,8 @@ type templateData struct {
 	// Phase 26C: Connected Reality Check
 	RealityPage *domainreality.RealityPage
 	RealityCue  *domainreality.RealityCue
+	// Phase 27: Real Shadow Receipt (Primary Proof)
+	ShadowReceiptPrimaryCue *domainshadowview.ShadowReceiptCue
 	// Phase 18 Web Control Center
 	RunSnapshots     []*runlog.RunSnapshot      // List of run snapshots for /runs
 	RunSnapshot      *runlog.RunSnapshot        // Single run snapshot for /runs/:id
@@ -617,6 +621,7 @@ func main() {
 		firstMinutesStore:      persist.NewFirstMinutesStore(clk.Now),         // Phase 26B
 		realityEngine:          internalreality.NewEngine(clk),                // Phase 26C
 		realityAckStore:        persist.NewRealityAckStore(clk.Now),           // Phase 26C
+		shadowReceiptAckStore:  persist.NewShadowReceiptAckStore(clk.Now),     // Phase 27
 		// Phase 18 Web Control Center
 		runStore:       runStore,
 		suppressionSet: suppressionSet,
@@ -667,8 +672,9 @@ func main() {
 	mux.HandleFunc("/trust", server.handleTrust)                                       // Phase 20: Trust accrual
 	mux.HandleFunc("/trust/dismiss", server.handleTrustDismiss)                        // Phase 20: Dismiss trust cue
 	mux.HandleFunc("/onboarding", server.handleOnboarding)                             // Phase 21: Unified onboarding
-	mux.HandleFunc("/shadow/receipt", server.handleShadowReceipt)                      // Phase 21: Shadow receipt viewer
-	mux.HandleFunc("/shadow/receipt/dismiss", server.handleShadowReceiptDismiss)       // Phase 21: Dismiss receipt cue
+	mux.HandleFunc("/shadow/receipt", server.handleShadowReceipt)                      // Phase 21/27: Shadow receipt viewer
+	mux.HandleFunc("/shadow/receipt/dismiss", server.handleShadowReceiptDismiss)       // Phase 21/27: Dismiss receipt cue
+	mux.HandleFunc("/shadow/receipt/vote", server.handleShadowReceiptVote)             // Phase 27: Vote on restraint
 	mux.HandleFunc("/mirror/inbox", server.handleQuietInboxMirror)                     // Phase 22: Quiet Inbox Mirror
 	mux.HandleFunc("/mirror/inbox/dismiss", server.handleQuietMirrorDismiss)           // Phase 22: Dismiss whisper cue
 	mux.HandleFunc("/invite", server.handleInvitation)                                 // Phase 23: Gentle Action Invitation
@@ -1261,12 +1267,13 @@ func (s *Server) handleToday(w http.ResponseWriter, r *http.Request) {
 
 	// Phase 18.5.1: Single whisper rule
 	// Show at most ONE whisper cue on /today.
-	// Priority: surface cue > proof cue > first-minutes cue > reality cue
+	// Priority: surface cue > proof cue > first-minutes cue > reality cue > shadow receipt primary cue
 	// If surface is available, hide proof cue (proof accessible via /surface).
 	var displaySurfaceCue *surface.SurfaceCue
 	var displayProofCue *proof.ProofCue
 	var displayFirstMinutesCue *domainfirstminutes.FirstMinutesCue
 	var displayRealityCue *domainreality.RealityCue
+	var displayShadowReceiptPrimaryCue *domainshadowview.ShadowReceiptCue
 
 	circleID := identity.EntityID("default")
 	now := s.clk.Now()
@@ -1315,17 +1322,44 @@ func (s *Server) handleToday(w http.ResponseWriter, r *http.Request) {
 					displayRealityCue = cue
 				}
 			}
+
+			// Phase 27: Shadow Receipt Primary cue (lowest priority)
+			// Only show if no other cues are active (including reality)
+			if displayRealityCue == nil {
+				if s.shadowReceiptStore != nil && s.shadowReceiptAckStore != nil {
+					latestReceipt, ok := s.shadowReceiptStore.GetLatestForCircle(circleID)
+					if ok && latestReceipt != nil {
+						period := latestReceipt.CreatedAt.Format("2006-01-02")
+						receiptHash := latestReceipt.Hash()
+						// Check if already dismissed
+						isDismissed := s.shadowReceiptAckStore.IsDismissed(receiptHash, period)
+
+						// Build input for primary cue
+						cueInput := shadowview.BuildPrimaryCueInput{
+							Receipt:        latestReceipt,
+							IsDismissed:    isDismissed,
+							OtherCueActive: false, // All other cues already checked
+							ProviderKind:   string(latestReceipt.Provenance.ProviderKind),
+						}
+						cue := s.shadowviewEngine.BuildPrimaryCue(cueInput)
+						if cue.Available {
+							displayShadowReceiptPrimaryCue = &cue
+						}
+					}
+				}
+			}
 		}
 	}
 
 	data := templateData{
-		Title:           "Today, quietly.",
-		CurrentTime:     s.clk.Now().Format("2006-01-02 15:04"),
-		TodayPage:       &page,
-		SurfaceCue:      displaySurfaceCue,
-		ProofCue:        displayProofCue,
-		FirstMinutesCue: displayFirstMinutesCue,
-		RealityCue:      displayRealityCue,
+		Title:                   "Today, quietly.",
+		CurrentTime:             s.clk.Now().Format("2006-01-02 15:04"),
+		TodayPage:               &page,
+		SurfaceCue:              displaySurfaceCue,
+		ProofCue:                displayProofCue,
+		FirstMinutesCue:         displayFirstMinutesCue,
+		RealityCue:              displayRealityCue,
+		ShadowReceiptPrimaryCue: displayShadowReceiptPrimaryCue,
 	}
 
 	s.render(w, "today", data)
@@ -4489,13 +4523,29 @@ func (s *Server) handleShadowReceipt(w http.ResponseWriter, r *http.Request) {
 	}
 	page := s.shadowviewEngine.BuildPage(pageInput)
 
-	// Mark as viewed in ack store
+	// Mark as viewed in ack store (Phase 21)
 	if receipt != nil {
 		_ = s.shadowviewAckStore.Record(shadowview.AckViewed, receipt.Hash(), periodBucket, s.clk.Now())
 	}
 
-	// Derive mode for page
+	// Phase 27: Record viewed and check vote eligibility
+	hasVoted := false
+	if receipt != nil {
+		_ = s.shadowReceiptAckStore.RecordViewed(receipt.Hash(), periodBucket)
+		hasVoted = s.shadowReceiptAckStore.HasVoted(receipt.Hash())
+	}
+
+	// Phase 27: Build primary page
 	shadowCfg := s.multiCircleConfig.Shadow
+	primaryPageInput := shadowview.BuildPrimaryPageInput{
+		Receipt:      receipt,
+		ProviderKind: shadowCfg.ProviderKind,
+		HasVoted:     hasVoted,
+		IsDismissed:  false,
+	}
+	primaryPage := s.shadowviewEngine.BuildPrimaryPage(primaryPageInput)
+
+	// Derive mode for page (shadowCfg already declared above)
 	modeInput := mode.DeriveModeInput{
 		HasGmailConnection:   hasGmail,
 		ShadowProviderIsStub: shadowCfg.ProviderKind == "" || shadowCfg.ProviderKind == "stub",
@@ -4504,7 +4554,7 @@ func (s *Server) handleShadowReceipt(w http.ResponseWriter, r *http.Request) {
 	}
 	modeIndicator := s.modeEngine.DeriveModeIndicator(modeInput)
 
-	// Emit event
+	// Emit Phase 21 event
 	s.eventEmitter.Emit(events.Event{
 		Type:      events.Phase21ShadowReceiptViewed,
 		Timestamp: s.clk.Now(),
@@ -4512,6 +4562,20 @@ func (s *Server) handleShadowReceipt(w http.ResponseWriter, r *http.Request) {
 			"has_receipt":  fmt.Sprintf("%v", page.HasReceipt),
 			"receipt_hash": page.ReceiptHash,
 			"mode":         string(modeIndicator.Mode),
+		},
+	})
+
+	// Emit Phase 27 event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase27ShadowReceiptRendered,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"has_receipt":     fmt.Sprintf("%v", primaryPage.HasReceipt),
+			"status_hash":     primaryPage.StatusHash,
+			"provider_kind":   string(primaryPage.Provider.Kind),
+			"model_consulted": fmt.Sprintf("%v", primaryPage.Provider.WasConsulted),
+			"vote_eligible":   fmt.Sprintf("%v", primaryPage.VoteEligibility.Eligible),
+			"has_voted":       fmt.Sprintf("%v", hasVoted),
 		},
 	})
 
@@ -4734,7 +4798,7 @@ func (s *Server) handleShadowReceipt(w http.ResponseWriter, r *http.Request) {
 
 // handleShadowReceiptDismiss dismisses the shadow receipt cue for the current period.
 //
-// Phase 21: Whisper rule integration
+// Phase 21/27: Whisper rule integration
 //
 // CRITICAL: Stores ONLY hash - never raw content.
 // CRITICAL: Dismissal is per-period (daily bucket).
@@ -4750,18 +4814,101 @@ func (s *Server) handleShadowReceiptDismiss(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Record dismissal
+	// Record dismissal in Phase 21 store
 	periodBucket := s.clk.Now().UTC().Format("2006-01-02")
 	if err := s.shadowviewAckStore.Record(shadowview.AckDismissed, receiptHash, periodBucket, s.clk.Now()); err != nil {
 		log.Printf("Failed to record shadow receipt dismissal: %v", err)
 	}
 
-	// Emit event
+	// Record dismissal in Phase 27 store
+	if err := s.shadowReceiptAckStore.RecordDismissed(receiptHash, periodBucket); err != nil {
+		log.Printf("Failed to record shadow receipt dismissal (Phase 27): %v", err)
+	}
+
+	// Emit Phase 21 event
 	s.eventEmitter.Emit(events.Event{
 		Type:      events.Phase21ShadowReceiptDismissed,
 		Timestamp: s.clk.Now(),
 		Metadata: map[string]string{
 			"receipt_hash":  receiptHash,
+			"period_bucket": periodBucket,
+		},
+	})
+
+	// Emit Phase 27 event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase27ShadowReceiptDismissed,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"receipt_hash":  receiptHash,
+			"period_bucket": periodBucket,
+		},
+	})
+
+	// Redirect back to today page
+	http.Redirect(w, r, "/today", http.StatusFound)
+}
+
+// handleShadowReceiptVote records a vote on shadow receipt restraint.
+//
+// Phase 27: Real Shadow Receipt (Primary Proof of Intelligence)
+//
+// CRITICAL INVARIANTS:
+//   - Vote does NOT change behavior
+//   - Vote feeds Phase 19 calibration only
+//   - One vote per receipt hash
+//   - Vote dismissal removes prompt permanently for that receipt
+//
+// Reference: docs/ADR/ADR-0058-phase27-real-shadow-receipt-primary-proof.md
+func (s *Server) handleShadowReceiptVote(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	receiptHash := r.FormValue("receipt_hash")
+	voteChoice := r.FormValue("vote")
+
+	if receiptHash == "" || voteChoice == "" {
+		http.Redirect(w, r, "/shadow/receipt", http.StatusFound)
+		return
+	}
+
+	// Map vote choice
+	var choice domainshadowview.VoteChoice
+	switch voteChoice {
+	case "useful":
+		choice = domainshadowview.VoteUseful
+	case "unnecessary":
+		choice = domainshadowview.VoteUnnecessary
+	case "skip":
+		choice = domainshadowview.VoteSkip
+	default:
+		http.Redirect(w, r, "/shadow/receipt", http.StatusFound)
+		return
+	}
+
+	periodBucket := s.clk.Now().UTC().Format("2006-01-02")
+
+	// Record vote in Phase 27 store
+	// CRITICAL: Vote does NOT change behavior.
+	// CRITICAL: Vote feeds Phase 19 calibration only (via CountVotesByPeriod).
+	vote := &domainshadowview.ShadowReceiptVote{
+		ReceiptHash:  receiptHash,
+		Choice:       choice,
+		PeriodBucket: periodBucket,
+	}
+	if err := s.shadowReceiptAckStore.RecordVote(vote); err != nil {
+		log.Printf("Failed to record shadow receipt vote: %v", err)
+	}
+
+	// Emit Phase 27 event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase27ShadowReceiptVoted,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"receipt_hash":  receiptHash,
+			"vote_choice":   string(choice),
 			"period_bucket": periodBucket,
 		},
 	})
