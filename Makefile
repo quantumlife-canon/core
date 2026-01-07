@@ -74,6 +74,7 @@ help:
 	@echo "  make demo-phase27 - Run Phase 27 real shadow receipt demo"
 	@echo "  make demo-phase28 - Run Phase 28 trust kept demo"
 	@echo "  make demo-phase29 - Run Phase 29 TrueLayer finance mirror demo"
+	@echo "  make demo-phase30A - Run Phase 30A identity + replay demo"
 	@echo ""
 	@echo "Web Server:"
 	@echo "  make web          - Run web server on :8080 (real mode)"
@@ -125,6 +126,7 @@ help:
 	@echo "  make check-shadow-receipt-primary - Check shadow receipt primary constraints (Phase 27)"
 	@echo "  make check-trust-kept - Check trust kept constraints (Phase 28)"
 	@echo "  make check-truelayer-finance-mirror - Check TrueLayer finance mirror constraints (Phase 29)"
+	@echo "  make check-identity-replay - Check identity + replay constraints (Phase 30A)"
 	@echo ""
 	@echo "iOS (Phase 19):"
 	@echo "  make ios-open   - Open iOS project in Xcode (macOS only)"
@@ -711,6 +713,17 @@ demo-phase29:
 check-truelayer-finance-mirror:
 	@echo "Checking Phase 29 constraints..."
 	@./scripts/guardrails/truelayer_finance_mirror_enforced.sh
+
+# Run Phase 30A demo: Identity + Replay
+# Reference: docs/ADR/ADR-0061-phase30A-identity-and-replay.md
+demo-phase30A:
+	@echo "Running Phase 30A Demo: Identity + Replay..."
+	go test -v ./internal/demo_phase30A_identity_replay/...
+
+# Check Phase 30A Identity + Replay constraints
+check-identity-replay:
+	@echo "Checking Phase 30A constraints..."
+	@./scripts/guardrails/identity_replay_enforced.sh
 
 # =============================================================================
 # Web Server Targets

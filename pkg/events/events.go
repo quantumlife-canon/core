@@ -1649,6 +1649,20 @@ const (
 	Phase29FinanceMirrorRendered EventType = "phase29.finance_mirror.rendered"
 	Phase29FinanceMirrorViewed   EventType = "phase29.finance_mirror.viewed"
 	Phase29FinanceMirrorAcked    EventType = "phase29.finance_mirror.acked"
+
+	// Phase 30A: Identity + Replay
+	// CRITICAL: No raw identifiers in event metadata - hashes only.
+	// CRITICAL: No goroutines, no time.Now() - clock injection only.
+
+	// Device identity events
+	Phase30AIdentityCreated EventType = "phase30A.identity.created"
+	Phase30AIdentityViewed  EventType = "phase30A.identity.viewed"
+	Phase30AIdentityBound   EventType = "phase30A.identity.bound"
+
+	// Replay bundle events
+	Phase30AReplayExported EventType = "phase30A.replay.exported"
+	Phase30AReplayImported EventType = "phase30A.replay.imported"
+	Phase30AReplayRejected EventType = "phase30A.replay.rejected"
 )
 
 // Event represents a system event for audit and observability.

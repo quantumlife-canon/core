@@ -94,7 +94,7 @@ fi
 
 echo ""
 echo "Checking Rule 2: internal/* must not import other internal/* packages..."
-echo "(Exceptions: impl_inmem, demo, loop, persist, undoableexec, journey, trustaction, and financemirror are wiring layers)"
+echo "(Exceptions: impl_inmem, demo, loop, persist, undoableexec, journey, trustaction, financemirror, deviceidentity, and replay are wiring layers)"
 echo ""
 
 INTERNAL_DIR="${REPO_ROOT}/internal"
@@ -110,7 +110,7 @@ if [[ -d "$INTERNAL_DIR" ]]; then
     while IFS= read -r -d '' file; do
         relative_path="${file#${REPO_ROOT}/}"
 
-        # Skip wiring layers (implementation packages, demo, loop orchestrator, persist, undoableexec, journey, trustaction, financemirror, and conformance)
+        # Skip wiring layers (implementation packages, demo, loop orchestrator, persist, undoableexec, journey, trustaction, financemirror, deviceidentity, replay, and conformance)
         # These are allowed to import across internal packages for wiring/testing
         if [[ "$relative_path" == *"/impl_inmem/"* ]] || \
            [[ "$relative_path" == *"/impl_"* ]] || \
@@ -122,6 +122,8 @@ if [[ -d "$INTERNAL_DIR" ]]; then
            [[ "$relative_path" == "internal/journey/"* ]] || \
            [[ "$relative_path" == "internal/trustaction/"* ]] || \
            [[ "$relative_path" == "internal/financemirror/"* ]] || \
+           [[ "$relative_path" == "internal/deviceidentity/"* ]] || \
+           [[ "$relative_path" == "internal/replay/"* ]] || \
            [[ "$relative_path" == *"/conformance/"* ]]; then
             continue
         fi

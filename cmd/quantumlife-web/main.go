@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sort"
 	"strings"
 	"syscall"
@@ -30,6 +31,7 @@ import (
 	"quantumlife/internal/connectors/auth/impl_inmem"
 	mockcal "quantumlife/internal/connectors/calendar/write/providers/mock"
 	mockemail "quantumlife/internal/connectors/email/write/providers/mock"
+	internaldeviceidentity "quantumlife/internal/deviceidentity"
 	"quantumlife/internal/drafts"
 	"quantumlife/internal/drafts/calendar"
 	"quantumlife/internal/drafts/commerce"
@@ -56,6 +58,7 @@ import (
 	"quantumlife/internal/proof"
 	internalquietmirror "quantumlife/internal/quietmirror"
 	internalreality "quantumlife/internal/reality"
+	internalreplay "quantumlife/internal/replay"
 	rulepackengine "quantumlife/internal/rulepack"
 	"quantumlife/internal/shadowcalibration"
 	shadowdiffengine "quantumlife/internal/shadowdiff"
@@ -73,6 +76,7 @@ import (
 	"quantumlife/pkg/domain/approvaltoken"
 	pkgconfig "quantumlife/pkg/domain/config"
 	"quantumlife/pkg/domain/connection"
+	domaindeviceidentity "quantumlife/pkg/domain/deviceidentity"
 	"quantumlife/pkg/domain/draft"
 	domainevents "quantumlife/pkg/domain/events"
 	"quantumlife/pkg/domain/feedback"
@@ -161,6 +165,10 @@ type Server struct {
 	financeMirrorStore     *persist.FinanceMirrorStore        // Phase 29: Finance mirror store
 	financeMirrorEngine    *financemirror.Engine              // Phase 29: Finance mirror engine
 	trueLayerHandler       *oauth.TrueLayerHandler            // Phase 29: TrueLayer OAuth handler
+	deviceKeyStore         *persist.DeviceKeyStore            // Phase 30A: Device key store
+	circleBindingStore     *persist.CircleBindingStore        // Phase 30A: Circle binding store
+	deviceIdentityEngine   *internaldeviceidentity.Engine     // Phase 30A: Device identity engine
+	replayEngine           *internalreplay.Engine             // Phase 30A: Replay bundle engine
 	// Phase 18 Web Control Center
 	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
 	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
@@ -613,6 +621,14 @@ func main() {
 		populateMockTrustSummaries(trustStore, now)
 	}
 
+	// Phase 30A: Create device identity and replay components
+	// Key is stored in user's config directory
+	deviceKeyPath := filepath.Join(os.TempDir(), "quantumlife-device-key")
+	deviceKeyStore := persist.NewDeviceKeyStore(deviceKeyPath)
+	circleBindingStore := persist.NewCircleBindingStore(clk.Now, nil) // No storelog for now
+	deviceIdentityEngine := internaldeviceidentity.NewEngine(clk.Now, deviceKeyStore, circleBindingStore)
+	replayEngine := internalreplay.NewEngine(clk.Now, nil) // No storelog for now
+
 	// Phase 18 Web Control Center: Create stores
 	runStore := runlog.NewInMemoryRunStore()
 	suppressionSet := suppress.NewSuppressionSet()
@@ -673,6 +689,10 @@ func main() {
 		financeMirrorStore:     persist.NewFinanceMirrorStore(clk.Now),        // Phase 29
 		financeMirrorEngine:    nil,                                           // Phase 29: Set after full initialization
 		trueLayerHandler:       nil,                                           // Phase 29: Set after full initialization
+		deviceKeyStore:         deviceKeyStore,                                // Phase 30A
+		circleBindingStore:     circleBindingStore,                            // Phase 30A
+		deviceIdentityEngine:   deviceIdentityEngine,                          // Phase 30A
+		replayEngine:           replayEngine,                                  // Phase 30A
 		// Phase 18 Web Control Center
 		runStore:       runStore,
 		suppressionSet: suppressionSet,
@@ -758,6 +778,10 @@ func main() {
 	mux.HandleFunc("/run/truelayer-sync", server.handleTrueLayerSync)                  // Phase 29: TrueLayer sync
 	mux.HandleFunc("/mirror/finance", server.handleFinanceMirror)                      // Phase 29: Finance mirror page
 	mux.HandleFunc("/mirror/finance/ack", server.handleFinanceMirrorAck)               // Phase 29: Finance mirror ack
+	mux.HandleFunc("/identity", server.handleIdentity)                                 // Phase 30A: Device identity page
+	mux.HandleFunc("/identity/bind", server.handleIdentityBind)                        // Phase 30A: Bind device to circle
+	mux.HandleFunc("/replay/export", server.handleReplayExport)                        // Phase 30A: Export replay bundle
+	mux.HandleFunc("/replay/import", server.handleReplayImport)                        // Phase 30A: Import replay bundle
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18 Web Control Center: Core routes
@@ -7248,6 +7272,324 @@ func computeConnectionHash(circleID string) string {
 	canonical := fmt.Sprintf("TRUELAYER_CONNECTION|v1|%s|connected", circleID)
 	h := sha256.Sum256([]byte(canonical))
 	return hex.EncodeToString(h[:16]) // 32 hex chars
+}
+
+// ============================================================================
+// Phase 30A: Identity + Replay Handlers
+// ============================================================================
+
+// handleIdentity shows the device identity page.
+// Phase 30A: Device identity page with fingerprint and binding status.
+func (s *Server) handleIdentity(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := "default"
+
+	// Ensure device has identity
+	pubKey, fingerprint, err := s.deviceIdentityEngine.EnsureDeviceIdentity()
+	if err != nil {
+		log.Printf("Phase 30A: Failed to ensure device identity: %v", err)
+		http.Error(w, "Failed to create device identity", http.StatusInternalServerError)
+		return
+	}
+
+	// Build identity page
+	page, err := s.deviceIdentityEngine.BuildIdentityPage(circleID)
+	if err != nil {
+		log.Printf("Phase 30A: Failed to build identity page: %v", err)
+		http.Error(w, "Failed to build identity page", http.StatusInternalServerError)
+		return
+	}
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase30AIdentityViewed,
+		Timestamp: now,
+		CircleID:  circleID,
+		Metadata: map[string]string{
+			"fingerprint":     string(fingerprint),
+			"public_key":      string(pubKey)[:16] + "...", // Truncated for logging
+			"bound_magnitude": string(page.BoundDevicesMagnitude),
+			"is_bound":        boolToYesNoString(page.IsBound),
+		},
+	})
+
+	// Render simple HTML response
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `<!DOCTYPE html>
+<html>
+<head><title>Device Identity</title></head>
+<body style="font-family: system-ui; max-width: 600px; margin: 40px auto; padding: 20px;">
+<h1>Device Identity</h1>
+<p style="color: #666;">Phase 30A: Device-rooted identity for replay</p>
+
+<h2>Your Device</h2>
+<div style="background: #f5f5f5; padding: 16px; border-radius: 8px; margin: 16px 0;">
+  <p><strong>Fingerprint:</strong></p>
+  <code style="word-break: break-all; font-size: 12px;">%s</code>
+</div>
+
+<h2>Circle Binding</h2>
+<p><strong>Bound to circle:</strong> %s</p>
+<p><strong>Devices in circle:</strong> %s (max %d)</p>
+
+`, fingerprint, boolToYesNoString(page.IsBound), page.BoundDevicesMagnitude, domaindeviceidentity.MaxDevicesPerCircle)
+
+	if !page.IsBound {
+		fmt.Fprintf(w, `
+<form action="/identity/bind" method="POST">
+  <input type="hidden" name="circle_id" value="%s">
+  <button type="submit" style="background: #4CAF50; color: white; padding: 12px 24px; border: none; border-radius: 4px; cursor: pointer;">
+    Bind to Circle
+  </button>
+</form>
+`, circleID)
+	}
+
+	fmt.Fprintf(w, `
+<p style="margin-top: 24px;"><a href="/today">← Back to Today</a></p>
+</body>
+</html>`)
+}
+
+// handleIdentityBind binds the current device to a circle.
+// Phase 30A: POST only, requires explicit action.
+func (s *Server) handleIdentityBind(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := r.FormValue("circle_id")
+	if circleID == "" {
+		circleID = "default"
+	}
+
+	// Bind device to circle
+	result, err := s.deviceIdentityEngine.BindToCircle(circleID)
+	if err != nil {
+		log.Printf("Phase 30A: Failed to bind device: %v", err)
+		http.Error(w, "Failed to bind device", http.StatusInternalServerError)
+		return
+	}
+
+	if !result.Success {
+		log.Printf("Phase 30A: Bind rejected: %s", result.Error)
+		http.Error(w, result.Error, http.StatusBadRequest)
+		return
+	}
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase30AIdentityBound,
+		Timestamp: now,
+		CircleID:  circleID,
+		Metadata: map[string]string{
+			"fingerprint":  string(result.Binding.Fingerprint),
+			"binding_hash": result.Binding.BindingHash,
+			"bound_count":  fmt.Sprintf("%d", result.BoundCount),
+			"at_max_limit": boolToYesNoString(result.AtMaxLimit),
+		},
+	})
+
+	http.Redirect(w, r, "/identity", http.StatusFound)
+}
+
+// handleReplayExport exports a replay bundle.
+// Phase 30A: POST only, requires bound device, signed request.
+func (s *Server) handleReplayExport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := "default"
+
+	// Check device is bound to circle
+	isBound, err := s.deviceIdentityEngine.IsBoundToCircle(circleID)
+	if err != nil {
+		log.Printf("Phase 30A: Failed to check binding: %v", err)
+		http.Error(w, "Failed to check device binding", http.StatusInternalServerError)
+		return
+	}
+
+	if !isBound {
+		http.Error(w, "Device not bound to circle. Go to /identity to bind.", http.StatusForbidden)
+		return
+	}
+
+	if r.Method == http.MethodGet {
+		// Show export page
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprintf(w, `<!DOCTYPE html>
+<html>
+<head><title>Export Replay Bundle</title></head>
+<body style="font-family: system-ui; max-width: 600px; margin: 40px auto; padding: 20px;">
+<h1>Export Replay Bundle</h1>
+<p style="color: #666;">Phase 30A: Export deterministic replay bundle</p>
+
+<p>This will create a replay bundle containing hash-only records from the last 30 days.</p>
+<p><strong>No raw identifiers</strong> are included in the bundle.</p>
+
+<form action="/replay/export" method="POST">
+  <input type="hidden" name="circle_id" value="%s">
+  <button type="submit" style="background: #2196F3; color: white; padding: 12px 24px; border: none; border-radius: 4px; cursor: pointer;">
+    Export Bundle
+  </button>
+</form>
+
+<p style="margin-top: 24px;"><a href="/identity">← Back to Identity</a></p>
+</body>
+</html>`, circleID)
+		return
+	}
+
+	// POST: Build and return bundle
+	result, err := s.replayEngine.BuildBundle(circleID, domaindeviceidentity.DefaultRetentionDays)
+	if err != nil {
+		log.Printf("Phase 30A: Failed to build bundle: %v", err)
+		http.Error(w, "Failed to build replay bundle", http.StatusInternalServerError)
+		return
+	}
+
+	if !result.Success {
+		log.Printf("Phase 30A: Bundle build rejected: %s", result.Error)
+		http.Error(w, result.Error, http.StatusBadRequest)
+		return
+	}
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase30AReplayExported,
+		Timestamp: now,
+		CircleID:  circleID,
+		Metadata: map[string]string{
+			"bundle_hash":  result.Bundle.Header.BundleHash,
+			"record_count": fmt.Sprintf("%d", result.Bundle.Header.RecordCount),
+			"period_key":   result.Bundle.Header.PeriodKey,
+		},
+	})
+
+	// Return bundle as downloadable text
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Disposition", "attachment; filename=replay-bundle.txt")
+	fmt.Fprint(w, result.BundleText)
+}
+
+// handleReplayImport imports a replay bundle.
+// Phase 30A: POST only, requires bound device.
+func (s *Server) handleReplayImport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := "default"
+
+	// Check device is bound to circle
+	isBound, err := s.deviceIdentityEngine.IsBoundToCircle(circleID)
+	if err != nil {
+		log.Printf("Phase 30A: Failed to check binding: %v", err)
+		http.Error(w, "Failed to check device binding", http.StatusInternalServerError)
+		return
+	}
+
+	if !isBound {
+		http.Error(w, "Device not bound to circle. Go to /identity to bind.", http.StatusForbidden)
+		return
+	}
+
+	if r.Method == http.MethodGet {
+		// Show import page
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprintf(w, `<!DOCTYPE html>
+<html>
+<head><title>Import Replay Bundle</title></head>
+<body style="font-family: system-ui; max-width: 600px; margin: 40px auto; padding: 20px;">
+<h1>Import Replay Bundle</h1>
+<p style="color: #666;">Phase 30A: Import deterministic replay bundle</p>
+
+<p>Paste the replay bundle text below to validate and import records.</p>
+
+<form action="/replay/import" method="POST">
+  <input type="hidden" name="circle_id" value="%s">
+  <textarea name="bundle" rows="10" style="width: 100%%; font-family: monospace; font-size: 12px;" placeholder="Paste bundle text here..."></textarea>
+  <br><br>
+  <button type="submit" style="background: #FF9800; color: white; padding: 12px 24px; border: none; border-radius: 4px; cursor: pointer;">
+    Import Bundle
+  </button>
+</form>
+
+<p style="margin-top: 24px;"><a href="/identity">← Back to Identity</a></p>
+</body>
+</html>`, circleID)
+		return
+	}
+
+	// POST: Validate and import bundle
+	bundleText := r.FormValue("bundle")
+	if bundleText == "" {
+		http.Error(w, "Bundle text is required", http.StatusBadRequest)
+		return
+	}
+
+	result, err := s.replayEngine.ImportBundle(bundleText, circleID)
+	if err != nil {
+		log.Printf("Phase 30A: Failed to import bundle: %v", err)
+		http.Error(w, "Failed to import replay bundle", http.StatusInternalServerError)
+		return
+	}
+
+	if !result.Success {
+		log.Printf("Phase 30A: Bundle import rejected: %s", result.Error)
+		// Emit rejection event
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase30AReplayRejected,
+			Timestamp: now,
+			CircleID:  circleID,
+			Metadata: map[string]string{
+				"error": result.Error,
+			},
+		})
+		http.Error(w, result.Error, http.StatusBadRequest)
+		return
+	}
+
+	// Emit success event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase30AReplayImported,
+		Timestamp: now,
+		CircleID:  circleID,
+		Metadata: map[string]string{
+			"records_added":  fmt.Sprintf("%d", result.RecordsAdded),
+			"records_exists": fmt.Sprintf("%d", result.RecordsExists),
+		},
+	})
+
+	// Show success page
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `<!DOCTYPE html>
+<html>
+<head><title>Import Complete</title></head>
+<body style="font-family: system-ui; max-width: 600px; margin: 40px auto; padding: 20px;">
+<h1>Import Complete</h1>
+<p style="color: #4CAF50;">✓ Bundle imported successfully</p>
+
+<div style="background: #f5f5f5; padding: 16px; border-radius: 8px; margin: 16px 0;">
+  <p><strong>Records added:</strong> %d</p>
+  <p><strong>Records already existed:</strong> %d</p>
+</div>
+
+<p><a href="/identity">← Back to Identity</a></p>
+</body>
+</html>`, result.RecordsAdded, result.RecordsExists)
 }
 
 // handleDemo serves the deterministic demo page.

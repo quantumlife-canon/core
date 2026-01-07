@@ -289,3 +289,9 @@ internal/financemirror/engine.go
 internal/oauth/truelayer.go
 internal/persist/financemirror_store.go
 internal/demo_phase29_truelayer_finance_mirror/*.go
+
+# Phase 30A: Identity + Replay (ADR-0061)
+# Uses "user@domain.org" as a test email address in forbidden pattern detection tests.
+# This is test data for verifying that email patterns are correctly identified as
+# forbidden in replay bundles, NOT QuantumLife identity.
+internal/demo_phase30A_identity_replay/*.go

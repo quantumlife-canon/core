@@ -118,6 +118,11 @@ const (
 	RecordTypeTrueLayerConnection = "TRUELAYER_CONNECTION"
 	RecordTypeFinanceSyncReceipt  = "FINANCE_SYNC_RECEIPT"
 	RecordTypeFinanceMirrorAck    = "FINANCE_MIRROR_ACK"
+
+	// Phase 30A: Identity + Replay record types
+	// CRITICAL: Contains ONLY hashes and fingerprints - never raw keys or identifiers.
+	// CRITICAL: Bounded: max 5 devices per circle.
+	RecordTypeCircleBinding = "CIRCLE_BINDING"
 )
 
 // Common errors
