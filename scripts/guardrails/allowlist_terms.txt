@@ -307,3 +307,12 @@ internal/receiptscan/*.go
 # NOT "user account". Tests verify bounded sync limits (25 accounts, 25 tx/account).
 # QuantumLife core uses "circle" for identity - these are TrueLayer data adapters.
 internal/demo_phase31_3b_truelayer_real_sync/*.go
+
+# Phase 31.4: External Pressure Circles (ADR-0067)
+# Domain types use "user" in comments to describe that external circles are
+# "NOT user-manageable" and cannot be managed by humans. Demo tests use
+# "user@example.com" as a test email address for forbidden pattern detection.
+# This is domain terminology for describing read-only derived circles,
+# NOT QuantumLife identity. QuantumLife core uses "circle" for identity.
+pkg/domain/externalpressure/*.go
+internal/demo_phase31_4_external_pressure/*.go

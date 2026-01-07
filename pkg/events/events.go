@@ -1724,9 +1724,21 @@ const (
 	Phase31_3bTrueLayerIngestCompleted EventType = "phase31_3b.truelayer.ingest.completed"
 
 	// Token events (hash-only, never raw tokens)
-	Phase31_3bTrueLayerTokenStored   EventType = "phase31_3b.truelayer.token.stored"
+	Phase31_3bTrueLayerTokenStored    EventType = "phase31_3b.truelayer.token.stored"
 	Phase31_3bTrueLayerTokenRefreshed EventType = "phase31_3b.truelayer.token.refreshed"
 	Phase31_3bTrueLayerTokenExpired   EventType = "phase31_3b.truelayer.token.expired"
+
+	// Phase 31.4: External Pressure Circles + Intersection Pressure Map
+	// CRITICAL: NO raw merchant strings, NO vendor identifiers, NO amounts, NO timestamps.
+	// External circles CANNOT approve, CANNOT execute, CANNOT receive drafts.
+	// Deterministic: same inputs => same hashes.
+	// Reference: docs/ADR/ADR-0067-phase31-4-external-pressure-circles.md
+
+	// Pressure computation events
+	Phase31_4PressureComputed      EventType = "phase31_4.pressure.computed"
+	Phase31_4PressurePersisted     EventType = "phase31_4.pressure.persisted"
+	Phase31_4ExternalCircleDerived EventType = "phase31_4.external_circle.derived"
+	Phase31_4RealityViewed         EventType = "phase31_4.reality.viewed"
 )
 
 // Event represents a system event for audit and observability.

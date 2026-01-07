@@ -7,7 +7,7 @@
 #
 # Guardrails enforce Canon invariants at build time.
 
-.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 demo-phase9 demo-phase10 demo-phase11 demo-phase12 demo-phase13 demo-phase13-1 demo-phase14 demo-phase15 demo-phase16 demo-phase18 demo-phase18-2 demo-phase18-3 demo-phase18-4 demo-phase18-5 demo-phase18-6 demo-phase18-9 demo-phase19-shadow demo-phase19-1 demo-phase19-4 demo-phase19-real-keys-smoke demo-phase20 demo-phase26A demo-phase26B demo-phase26C demo-phase29 web web-mock web-demo web-app web-stop web-status run-real-shadow check-real-shadow-config check-today-quietly check-held check-quiet-shift check-proof check-connection-onboarding check-shadow-mode check-shadow-diff check-real-gmail-quiet check-trust-accrual check-journey check-first-minutes check-reality-check check-truelayer-finance-mirror ios-open ios-build ios-test ios-clean
+.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 demo-phase9 demo-phase10 demo-phase11 demo-phase12 demo-phase13 demo-phase13-1 demo-phase14 demo-phase15 demo-phase16 demo-phase18 demo-phase18-2 demo-phase18-3 demo-phase18-4 demo-phase18-5 demo-phase18-6 demo-phase18-9 demo-phase19-shadow demo-phase19-1 demo-phase19-4 demo-phase19-real-keys-smoke demo-phase20 demo-phase26A demo-phase26B demo-phase26C demo-phase29 demo-phase31-4 web web-mock web-demo web-app web-stop web-status run-real-shadow check-real-shadow-config check-today-quietly check-held check-quiet-shift check-proof check-connection-onboarding check-shadow-mode check-shadow-diff check-real-gmail-quiet check-trust-accrual check-journey check-first-minutes check-reality-check check-truelayer-finance-mirror check-external-pressure ios-open ios-build ios-test ios-clean
 
 # Default target
 all: ci
@@ -79,6 +79,7 @@ help:
 	@echo "  make demo-phase31-1 - Run Phase 31.1 gmail receipt observers demo"
 	@echo "  make demo-phase31-2 - Run Phase 31.2 commerce from finance demo"
 	@echo "  make demo-phase31-3b - Run Phase 31.3b TrueLayer real sync demo"
+	@echo "  make demo-phase31-4 - Run Phase 31.4 external pressure circles demo"
 	@echo ""
 	@echo "Web Server:"
 	@echo "  make web          - Run web server on :8080 (real mode)"
@@ -134,6 +135,7 @@ help:
 	@echo "  make check-commerce-observer - Check commerce observer constraints (Phase 31)"
 	@echo "  make check-receipt-observer - Check receipt observer constraints (Phase 31.1)"
 	@echo "  make check-commerce-from-finance - Check commerce from finance constraints (Phase 31.2)"
+	@echo "  make check-external-pressure - Check external pressure constraints (Phase 31.4)"
 	@echo ""
 	@echo "iOS (Phase 19):"
 	@echo "  make ios-open   - Open iOS project in Xcode (macOS only)"
@@ -786,6 +788,17 @@ demo-phase31-3b:
 check-truelayer-real-sync:
 	@echo "Checking Phase 31.3b constraints..."
 	@./scripts/guardrails/truelayer_real_sync_enforced.sh
+
+# Phase 31.4: External Pressure Circles + Intersection Pressure Map
+# Reference: docs/ADR/ADR-0067-phase31-4-external-pressure-circles.md
+demo-phase31-4:
+	@echo "Running Phase 31.4 Demo: External Pressure Circles..."
+	go test -v ./internal/demo_phase31_4_external_pressure/...
+
+# Check Phase 31.4 External Pressure constraints
+check-external-pressure:
+	@echo "Checking Phase 31.4 constraints..."
+	@./scripts/guardrails/external_pressure_enforced.sh
 
 # =============================================================================
 # Web Server Targets

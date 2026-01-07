@@ -128,6 +128,12 @@ const (
 	// CRITICAL: Contains ONLY buckets and hashes - never amounts, merchants, or timestamps.
 	// CRITICAL: Default outcome: NOTHING SHOWN. Commerce is observed. Nothing else.
 	RecordTypeCommerceObservation = "COMMERCE_OBSERVATION"
+
+	// Phase 31.4: External Pressure Circles record types
+	// CRITICAL: Contains ONLY hashes and abstract buckets - never merchant strings.
+	// CRITICAL: External circles CANNOT approve, CANNOT execute, CANNOT receive drafts.
+	RecordTypeExternalDerivedCircle = "EXTERNAL_DERIVED_CIRCLE"
+	RecordTypePressureMapSnapshot   = "PRESSURE_MAP_SNAPSHOT"
 )
 
 // Common errors

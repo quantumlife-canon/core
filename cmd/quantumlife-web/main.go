@@ -44,6 +44,7 @@ import (
 	emailexec "quantumlife/internal/email/execution"
 	"quantumlife/internal/execexecutor"
 	"quantumlife/internal/execrouter"
+	internalexternalpressure "quantumlife/internal/externalpressure"
 	"quantumlife/internal/financemirror"
 	"quantumlife/internal/financetxscan"
 	internalfirstaction "quantumlife/internal/firstaction"
@@ -85,6 +86,7 @@ import (
 	domaindeviceidentity "quantumlife/pkg/domain/deviceidentity"
 	"quantumlife/pkg/domain/draft"
 	domainevents "quantumlife/pkg/domain/events"
+	domainexternalpressure "quantumlife/pkg/domain/externalpressure"
 	"quantumlife/pkg/domain/feedback"
 	domainfinancemirror "quantumlife/pkg/domain/financemirror"
 	domainfirstaction "quantumlife/pkg/domain/firstaction"
@@ -182,6 +184,9 @@ type Server struct {
 	commerceObserverEngine *internalcommerceobserver.Engine   // Phase 31: Commerce observer engine
 	commerceIngestEngine   *commerceingest.Engine             // Phase 31.1: Commerce ingest engine
 	financeTxScanEngine    *financetxscan.Engine              // Phase 31.2: Finance tx scan engine
+	externalCircleStore    *persist.ExternalCircleStore       // Phase 31.4: External circle store
+	pressureMapStore       *persist.PressureMapStore          // Phase 31.4: Pressure map store
+	externalPressureEngine *internalexternalpressure.Engine   // Phase 31.4: External pressure engine
 	// Phase 18 Web Control Center
 	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
 	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
@@ -292,6 +297,8 @@ type templateData struct {
 	// Phase 31: Commerce Observers
 	CommerceMirrorPage *domaincommerceobserver.CommerceMirrorPage
 	CommerceCue        *domaincommerceobserver.CommerceCue
+	// Phase 31.4: External Pressure
+	PressureProofPage *domainexternalpressure.PressureProofPage
 	// Phase 18 Web Control Center
 	RunSnapshots     []*runlog.RunSnapshot      // List of run snapshots for /runs
 	RunSnapshot      *runlog.RunSnapshot        // Single run snapshot for /runs/:id
@@ -655,6 +662,11 @@ func main() {
 	// Phase 31.2: Create finance tx scan engine
 	financeTxScanEngine := financetxscan.NewEngine(clk.Now)
 
+	// Phase 31.4: Create external pressure store and engine
+	externalCircleStore := persist.NewExternalCircleStore(clk.Now)
+	pressureMapStore := persist.NewPressureMapStore(clk.Now)
+	externalPressureEngine := internalexternalpressure.NewEngine(clk.Now)
+
 	// Phase 18 Web Control Center: Create stores
 	runStore := runlog.NewInMemoryRunStore()
 	suppressionSet := suppress.NewSuppressionSet()
@@ -726,6 +738,9 @@ func main() {
 		commerceObserverEngine: commerceObserverEngine,                        // Phase 31
 		commerceIngestEngine:   commerceIngestEngine,                          // Phase 31.1
 		financeTxScanEngine:    financeTxScanEngine,                           // Phase 31.2
+		externalCircleStore:    externalCircleStore,                           // Phase 31.4
+		pressureMapStore:       pressureMapStore,                              // Phase 31.4
+		externalPressureEngine: externalPressureEngine,                        // Phase 31.4
 		// Phase 18 Web Control Center
 		runStore:       runStore,
 		suppressionSet: suppressionSet,
@@ -816,6 +831,7 @@ func main() {
 	mux.HandleFunc("/replay/export", server.handleReplayExport)                        // Phase 30A: Export replay bundle
 	mux.HandleFunc("/replay/import", server.handleReplayImport)                        // Phase 30A: Import replay bundle
 	mux.HandleFunc("/mirror/commerce", server.handleCommerceMirror)                    // Phase 31: Commerce mirror page
+	mux.HandleFunc("/reality/pressure", server.handlePressureProof)                    // Phase 31.4: Pressure proof page
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18 Web Control Center: Core routes
@@ -2560,6 +2576,9 @@ func (s *Server) handleGmailSync(w http.ResponseWriter, r *http.Request) {
 					"status_hash":       ingestResult.StatusHash,
 				},
 			})
+
+			// Phase 31.4: Compute external pressure from Gmail commerce observations
+			s.computeExternalPressure(circleID, ingestResult.Observations, s.clk.Now())
 		}
 	}
 
@@ -7411,17 +7430,101 @@ func (s *Server) handleTrueLayerSync(w http.ResponseWriter, r *http.Request) {
 					Timestamp: now,
 					CircleID:  circleID,
 					Metadata: map[string]string{
-						"observations_count":   intToString(len(result.Observations)),
-						"overall_magnitude":    string(result.OverallMagnitude),
-						"ingest_status_hash":   result.StatusHash,
-						"sync_receipt_hash":    receipt.StatusHash,
+						"observations_count": intToString(len(result.Observations)),
+						"overall_magnitude":  string(result.OverallMagnitude),
+						"ingest_status_hash": result.StatusHash,
+						"sync_receipt_hash":  receipt.StatusHash,
 					},
 				})
+
+				// Phase 31.4: Compute external pressure from commerce observations
+				s.computeExternalPressure(circleID, result.Observations, now)
 			}
 		}
 	}
 
 	http.Redirect(w, r, "/mirror/finance", http.StatusFound)
+}
+
+// computeExternalPressure computes and persists external pressure from commerce observations.
+// Phase 31.4: External Pressure Circles + Intersection Pressure Map.
+// CRITICAL: NO raw merchant strings, NO vendor identifiers, NO amounts.
+func (s *Server) computeExternalPressure(circleID string, observations []domaincommerceobserver.CommerceObservation, now time.Time) {
+	if s.externalPressureEngine == nil || s.pressureMapStore == nil {
+		return
+	}
+
+	if len(observations) == 0 {
+		return
+	}
+
+	// Compute sovereign circle ID hash
+	sovereignHash := internalexternalpressure.ComputeSovereignCircleIDHash(circleID)
+	periodKey := internalexternalpressure.PeriodFromTime(now)
+
+	// Convert commerce observations to pressure inputs
+	obsData := make([]internalexternalpressure.CommerceObservationData, 0, len(observations))
+	for _, obs := range observations {
+		obsData = append(obsData, internalexternalpressure.CommerceObservationData{
+			Source:       string(obs.Source),
+			Category:     string(obs.Category),
+			EvidenceHash: obs.EvidenceHash,
+		})
+	}
+
+	inputs := internalexternalpressure.ConvertCommerceObservations(sovereignHash, periodKey, obsData)
+	if inputs == nil {
+		return
+	}
+
+	// Compute pressure map
+	snapshot := s.externalPressureEngine.ComputePressureMap(inputs)
+	if snapshot == nil {
+		return
+	}
+
+	// Emit computed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase31_4PressureComputed,
+		Timestamp: now,
+		CircleID:  circleID,
+		Metadata: map[string]string{
+			"status_hash":  snapshot.StatusHash,
+			"items_count":  intToString(len(snapshot.Items)),
+			"sovereign_id": sovereignHash,
+		},
+	})
+
+	// Persist snapshot
+	if err := s.pressureMapStore.PersistSnapshot(snapshot); err == nil {
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase31_4PressurePersisted,
+			Timestamp: now,
+			CircleID:  circleID,
+			Metadata: map[string]string{
+				"status_hash": snapshot.StatusHash,
+			},
+		})
+	}
+
+	// Derive and persist external circles
+	if s.externalCircleStore != nil {
+		circles := s.externalPressureEngine.DeriveExternalCirclesFromSnapshot(snapshot)
+		for _, circle := range circles {
+			if err := s.externalCircleStore.PersistCircle(sovereignHash, circle); err == nil {
+				s.eventEmitter.Emit(events.Event{
+					Type:      events.Phase31_4ExternalCircleDerived,
+					Timestamp: now,
+					CircleID:  circleID,
+					Metadata: map[string]string{
+						"external_circle_hash": circle.CircleIDHash,
+						"category":             string(circle.CategoryHint),
+						"source":               string(circle.SourceKind),
+					},
+				})
+			}
+		}
+	}
 }
 
 // intToString converts an int to string without importing strconv in this file.
@@ -7586,6 +7689,69 @@ func (s *Server) handleCommerceMirror(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.render(w, "commerce-mirror", data)
+}
+
+// ============================================================================
+// Phase 31.4: External Pressure Handlers
+// ============================================================================
+
+// handlePressureProof shows the external pressure proof page.
+// Phase 31.4: A calm single-card proof page showing abstract external pressure.
+// CRITICAL: NO raw merchant strings, NO vendor identifiers, NO amounts.
+func (s *Server) handlePressureProof(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := "default"
+
+	// Compute sovereign circle ID hash
+	sovereignHash := internalexternalpressure.ComputeSovereignCircleIDHash(circleID)
+
+	// Get latest pressure map snapshot
+	var snapshot *domainexternalpressure.PressureMapSnapshot
+	if s.pressureMapStore != nil {
+		snapshot = s.pressureMapStore.GetLatestSnapshot(sovereignHash)
+	}
+
+	// Build proof page via engine - returns nil if no items (silence is success)
+	var page *domainexternalpressure.PressureProofPage
+	if s.externalPressureEngine != nil && snapshot != nil {
+		page = s.externalPressureEngine.BuildProofPage(snapshot)
+	}
+
+	// If no page, show empty state
+	if page == nil {
+		page = &domainexternalpressure.PressureProofPage{
+			Title:         domainexternalpressure.DefaultPressureTitle,
+			Subtitle:      "No external pressure observed. That's fine.",
+			CategoryChips: nil,
+			MagnitudeText: "nothing",
+			SourcesText:   "",
+			StatusHash:    "empty",
+		}
+	}
+
+	// Emit viewed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase31_4RealityViewed,
+		Timestamp: now,
+		CircleID:  circleID,
+		Metadata: map[string]string{
+			"status_hash":    page.StatusHash,
+			"category_count": fmt.Sprintf("%d", len(page.CategoryChips)),
+		},
+	})
+
+	data := templateData{
+		Title:             "External Pressure",
+		CurrentTime:       now.Format("2006-01-02 15:04"),
+		PressureProofPage: page,
+	}
+
+	s.render(w, "pressure-proof", data)
 }
 
 // boolToYesNoString converts a bool to "yes" or "no" string for event metadata.
@@ -10975,6 +11141,54 @@ const templates = `
     <section class="commerce-mirror-empty">
         <p>Nothing observed yet. That's fine.</p>
         <a href="/today" class="commerce-mirror-back-link">Back to Today</a>
+    </section>
+    {{end}}
+</div>
+{{end}}
+
+{{/* ================================================================
+     Phase 31.4: External Pressure Proof Page
+     CRITICAL: NO raw merchant strings, NO vendor identifiers, NO amounts.
+     Shows only abstract categories + magnitude buckets.
+     ================================================================ */}}
+{{define "pressure-proof"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "pressure-proof-content"}}
+<div class="pressure-proof-page">
+    {{if .PressureProofPage}}
+    <header class="pressure-proof-header">
+        <h1 class="pressure-proof-title">{{.PressureProofPage.Title}}</h1>
+        <p class="pressure-proof-subtitle">{{.PressureProofPage.Subtitle}}</p>
+    </header>
+
+    <section class="pressure-proof-card">
+        {{if .PressureProofPage.CategoryChips}}
+        <div class="pressure-proof-categories">
+            {{range .PressureProofPage.CategoryChips}}
+            <span class="pressure-proof-chip">{{.DisplayText}}</span>
+            {{end}}
+        </div>
+        {{end}}
+
+        {{if .PressureProofPage.MagnitudeText}}
+        <p class="pressure-proof-magnitude">Magnitude: {{.PressureProofPage.MagnitudeText}}</p>
+        {{end}}
+
+        {{if .PressureProofPage.SourcesText}}
+        <p class="pressure-proof-sources">Sources: {{.PressureProofPage.SourcesText}}</p>
+        {{end}}
+    </section>
+
+    <footer class="pressure-proof-footer">
+        <a href="/today" class="pressure-proof-back-link">Back to Today</a>
+    </footer>
+    {{else}}
+    <section class="pressure-proof-empty">
+        <h1 class="pressure-proof-title">External, contained.</h1>
+        <p>No external pressure observed. That's fine.</p>
+        <a href="/today" class="pressure-proof-back-link">Back to Today</a>
     </section>
     {{end}}
 </div>
