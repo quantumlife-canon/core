@@ -94,7 +94,7 @@ fi
 
 echo ""
 echo "Checking Rule 2: internal/* must not import other internal/* packages..."
-echo "(Exceptions: impl_inmem, demo, loop, persist, undoableexec, journey, trustaction, financemirror, deviceidentity, and replay are wiring layers)"
+echo "(Exceptions: impl_inmem, demo, loop, persist, undoableexec, journey, trustaction, financemirror, deviceidentity, replay, pushtransport are wiring layers)"
 echo ""
 
 INTERNAL_DIR="${REPO_ROOT}/internal"
@@ -110,8 +110,10 @@ if [[ -d "$INTERNAL_DIR" ]]; then
     while IFS= read -r -d '' file; do
         relative_path="${file#${REPO_ROOT}/}"
 
-        # Skip wiring layers (implementation packages, demo, loop orchestrator, persist, undoableexec, journey, trustaction, financemirror, deviceidentity, replay, commerceingest, and conformance)
+        # Skip wiring layers (implementation packages, demo, loop orchestrator, persist, undoableexec, journey, trustaction, financemirror, deviceidentity, replay, commerceingest, pushtransport, and conformance)
         # These are allowed to import across internal packages for wiring/testing
+        # Note: pushtransport is included because APNs transport (Phase 35b) requires
+        #       access to sealed_secret_store.go as part of the sealed secret boundary.
         if [[ "$relative_path" == *"/impl_inmem/"* ]] || \
            [[ "$relative_path" == *"/impl_"* ]] || \
            [[ "$relative_path" == "internal/demo/"* ]] || \
@@ -125,6 +127,7 @@ if [[ -d "$INTERNAL_DIR" ]]; then
            [[ "$relative_path" == "internal/deviceidentity/"* ]] || \
            [[ "$relative_path" == "internal/replay/"* ]] || \
            [[ "$relative_path" == "internal/commerceingest/"* ]] || \
+           [[ "$relative_path" == "internal/pushtransport/"* ]] || \
            [[ "$relative_path" == *"/conformance/"* ]]; then
             continue
         fi

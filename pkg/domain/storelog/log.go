@@ -152,6 +152,13 @@ const (
 	// CRITICAL: TokenHash only. Raw token NEVER stored.
 	RecordTypePushRegistration = "PUSH_REGISTRATION"
 	RecordTypePushAttempt      = "PUSH_ATTEMPT"
+
+	// Phase 35b: APNs Sealed Secret Boundary record types
+	// CRITICAL: Sealed secret boundary. Token hash only in records.
+	// CRITICAL: Raw tokens encrypted in sealed store, NOT in storelog.
+	// CRITICAL: No device identifiers in storelog records.
+	RecordTypeAPNsRegistration = "APNS_REGISTRATION"
+	RecordTypeAPNsDelivery     = "APNS_DELIVERY"
 )
 
 // Common errors

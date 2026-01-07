@@ -340,3 +340,10 @@ internal/interruptpolicy/*.go
 pkg/domain/interruptpreview/*.go
 internal/interruptpreview/*.go
 internal/demo_phase34_interrupt_preview/*.go
+
+# Phase 35b: APNs Sealed Secret Boundary (ADR-0072)
+# Sealed secret store uses "user" in comments about metadata constraints
+# (e.g., "No retrieval by circle, user, or device metadata"). This is
+# documentation of access restrictions, NOT QuantumLife identity.
+# QuantumLife core uses "circle" for identity.
+internal/persist/sealed_secret_store.go

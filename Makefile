@@ -840,6 +840,16 @@ check-push-transport:
 	@echo "Checking Phase 35 constraints..."
 	@./scripts/guardrails/push_transport_enforced.sh
 
+# Run Phase 35b Demo: APNs Sealed Secret Boundary
+demo-phase35b:
+	@echo "Running Phase 35b Demo: APNs Sealed Secret Boundary..."
+	go test -v ./internal/demo_phase35b_apns_transport/...
+
+# Check Phase 35b APNs Sealed Secret constraints
+check-apns-sealed:
+	@echo "Checking Phase 35b constraints..."
+	@./scripts/guardrails/apns_sealed_secret_enforced.sh
+
 # =============================================================================
 # Web Server Targets
 # =============================================================================

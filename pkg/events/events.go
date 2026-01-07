@@ -1834,6 +1834,35 @@ const (
 	// Proof page events
 	Phase35PushProofRequested EventType = "phase35.push.proof_requested"
 	Phase35PushProofRendered  EventType = "phase35.push.proof_rendered"
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	// PHASE 35b: APNs PUSH TRANSPORT (SEALED SECRET BOUNDARY)
+	// ═══════════════════════════════════════════════════════════════════════════
+	// Real iOS push delivery with encrypted token storage.
+	// CRITICAL: Token hash only in events. Raw token NEVER logged.
+	// CRITICAL: Sealed secret boundary: only apns.go may decrypt tokens.
+	// CRITICAL: Abstract payload only. No identifiers in push body.
+	// ═══════════════════════════════════════════════════════════════════════════
+
+	// Sealed secret events
+	Phase35bSealedSecretStored  EventType = "phase35b.sealed.secret_stored"
+	Phase35bSealedSecretLoaded  EventType = "phase35b.sealed.secret_loaded"
+	Phase35bSealedSecretDeleted EventType = "phase35b.sealed.secret_deleted"
+
+	// APNs registration events
+	Phase35bAPNsRegistrationRequested EventType = "phase35b.apns.registration_requested"
+	Phase35bAPNsRegistrationVerified  EventType = "phase35b.apns.registration_verified"
+	Phase35bAPNsRegistrationCreated   EventType = "phase35b.apns.registration_created"
+	Phase35bAPNsRegistrationFailed    EventType = "phase35b.apns.registration_failed"
+
+	// APNs delivery events
+	Phase35bAPNsDeliveryRequested EventType = "phase35b.apns.delivery_requested"
+	Phase35bAPNsDeliverySent      EventType = "phase35b.apns.delivery_sent"
+	Phase35bAPNsDeliveryFailed    EventType = "phase35b.apns.delivery_failed"
+
+	// APNs proof events
+	Phase35bAPNsProofRequested EventType = "phase35b.apns.proof_requested"
+	Phase35bAPNsProofRendered  EventType = "phase35b.apns.proof_rendered"
 )
 
 // Event represents a system event for audit and observability.
