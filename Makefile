@@ -830,6 +830,16 @@ check-interrupt-preview:
 	@echo "Checking Phase 34 constraints..."
 	@./scripts/guardrails/interrupt_preview_enforced.sh
 
+# Run Phase 35 Demo: Push Transport
+demo-phase35:
+	@echo "Running Phase 35 Demo: Push Transport..."
+	go test -v ./internal/demo_phase35_push_transport/...
+
+# Check Phase 35 Push Transport constraints
+check-push-transport:
+	@echo "Checking Phase 35 constraints..."
+	@./scripts/guardrails/push_transport_enforced.sh
+
 # =============================================================================
 # Web Server Targets
 # =============================================================================

@@ -1805,6 +1805,35 @@ const (
 	// Proof page events
 	Phase34InterruptPreviewProofRequested EventType = "phase34.interrupt_preview.proof_requested"
 	Phase34InterruptPreviewProofRendered  EventType = "phase34.interrupt_preview.proof_rendered"
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	// PHASE 35: PUSH TRANSPORT (ABSTRACT INTERRUPT DELIVERY)
+	// ═══════════════════════════════════════════════════════════════════════════
+	// Transport-only layer for delivering permitted interrupt candidates.
+	// CRITICAL: Abstract payload only. No identifiers in push body.
+	// CRITICAL: TokenHash only. Raw token NEVER stored.
+	// CRITICAL: No new decision logic — uses Phase 33/34 output.
+	// ═══════════════════════════════════════════════════════════════════════════
+
+	// Registration events
+	Phase35PushRegistrationRequested EventType = "phase35.push.registration_requested"
+	Phase35PushRegistrationCreated   EventType = "phase35.push.registration_created"
+	Phase35PushRegistrationUpdated   EventType = "phase35.push.registration_updated"
+	Phase35PushRegistrationDisabled  EventType = "phase35.push.registration_disabled"
+
+	// Delivery eligibility events
+	Phase35PushDeliveryEligible   EventType = "phase35.push.delivery_eligible"
+	Phase35PushDeliverySkipped    EventType = "phase35.push.delivery_skipped"
+	Phase35PushDeliveryCapReached EventType = "phase35.push.delivery_cap_reached"
+
+	// Transport events
+	Phase35PushTransportRequested EventType = "phase35.push.transport_requested"
+	Phase35PushTransportSent      EventType = "phase35.push.transport_sent"
+	Phase35PushTransportFailed    EventType = "phase35.push.transport_failed"
+
+	// Proof page events
+	Phase35PushProofRequested EventType = "phase35.push.proof_requested"
+	Phase35PushProofRendered  EventType = "phase35.push.proof_rendered"
 )
 
 // Event represents a system event for audit and observability.

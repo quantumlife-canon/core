@@ -145,6 +145,13 @@ const (
 	// CRITICAL: Web-only preview. NO external signals.
 	// CRITICAL: Hash-only, bucket-only. No raw identifiers.
 	RecordTypeInterruptPreviewAck = "INTERRUPT_PREVIEW_ACK"
+
+	// Phase 35: Push Transport record types
+	// CRITICAL: Transport-only. No new decision logic (uses Phase 33/34).
+	// CRITICAL: Abstract payload only. No identifiers in push body.
+	// CRITICAL: TokenHash only. Raw token NEVER stored.
+	RecordTypePushRegistration = "PUSH_REGISTRATION"
+	RecordTypePushAttempt      = "PUSH_ATTEMPT"
 )
 
 // Common errors
