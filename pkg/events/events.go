@@ -1673,6 +1673,18 @@ const (
 	Phase31CommerceObserved       EventType = "phase31.commerce.observed"
 	Phase31CommerceMirrorRendered EventType = "phase31.commerce.mirror.rendered"
 	Phase31CommerceCueComputed    EventType = "phase31.commerce.cue.computed"
+
+	// Phase 31.1: Gmail Receipt Observers (Email -> CommerceSignals)
+	// CRITICAL: NO merchant names, NO amounts, NO sender emails - buckets and hashes only.
+	// Deterministic: same inputs => same hashes => same observations.
+	// Reference: docs/ADR/ADR-0063-phase31-1-gmail-receipt-observers.md
+
+	// Receipt scanning events
+	Phase31_1ReceiptScanStarted   EventType = "phase31_1.receipt_scan.started"
+	Phase31_1ReceiptScanCompleted EventType = "phase31_1.receipt_scan.completed"
+
+	// Commerce observation events (from Gmail receipts)
+	Phase31_1CommerceObservationsPersisted EventType = "phase31_1.commerce_observations.persisted"
 )
 
 // Event represents a system event for audit and observability.

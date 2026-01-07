@@ -21,11 +21,13 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	calexec "quantumlife/internal/calendar/execution"
+	"quantumlife/internal/commerceingest"
 	internalcommerceobserver "quantumlife/internal/commerceobserver"
 	"quantumlife/internal/config"
 	"quantumlife/internal/connectors/auth"
@@ -173,6 +175,7 @@ type Server struct {
 	replayEngine           *internalreplay.Engine             // Phase 30A: Replay bundle engine
 	commerceObserverStore  *persist.CommerceObserverStore     // Phase 31: Commerce observer store
 	commerceObserverEngine *internalcommerceobserver.Engine   // Phase 31: Commerce observer engine
+	commerceIngestEngine   *commerceingest.Engine             // Phase 31.1: Commerce ingest engine
 	// Phase 18 Web Control Center
 	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
 	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
@@ -640,6 +643,9 @@ func main() {
 	commerceObserverStore := persist.NewCommerceObserverStore(clk.Now)
 	commerceObserverEngine := internalcommerceobserver.NewEngine(clk.Now)
 
+	// Phase 31.1: Create commerce ingest engine
+	commerceIngestEngine := commerceingest.NewEngine(clk.Now)
+
 	// Phase 18 Web Control Center: Create stores
 	runStore := runlog.NewInMemoryRunStore()
 	suppressionSet := suppress.NewSuppressionSet()
@@ -706,6 +712,7 @@ func main() {
 		replayEngine:           replayEngine,                                  // Phase 30A
 		commerceObserverStore:  commerceObserverStore,                         // Phase 31
 		commerceObserverEngine: commerceObserverEngine,                        // Phase 31
+		commerceIngestEngine:   commerceIngestEngine,                          // Phase 31.1
 		// Phase 18 Web Control Center
 		runStore:       runStore,
 		suppressionSet: suppressionSet,
@@ -2471,6 +2478,77 @@ func (s *Server) handleGmailSync(w http.ResponseWriter, r *http.Request) {
 			"receipt_hash":         receipt.Hash,
 		},
 	})
+
+	// Phase 31.1: Gmail Receipt Observers
+	// Extract message metadata for receipt classification
+	// CRITICAL: Raw data is used for classification ONLY and is NOT stored
+	if len(messages) > 0 && s.commerceIngestEngine != nil {
+		// Emit receipt scan started event
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase31_1ReceiptScanStarted,
+			Timestamp: s.clk.Now(),
+			Metadata: map[string]string{
+				"circle_id":        circleID,
+				"magnitude_bucket": string(receipt.MagnitudeBucket),
+			},
+		})
+
+		// Extract message data for classification
+		// CRITICAL: This data is used for classification only and is immediately discarded
+		messageData := make([]commerceingest.MessageData, 0, len(messages))
+		for _, msg := range messages {
+			messageData = append(messageData, commerceingest.ExtractMessageData(
+				msg.SourceID(),   // MessageID (will be hashed, never stored raw)
+				msg.SenderDomain, // Domain only (used for classification, not stored)
+				msg.Subject,      // Subject (used for classification, not stored)
+				msg.BodyPreview,  // Snippet (used for classification, not stored)
+			))
+		}
+
+		// Build commerce observations from Gmail receipts
+		period := commerceingest.PeriodFromTime(s.clk.Now())
+		ingestResult := s.commerceIngestEngine.BuildFromGmailMessages(
+			circleID,
+			period,
+			receipt.Hash,
+			messageData,
+		)
+
+		// Persist observations to commerce observer store
+		for _, obs := range ingestResult.Observations {
+			if err := s.commerceObserverStore.PersistObservation(circleID, &obs); err != nil {
+				log.Printf("Phase 31.1: Failed to persist observation: %v", err)
+			}
+		}
+
+		// Emit receipt scan completed event with abstract buckets only
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase31_1ReceiptScanCompleted,
+			Timestamp: s.clk.Now(),
+			Metadata: map[string]string{
+				"circle_id":         circleID,
+				"period":            period,
+				"magnitude_bucket":  string(ingestResult.OverallMagnitude),
+				"observation_count": strconv.Itoa(len(ingestResult.Observations)),
+				"status_hash":       ingestResult.StatusHash,
+				"sync_receipt_hash": receipt.Hash,
+			},
+		})
+
+		// Emit observations persisted event if any observations were created
+		if len(ingestResult.Observations) > 0 {
+			s.eventEmitter.Emit(events.Event{
+				Type:      events.Phase31_1CommerceObservationsPersisted,
+				Timestamp: s.clk.Now(),
+				Metadata: map[string]string{
+					"circle_id":         circleID,
+					"period":            period,
+					"observation_count": strconv.Itoa(len(ingestResult.Observations)),
+					"status_hash":       ingestResult.StatusHash,
+				},
+			})
+		}
+	}
 
 	// Return success page or redirect
 	http.Redirect(w, r, "/connections?synced=gmail", http.StatusFound)

@@ -76,6 +76,7 @@ help:
 	@echo "  make demo-phase29 - Run Phase 29 TrueLayer finance mirror demo"
 	@echo "  make demo-phase30A - Run Phase 30A identity + replay demo"
 	@echo "  make demo-phase31  - Run Phase 31 commerce observers demo"
+	@echo "  make demo-phase31-1 - Run Phase 31.1 gmail receipt observers demo"
 	@echo ""
 	@echo "Web Server:"
 	@echo "  make web          - Run web server on :8080 (real mode)"
@@ -128,6 +129,8 @@ help:
 	@echo "  make check-trust-kept - Check trust kept constraints (Phase 28)"
 	@echo "  make check-truelayer-finance-mirror - Check TrueLayer finance mirror constraints (Phase 29)"
 	@echo "  make check-identity-replay - Check identity + replay constraints (Phase 30A)"
+	@echo "  make check-commerce-observer - Check commerce observer constraints (Phase 31)"
+	@echo "  make check-receipt-observer - Check receipt observer constraints (Phase 31.1)"
 	@echo ""
 	@echo "iOS (Phase 19):"
 	@echo "  make ios-open   - Open iOS project in Xcode (macOS only)"
@@ -736,6 +739,17 @@ demo-phase31:
 check-commerce-observer:
 	@echo "Checking Phase 31 constraints..."
 	@./scripts/guardrails/commerce_observer_enforced.sh
+
+# Phase 31.1: Gmail Receipt Observers (Email -> CommerceSignals)
+# Reference: docs/ADR/ADR-0063-phase31-1-gmail-receipt-observers.md
+demo-phase31-1:
+	@echo "Running Phase 31.1 Demo: Gmail Receipt Observers..."
+	go test -v ./internal/demo_phase31_1_gmail_receipt_observer/...
+
+# Check Phase 31.1 Receipt Observer constraints
+check-receipt-observer:
+	@echo "Checking Phase 31.1 constraints..."
+	@./scripts/guardrails/receipt_observer_enforced.sh
 
 # =============================================================================
 # Web Server Targets
