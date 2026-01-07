@@ -75,6 +75,7 @@ help:
 	@echo "  make demo-phase28 - Run Phase 28 trust kept demo"
 	@echo "  make demo-phase29 - Run Phase 29 TrueLayer finance mirror demo"
 	@echo "  make demo-phase30A - Run Phase 30A identity + replay demo"
+	@echo "  make demo-phase31  - Run Phase 31 commerce observers demo"
 	@echo ""
 	@echo "Web Server:"
 	@echo "  make web          - Run web server on :8080 (real mode)"
@@ -724,6 +725,17 @@ demo-phase30A:
 check-identity-replay:
 	@echo "Checking Phase 30A constraints..."
 	@./scripts/guardrails/identity_replay_enforced.sh
+
+# Run Phase 31 demo: Commerce Observers
+# Reference: docs/ADR/ADR-0062-phase31-commerce-observers.md
+demo-phase31:
+	@echo "Running Phase 31 Demo: Commerce Observers..."
+	go test -v ./internal/demo_phase31_commerce_observer/...
+
+# Check Phase 31 Commerce Observer constraints
+check-commerce-observer:
+	@echo "Checking Phase 31 constraints..."
+	@./scripts/guardrails/commerce_observer_enforced.sh
 
 # =============================================================================
 # Web Server Targets

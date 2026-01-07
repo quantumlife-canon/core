@@ -123,6 +123,11 @@ const (
 	// CRITICAL: Contains ONLY hashes and fingerprints - never raw keys or identifiers.
 	// CRITICAL: Bounded: max 5 devices per circle.
 	RecordTypeCircleBinding = "CIRCLE_BINDING"
+
+	// Phase 31: Commerce Observers record types
+	// CRITICAL: Contains ONLY buckets and hashes - never amounts, merchants, or timestamps.
+	// CRITICAL: Default outcome: NOTHING SHOWN. Commerce is observed. Nothing else.
+	RecordTypeCommerceObservation = "COMMERCE_OBSERVATION"
 )
 
 // Common errors

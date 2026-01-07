@@ -26,6 +26,7 @@ import (
 	"time"
 
 	calexec "quantumlife/internal/calendar/execution"
+	internalcommerceobserver "quantumlife/internal/commerceobserver"
 	"quantumlife/internal/config"
 	"quantumlife/internal/connectors/auth"
 	"quantumlife/internal/connectors/auth/impl_inmem"
@@ -74,6 +75,7 @@ import (
 	"quantumlife/internal/undoableexec"
 	"quantumlife/pkg/clock"
 	"quantumlife/pkg/domain/approvaltoken"
+	domaincommerceobserver "quantumlife/pkg/domain/commerceobserver"
 	pkgconfig "quantumlife/pkg/domain/config"
 	"quantumlife/pkg/domain/connection"
 	domaindeviceidentity "quantumlife/pkg/domain/deviceidentity"
@@ -169,6 +171,8 @@ type Server struct {
 	circleBindingStore     *persist.CircleBindingStore        // Phase 30A: Circle binding store
 	deviceIdentityEngine   *internaldeviceidentity.Engine     // Phase 30A: Device identity engine
 	replayEngine           *internalreplay.Engine             // Phase 30A: Replay bundle engine
+	commerceObserverStore  *persist.CommerceObserverStore     // Phase 31: Commerce observer store
+	commerceObserverEngine *internalcommerceobserver.Engine   // Phase 31: Commerce observer engine
 	// Phase 18 Web Control Center
 	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
 	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
@@ -276,6 +280,9 @@ type templateData struct {
 	// Phase 29: TrueLayer Finance Mirror
 	FinanceMirrorPage *domainfinancemirror.FinanceMirrorPage
 	FinanceMirrorCue  *domainfinancemirror.FinanceMirrorCue
+	// Phase 31: Commerce Observers
+	CommerceMirrorPage *domaincommerceobserver.CommerceMirrorPage
+	CommerceCue        *domaincommerceobserver.CommerceCue
 	// Phase 18 Web Control Center
 	RunSnapshots     []*runlog.RunSnapshot      // List of run snapshots for /runs
 	RunSnapshot      *runlog.RunSnapshot        // Single run snapshot for /runs/:id
@@ -629,6 +636,10 @@ func main() {
 	deviceIdentityEngine := internaldeviceidentity.NewEngine(clk.Now, deviceKeyStore, circleBindingStore)
 	replayEngine := internalreplay.NewEngine(clk.Now, nil) // No storelog for now
 
+	// Phase 31: Create commerce observer store and engine
+	commerceObserverStore := persist.NewCommerceObserverStore(clk.Now)
+	commerceObserverEngine := internalcommerceobserver.NewEngine(clk.Now)
+
 	// Phase 18 Web Control Center: Create stores
 	runStore := runlog.NewInMemoryRunStore()
 	suppressionSet := suppress.NewSuppressionSet()
@@ -693,6 +704,8 @@ func main() {
 		circleBindingStore:     circleBindingStore,                            // Phase 30A
 		deviceIdentityEngine:   deviceIdentityEngine,                          // Phase 30A
 		replayEngine:           replayEngine,                                  // Phase 30A
+		commerceObserverStore:  commerceObserverStore,                         // Phase 31
+		commerceObserverEngine: commerceObserverEngine,                        // Phase 31
 		// Phase 18 Web Control Center
 		runStore:       runStore,
 		suppressionSet: suppressionSet,
@@ -782,6 +795,7 @@ func main() {
 	mux.HandleFunc("/identity/bind", server.handleIdentityBind)                        // Phase 30A: Bind device to circle
 	mux.HandleFunc("/replay/export", server.handleReplayExport)                        // Phase 30A: Export replay bundle
 	mux.HandleFunc("/replay/import", server.handleReplayImport)                        // Phase 30A: Import replay bundle
+	mux.HandleFunc("/mirror/commerce", server.handleCommerceMirror)                    // Phase 31: Commerce mirror page
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18 Web Control Center: Core routes
@@ -7258,6 +7272,59 @@ func (s *Server) handleFinanceMirrorAck(w http.ResponseWriter, r *http.Request) 
 	http.Redirect(w, r, "/today", http.StatusFound)
 }
 
+// handleCommerceMirror shows the commerce mirror proof page.
+// Phase 31: Abstract data only. No amounts, merchants, or timestamps.
+// Default outcome: NOTHING SHOWN. Commerce is observed. Nothing else.
+func (s *Server) handleCommerceMirror(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := "default"
+
+	// Get observations for the current period
+	var observations []domaincommerceobserver.CommerceObservation
+	if s.commerceObserverStore != nil {
+		observations = s.commerceObserverStore.GetLatestObservations(circleID)
+	}
+
+	// Build page via engine - returns nil if no observations (silence is success)
+	var page *domaincommerceobserver.CommerceMirrorPage
+	if s.commerceObserverEngine != nil {
+		page = s.commerceObserverEngine.BuildMirrorPage(observations)
+	}
+
+	// If no page, show empty state
+	if page == nil {
+		page = &domaincommerceobserver.CommerceMirrorPage{
+			Title:   domaincommerceobserver.DefaultTitle,
+			Lines:   []string{"Nothing observed yet. That's fine."},
+			Buckets: nil,
+		}
+	}
+
+	// Emit viewed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase31CommerceMirrorRendered,
+		Timestamp: now,
+		CircleID:  circleID,
+		Metadata: map[string]string{
+			"status_hash":  page.StatusHash,
+			"bucket_count": fmt.Sprintf("%d", len(page.Buckets)),
+		},
+	})
+
+	data := templateData{
+		Title:              "Commerce Mirror",
+		CurrentTime:        now.Format("2006-01-02 15:04"),
+		CommerceMirrorPage: page,
+	}
+
+	s.render(w, "commerce-mirror", data)
+}
+
 // boolToYesNoString converts a bool to "yes" or "no" string for event metadata.
 func boolToYesNoString(b bool) string {
 	if b {
@@ -10555,6 +10622,96 @@ const templates = `
     <section class="reality-empty">
         <p>Reality check not available.</p>
         <a href="/today" class="reality-back-link">Back to Today</a>
+    </section>
+    {{end}}
+</div>
+{{end}}
+
+{{/* ================================================================
+     Phase 29: Finance Mirror Proof
+     ================================================================ */}}
+{{define "finance-mirror"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "finance-mirror-content"}}
+<div class="finance-mirror-page">
+    {{if .FinanceMirrorPage}}
+    <header class="finance-mirror-header">
+        <h1 class="finance-mirror-title">{{.FinanceMirrorPage.Title}}</h1>
+    </header>
+
+    <section class="finance-mirror-card">
+        {{if .FinanceMirrorPage.CalmLine}}
+        <p class="finance-mirror-calm-line">{{.FinanceMirrorPage.CalmLine}}</p>
+        {{end}}
+
+        {{if .FinanceMirrorPage.Categories}}
+        <ul class="finance-mirror-categories">
+            {{range .FinanceMirrorPage.Categories}}
+            <li class="finance-mirror-category">
+                <span class="category-name">{{.Category.DisplayText}}</span>
+                <span class="category-magnitude">{{.Magnitude.DisplayText}}</span>
+            </li>
+            {{end}}
+        </ul>
+        {{end}}
+
+        {{if .FinanceMirrorPage.Reassurance}}
+        <p class="finance-mirror-reassurance">{{.FinanceMirrorPage.Reassurance}}</p>
+        {{end}}
+    </section>
+
+    <footer class="finance-mirror-footer">
+        <span class="finance-mirror-sync">Last sync: {{.FinanceMirrorPage.LastSyncBucket}}</span>
+        <a href="/today" class="finance-mirror-back-link">Back to Today</a>
+    </footer>
+    {{else}}
+    <section class="finance-mirror-empty">
+        <p>Finance mirror not available. Connect your finance provider first.</p>
+        <a href="/connections" class="finance-mirror-back-link">View connections</a>
+    </section>
+    {{end}}
+</div>
+{{end}}
+
+{{/* ================================================================
+     Phase 31: Commerce Mirror (Silent by Default)
+     ================================================================ */}}
+{{define "commerce-mirror"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "commerce-mirror-content"}}
+<div class="commerce-mirror-page">
+    {{if .CommerceMirrorPage}}
+    <header class="commerce-mirror-header">
+        <h1 class="commerce-mirror-title">{{.CommerceMirrorPage.Title}}</h1>
+    </header>
+
+    <section class="commerce-mirror-card">
+        {{if .CommerceMirrorPage.Lines}}
+        {{range .CommerceMirrorPage.Lines}}
+        <p class="commerce-mirror-line">{{.}}</p>
+        {{end}}
+        {{end}}
+
+        {{if .CommerceMirrorPage.Buckets}}
+        <ul class="commerce-mirror-buckets">
+            {{range .CommerceMirrorPage.Buckets}}
+            <li class="commerce-mirror-bucket">{{.DisplayText}}</li>
+            {{end}}
+        </ul>
+        {{end}}
+    </section>
+
+    <footer class="commerce-mirror-footer">
+        <a href="/today" class="commerce-mirror-back-link">Back to Today</a>
+    </footer>
+    {{else}}
+    <section class="commerce-mirror-empty">
+        <p>Nothing observed yet. That's fine.</p>
+        <a href="/today" class="commerce-mirror-back-link">Back to Today</a>
     </section>
     {{end}}
 </div>

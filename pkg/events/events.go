@@ -1663,6 +1663,16 @@ const (
 	Phase30AReplayExported EventType = "phase30A.replay.exported"
 	Phase30AReplayImported EventType = "phase30A.replay.imported"
 	Phase30AReplayRejected EventType = "phase30A.replay.rejected"
+
+	// Phase 31: Commerce Observers (Silent by Default)
+	// CRITICAL: NO amounts, NO merchant names, NO timestamps - buckets and hashes only.
+	// CRITICAL: No goroutines, no time.Now() - clock injection only.
+	// Default outcome: NOTHING SHOWN. Commerce is observed. Nothing else.
+
+	// Commerce observation events
+	Phase31CommerceObserved       EventType = "phase31.commerce.observed"
+	Phase31CommerceMirrorRendered EventType = "phase31.commerce.mirror.rendered"
+	Phase31CommerceCueComputed    EventType = "phase31.commerce.cue.computed"
 )
 
 // Event represents a system event for audit and observability.
