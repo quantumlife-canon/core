@@ -810,6 +810,16 @@ check-pressure-decision-gate:
 	@echo "Checking Phase 32 constraints..."
 	@./scripts/guardrails/pressure_decision_gate_enforced.sh
 
+# Run Phase 33 Demo: Interrupt Permission Contract
+demo-phase33:
+	@echo "Running Phase 33 Demo: Interrupt Permission Contract..."
+	go test -v ./internal/demo_phase33_interrupt_permission/...
+
+# Check Phase 33 Interrupt Permission Contract constraints
+check-interrupt-permission:
+	@echo "Checking Phase 33 constraints..."
+	@./scripts/guardrails/interrupt_permission_enforced.sh
+
 # =============================================================================
 # Web Server Targets
 # =============================================================================

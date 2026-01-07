@@ -46,6 +46,7 @@ import (
 	"quantumlife/internal/execrouter"
 	internalexternalpressure "quantumlife/internal/externalpressure"
 	"quantumlife/internal/financemirror"
+	internalinterruptpolicy "quantumlife/internal/interruptpolicy"
 	"quantumlife/internal/financetxscan"
 	internalfirstaction "quantumlife/internal/firstaction"
 	internalfirstminutes "quantumlife/internal/firstminutes"
@@ -88,6 +89,7 @@ import (
 	domainevents "quantumlife/pkg/domain/events"
 	domainexternalpressure "quantumlife/pkg/domain/externalpressure"
 	"quantumlife/pkg/domain/feedback"
+	interruptpolicy "quantumlife/pkg/domain/interruptpolicy"
 	domainfinancemirror "quantumlife/pkg/domain/financemirror"
 	domainfirstaction "quantumlife/pkg/domain/firstaction"
 	domainfirstminutes "quantumlife/pkg/domain/firstminutes"
@@ -187,6 +189,9 @@ type Server struct {
 	externalCircleStore    *persist.ExternalCircleStore       // Phase 31.4: External circle store
 	pressureMapStore       *persist.PressureMapStore          // Phase 31.4: Pressure map store
 	externalPressureEngine *internalexternalpressure.Engine   // Phase 31.4: External pressure engine
+	interruptPolicyStore   *persist.InterruptPolicyStore      // Phase 33: Interrupt policy store
+	interruptProofAckStore *persist.InterruptProofAckStore    // Phase 33: Interrupt proof ack store
+	interruptPolicyEngine  *internalinterruptpolicy.Engine    // Phase 33: Interrupt policy engine
 	// Phase 18 Web Control Center
 	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
 	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
@@ -299,6 +304,10 @@ type templateData struct {
 	CommerceCue        *domaincommerceobserver.CommerceCue
 	// Phase 31.4: External Pressure
 	PressureProofPage *domainexternalpressure.PressureProofPage
+	// Phase 33: Interrupt Permission Contract
+	InterruptPolicy     *interruptpolicy.InterruptPolicy
+	InterruptProofPage  *interruptpolicy.InterruptProofPage
+	InterruptAllowances []interruptAllowanceOption
 	// Phase 18 Web Control Center
 	RunSnapshots     []*runlog.RunSnapshot      // List of run snapshots for /runs
 	RunSnapshot      *runlog.RunSnapshot        // Single run snapshot for /runs/:id
@@ -667,6 +676,11 @@ func main() {
 	pressureMapStore := persist.NewPressureMapStore(clk.Now)
 	externalPressureEngine := internalexternalpressure.NewEngine(clk.Now)
 
+	// Phase 33: Create interrupt permission stores and engine
+	interruptPolicyStore := persist.NewInterruptPolicyStore(persist.DefaultInterruptPolicyStoreConfig())
+	interruptProofAckStore := persist.NewInterruptProofAckStore(persist.DefaultInterruptProofAckStoreConfig())
+	interruptPolicyEngine := internalinterruptpolicy.NewEngine()
+
 	// Phase 18 Web Control Center: Create stores
 	runStore := runlog.NewInMemoryRunStore()
 	suppressionSet := suppress.NewSuppressionSet()
@@ -741,6 +755,9 @@ func main() {
 		externalCircleStore:    externalCircleStore,                           // Phase 31.4
 		pressureMapStore:       pressureMapStore,                              // Phase 31.4
 		externalPressureEngine: externalPressureEngine,                        // Phase 31.4
+		interruptPolicyStore:   interruptPolicyStore,                          // Phase 33
+		interruptProofAckStore: interruptProofAckStore,                        // Phase 33
+		interruptPolicyEngine:  interruptPolicyEngine,                         // Phase 33
 		// Phase 18 Web Control Center
 		runStore:       runStore,
 		suppressionSet: suppressionSet,
@@ -832,6 +849,10 @@ func main() {
 	mux.HandleFunc("/replay/import", server.handleReplayImport)                        // Phase 30A: Import replay bundle
 	mux.HandleFunc("/mirror/commerce", server.handleCommerceMirror)                    // Phase 31: Commerce mirror page
 	mux.HandleFunc("/reality/pressure", server.handlePressureProof)                    // Phase 31.4: Pressure proof page
+	mux.HandleFunc("/settings/interrupts", server.handleInterruptSettings)             // Phase 33: Interrupt policy settings
+	mux.HandleFunc("/settings/interrupts/save", server.handleInterruptSettingsSave)   // Phase 33: Save interrupt policy
+	mux.HandleFunc("/proof/interrupts", server.handleInterruptProof)                   // Phase 33: Interrupt proof page
+	mux.HandleFunc("/proof/interrupts/dismiss", server.handleInterruptProofDismiss)   // Phase 33: Dismiss interrupt proof
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18 Web Control Center: Core routes
@@ -7768,6 +7789,275 @@ func computeConnectionHash(circleID string) string {
 	canonical := fmt.Sprintf("TRUELAYER_CONNECTION|v1|%s|connected", circleID)
 	h := sha256.Sum256([]byte(canonical))
 	return hex.EncodeToString(h[:16]) // 32 hex chars
+}
+
+// ============================================================================
+// Phase 33: Interrupt Permission Contract Handlers
+// ============================================================================
+// CRITICAL: NO interrupt delivery. Policy evaluation + proof only.
+// Reference: docs/ADR/ADR-0069-phase33-interrupt-permission-contract.md
+
+// handleInterruptSettings displays the interrupt permission settings page.
+// Phase 33: Calm, minimal UI for configuring interrupt policy.
+func (s *Server) handleInterruptSettings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := "default"
+	periodKey := now.Format("2006-01-02")
+
+	// Compute circle hash
+	circleIDHash := computeInterruptCircleHash(circleID)
+
+	// Get effective policy (or default)
+	var policy *interruptpolicy.InterruptPolicy
+	if s.interruptPolicyStore != nil {
+		policy = s.interruptPolicyStore.GetEffectivePolicy(circleIDHash, periodKey)
+	}
+	if policy == nil {
+		timeBucket := computeTimeBucket(now)
+		policy = interruptpolicy.DefaultInterruptPolicy(circleIDHash, periodKey, timeBucket)
+	}
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase33InterruptPolicyRendered,
+		Timestamp: now,
+		CircleID:  circleID,
+		Metadata: map[string]string{
+			"allowance":   string(policy.Allowance),
+			"max_per_day": fmt.Sprintf("%d", policy.MaxPerDay),
+			"policy_hash": policy.PolicyHash,
+		},
+	})
+
+	data := templateData{
+		Title:               "Interrupt Settings",
+		CurrentTime:         now.Format("2006-01-02 15:04"),
+		InterruptPolicy:     policy,
+		InterruptAllowances: getInterruptAllowanceOptions(),
+	}
+
+	s.render(w, "interrupt-settings", data)
+}
+
+// handleInterruptSettingsSave saves the interrupt permission policy.
+// Phase 33: Hash-only storage, append-only, bounded retention.
+func (s *Server) handleInterruptSettingsSave(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := "default"
+	periodKey := now.Format("2006-01-02")
+	timeBucket := computeTimeBucket(now)
+
+	// Parse form
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+
+	allowanceStr := r.FormValue("allowance")
+	maxPerDayStr := r.FormValue("max_per_day")
+
+	// Validate allowance
+	allowance := interruptpolicy.InterruptAllowance(allowanceStr)
+	if err := allowance.Validate(); err != nil {
+		allowance = interruptpolicy.AllowNone
+	}
+
+	// Parse max per day
+	maxPerDay := 0
+	if _, err := fmt.Sscanf(maxPerDayStr, "%d", &maxPerDay); err != nil {
+		maxPerDay = 0
+	}
+
+	// Build policy
+	circleIDHash := computeInterruptCircleHash(circleID)
+	policy := &interruptpolicy.InterruptPolicy{
+		CircleIDHash:  circleIDHash,
+		PeriodKey:     periodKey,
+		Allowance:     allowance,
+		MaxPerDay:     maxPerDay,
+		CreatedBucket: timeBucket,
+	}
+	policy.ClampMaxPerDay()
+	policy.PolicyHash = policy.ComputePolicyHash()
+
+	// Save policy
+	if s.interruptPolicyStore != nil {
+		if err := s.interruptPolicyStore.AppendPolicy(policy); err != nil {
+			log.Printf("Phase 33: Failed to save policy: %v", err)
+			// Continue - in-memory state may differ but page should still work
+		}
+	}
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase33InterruptPolicySaved,
+		Timestamp: now,
+		CircleID:  circleID,
+		Metadata: map[string]string{
+			"allowance":   string(policy.Allowance),
+			"max_per_day": fmt.Sprintf("%d", policy.MaxPerDay),
+			"policy_hash": policy.PolicyHash,
+		},
+	})
+
+	http.Redirect(w, r, "/settings/interrupts", http.StatusSeeOther)
+}
+
+// handleInterruptProof displays the interrupt permission proof page.
+// Phase 33: Shows permitted/denied magnitudes in abstract buckets only.
+func (s *Server) handleInterruptProof(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := "default"
+	periodKey := now.Format("2006-01-02")
+	timeBucket := computeTimeBucket(now)
+
+	// Compute circle hash
+	circleIDHash := computeInterruptCircleHash(circleID)
+
+	// Get effective policy
+	var policy *interruptpolicy.InterruptPolicy
+	if s.interruptPolicyStore != nil {
+		policy = s.interruptPolicyStore.GetEffectivePolicy(circleIDHash, periodKey)
+	}
+	if policy == nil {
+		policy = interruptpolicy.DefaultInterruptPolicy(circleIDHash, periodKey, timeBucket)
+	}
+
+	// Build proof page using engine
+	var proofPage *interruptpolicy.InterruptProofPage
+	if s.interruptPolicyEngine != nil {
+		// Build empty result for proof (no candidates in this demo)
+		result := &interruptpolicy.InterruptPermissionResult{
+			PermittedMagnitude: interruptpolicy.MagnitudeNothing,
+			DeniedMagnitude:    interruptpolicy.MagnitudeNothing,
+		}
+		proofPage = s.interruptPolicyEngine.BuildProofPage(result, policy, periodKey, circleIDHash)
+	}
+
+	if proofPage == nil {
+		proofPage = interruptpolicy.DefaultInterruptProofPage(periodKey, circleIDHash)
+	}
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase33InterruptProofRendered,
+		Timestamp: now,
+		CircleID:  circleID,
+		Metadata: map[string]string{
+			"permitted_magnitude": string(proofPage.PermittedMagnitude),
+			"denied_magnitude":    string(proofPage.DeniedMagnitude),
+			"status_hash":         proofPage.StatusHash,
+		},
+	})
+
+	data := templateData{
+		Title:              "Interrupt Proof",
+		CurrentTime:        now.Format("2006-01-02 15:04"),
+		InterruptProofPage: proofPage,
+	}
+
+	s.render(w, "interrupt-proof", data)
+}
+
+// handleInterruptProofDismiss dismisses the interrupt proof cue for the period.
+// Phase 33: Records ack hash-only, bounded retention.
+func (s *Server) handleInterruptProofDismiss(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := "default"
+	periodKey := now.Format("2006-01-02")
+	timeBucket := computeTimeBucket(now)
+
+	// Compute circle hash
+	circleIDHash := computeInterruptCircleHash(circleID)
+
+	// Get current proof page status hash
+	statusHash := r.FormValue("status_hash")
+	if statusHash == "" {
+		statusHash = "dismissed"
+	}
+
+	// Record ack
+	ack := &interruptpolicy.InterruptProofAck{
+		CircleIDHash: circleIDHash,
+		PeriodKey:    periodKey,
+		AckBucket:    timeBucket,
+		StatusHash:   statusHash,
+	}
+	ack.AckID = ack.ComputeAckID()
+
+	if s.interruptProofAckStore != nil {
+		if err := s.interruptProofAckStore.Append(ack); err != nil {
+			log.Printf("Phase 33: Failed to save ack: %v", err)
+			// Continue - best effort
+		}
+	}
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase33InterruptProofDismissed,
+		Timestamp: now,
+		CircleID:  circleID,
+		Metadata: map[string]string{
+			"period_key":  periodKey,
+			"status_hash": statusHash,
+			"ack_id":      ack.AckID,
+		},
+	})
+
+	http.Redirect(w, r, "/today", http.StatusSeeOther)
+}
+
+// computeInterruptCircleHash computes a deterministic hash for the circle ID.
+// Phase 33: Hash-only storage, no raw identifiers.
+func computeInterruptCircleHash(circleID string) string {
+	canonical := fmt.Sprintf("INTERRUPT_CIRCLE|v1|%s", circleID)
+	h := sha256.Sum256([]byte(canonical))
+	return hex.EncodeToString(h[:16])
+}
+
+// computeTimeBucket computes a time bucket string floored to 15-minute intervals.
+// Phase 33: Used for deterministic bucketing.
+func computeTimeBucket(t time.Time) string {
+	minute := t.Minute()
+	bucket := (minute / 15) * 15
+	return fmt.Sprintf("%02d:%02d", t.Hour(), bucket)
+}
+
+// getInterruptAllowanceOptions returns the available allowance options for UI.
+func getInterruptAllowanceOptions() []interruptAllowanceOption {
+	return []interruptAllowanceOption{
+		{Value: string(interruptpolicy.AllowNone), Label: "Nobody (default)", Description: "Interruptions are off."},
+		{Value: string(interruptpolicy.AllowHumansNow), Label: "Humans only (immediate)", Description: "Only immediate human matters may reach you."},
+		{Value: string(interruptpolicy.AllowInstitutionsSoon), Label: "Institutions only (pressing)", Description: "Only pressing institutional matters may reach you."},
+		{Value: string(interruptpolicy.AllowTwoPerDay), Label: "Up to two per day", Description: "Up to two things per day may reach you."},
+	}
+}
+
+// interruptAllowanceOption represents an allowance option for UI.
+type interruptAllowanceOption struct {
+	Value       string
+	Label       string
+	Description string
 }
 
 // ============================================================================

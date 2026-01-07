@@ -1762,6 +1762,25 @@ const (
 
 	// Batch processing events
 	Phase32DecisionBatchComputed EventType = "phase32.decision_batch.computed"
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	// Phase 33: Interrupt Permission Contract (Policy + Proof + Rate-limits)
+	// ═══════════════════════════════════════════════════════════════════════════
+	// CRITICAL: NO interrupt delivery. Policy evaluation only.
+	// CRITICAL: Default stance is NO interrupts allowed.
+	// ═══════════════════════════════════════════════════════════════════════════
+
+	// Policy lifecycle events
+	Phase33InterruptPolicySaved    EventType = "phase33.interrupt_policy.saved"
+	Phase33InterruptPolicyRendered EventType = "phase33.interrupt_policy.rendered"
+
+	// Proof page events
+	Phase33InterruptProofRequested EventType = "phase33.interrupt_proof.requested"
+	Phase33InterruptProofRendered  EventType = "phase33.interrupt_proof.rendered"
+	Phase33InterruptProofDismissed EventType = "phase33.interrupt_proof.dismissed"
+
+	// Permission evaluation events
+	Phase33InterruptPermissionComputed EventType = "phase33.interrupt_permission.computed"
 )
 
 // Event represents a system event for audit and observability.

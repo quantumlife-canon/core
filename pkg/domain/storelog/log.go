@@ -134,6 +134,12 @@ const (
 	// CRITICAL: External circles CANNOT approve, CANNOT execute, CANNOT receive drafts.
 	RecordTypeExternalDerivedCircle = "EXTERNAL_DERIVED_CIRCLE"
 	RecordTypePressureMapSnapshot   = "PRESSURE_MAP_SNAPSHOT"
+
+	// Phase 33: Interrupt Permission Contract record types
+	// CRITICAL: NO interrupt delivery. Policy evaluation only.
+	// CRITICAL: Default stance is NO interrupts allowed.
+	RecordTypeInterruptPolicy   = "INTERRUPT_POLICY"
+	RecordTypeInterruptProofAck = "INTERRUPT_PROOF_ACK"
 )
 
 // Common errors
