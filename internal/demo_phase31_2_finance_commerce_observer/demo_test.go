@@ -263,8 +263,8 @@ func TestMagnitudeBuckets(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
-		count            int
-		expectedBucket   financetxscan.MagnitudeBucket
+		count          int
+		expectedBucket financetxscan.MagnitudeBucket
 	}{
 		{0, financetxscan.MagnitudeNothing},
 		{1, financetxscan.MagnitudeAFew},

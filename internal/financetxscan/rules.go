@@ -16,9 +16,9 @@
 //   - Raw timestamps
 //
 // Classification priority:
-//   1. ProviderCategory exact match (high confidence)
-//   2. ProviderCategoryID/MCC match (medium confidence)
-//   3. PaymentChannel inference (low confidence)
+//  1. ProviderCategory exact match (high confidence)
+//  2. ProviderCategoryID/MCC match (medium confidence)
+//  3. PaymentChannel inference (low confidence)
 package financetxscan
 
 import (

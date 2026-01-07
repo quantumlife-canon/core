@@ -295,3 +295,9 @@ internal/demo_phase29_truelayer_finance_mirror/*.go
 # This is test data for verifying that email patterns are correctly identified as
 # forbidden in replay bundles, NOT QuantumLife identity.
 internal/demo_phase30A_identity_replay/*.go
+
+# Phase 31.1: Gmail Receipt Observers (ADR-0063)
+# Uses "account balance" as a keyword for detecting bill-related receipts.
+# This is standard financial/billing terminology for receipt classification,
+# NOT "user account". QuantumLife core uses "circle" for identity.
+internal/receiptscan/*.go
