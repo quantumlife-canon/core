@@ -111,6 +111,13 @@ const (
 	// CRITICAL: After execution: silence forever.
 	RecordTypeTrustActionReceipt = "TRUST_ACTION_RECEIPT"
 	RecordTypeTrustActionUpdate  = "TRUST_ACTION_UPDATE"
+
+	// Phase 29: TrueLayer Read-Only Connect + Finance Mirror Proof record types
+	// CRITICAL: Contains ONLY hashes and abstract buckets - never raw data.
+	// CRITICAL: No amounts, no merchants, no account numbers, no identifiers.
+	RecordTypeTrueLayerConnection = "TRUELAYER_CONNECTION"
+	RecordTypeFinanceSyncReceipt  = "FINANCE_SYNC_RECEIPT"
+	RecordTypeFinanceMirrorAck    = "FINANCE_MIRROR_ACK"
 )
 
 // Common errors

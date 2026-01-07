@@ -276,3 +276,16 @@ internal/shadowllm/providers/azureopenai/types.go
 # and restraint mechanisms, NOT QuantumLife identity.
 pkg/domain/shadowview/types.go
 internal/shadowview/engine.go
+
+# Phase 29: TrueLayer Read-Only Connect + Finance Mirror Proof (ADR-0060)
+# These files use "account" for bank/financial accounts (TrueLayer terminology),
+# NOT "user account". The finance mirror domain requires this terminology to match
+# banking industry standards and TrueLayer API specifications. Also uses "accounts"
+# as an OAuth scope name which is required by the TrueLayer API.
+# QuantumLife core uses "circle" for identity - these are financial data adapters.
+pkg/domain/financemirror/types.go
+pkg/domain/storelog/log.go
+internal/financemirror/engine.go
+internal/oauth/truelayer.go
+internal/persist/financemirror_store.go
+internal/demo_phase29_truelayer_finance_mirror/*.go

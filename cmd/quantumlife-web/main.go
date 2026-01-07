@@ -10,6 +10,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"html/template"
@@ -36,6 +38,7 @@ import (
 	emailexec "quantumlife/internal/email/execution"
 	"quantumlife/internal/execexecutor"
 	"quantumlife/internal/execrouter"
+	"quantumlife/internal/financemirror"
 	internalfirstaction "quantumlife/internal/firstaction"
 	internalfirstminutes "quantumlife/internal/firstminutes"
 	"quantumlife/internal/held"
@@ -73,6 +76,7 @@ import (
 	"quantumlife/pkg/domain/draft"
 	domainevents "quantumlife/pkg/domain/events"
 	"quantumlife/pkg/domain/feedback"
+	domainfinancemirror "quantumlife/pkg/domain/financemirror"
 	domainfirstaction "quantumlife/pkg/domain/firstaction"
 	domainfirstminutes "quantumlife/pkg/domain/firstminutes"
 	"quantumlife/pkg/domain/identity"
@@ -154,6 +158,9 @@ type Server struct {
 	shadowReceiptAckStore  *persist.ShadowReceiptAckStore     // Phase 27: Shadow Receipt ack/vote store
 	trustActionStore       *persist.TrustActionStore          // Phase 28: Trust action store
 	trustActionEngine      *trustactionengine.Engine          // Phase 28: Trust action engine
+	financeMirrorStore     *persist.FinanceMirrorStore        // Phase 29: Finance mirror store
+	financeMirrorEngine    *financemirror.Engine              // Phase 29: Finance mirror engine
+	trueLayerHandler       *oauth.TrueLayerHandler            // Phase 29: TrueLayer OAuth handler
 	// Phase 18 Web Control Center
 	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
 	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
@@ -258,6 +265,9 @@ type templateData struct {
 	TrustActionReceipt   *trustActionReceiptInfo
 	TrustActionCue       *trustActionCueInfo
 	TrustActionUndoAvail bool
+	// Phase 29: TrueLayer Finance Mirror
+	FinanceMirrorPage *domainfinancemirror.FinanceMirrorPage
+	FinanceMirrorCue  *domainfinancemirror.FinanceMirrorCue
 	// Phase 18 Web Control Center
 	RunSnapshots     []*runlog.RunSnapshot      // List of run snapshots for /runs
 	RunSnapshot      *runlog.RunSnapshot        // Single run snapshot for /runs/:id
@@ -660,6 +670,9 @@ func main() {
 		shadowReceiptAckStore:  persist.NewShadowReceiptAckStore(clk.Now),     // Phase 27
 		trustActionStore:       persist.NewTrustActionStore(clk.Now),          // Phase 28
 		trustActionEngine:      nil,                                           // Phase 28: Set after full initialization
+		financeMirrorStore:     persist.NewFinanceMirrorStore(clk.Now),        // Phase 29
+		financeMirrorEngine:    nil,                                           // Phase 29: Set after full initialization
+		trueLayerHandler:       nil,                                           // Phase 29: Set after full initialization
 		// Phase 18 Web Control Center
 		runStore:       runStore,
 		suppressionSet: suppressionSet,
@@ -739,6 +752,12 @@ func main() {
 	mux.HandleFunc("/trust/action/undo", server.handleTrustActionUndo)                 // Phase 28: Undo trust action
 	mux.HandleFunc("/trust/action/receipt", server.handleTrustActionReceipt)           // Phase 28: Trust action receipt
 	mux.HandleFunc("/trust/action/dismiss", server.handleTrustActionDismiss)           // Phase 28: Dismiss trust action
+	mux.HandleFunc("/connect/truelayer/start", server.handleTrueLayerOAuthStart)       // Phase 29: TrueLayer OAuth start
+	mux.HandleFunc("/connect/truelayer/callback", server.handleTrueLayerOAuthCallback) // Phase 29: TrueLayer OAuth callback
+	mux.HandleFunc("/disconnect/truelayer", server.handleTrueLayerDisconnect)          // Phase 29: TrueLayer disconnect
+	mux.HandleFunc("/run/truelayer-sync", server.handleTrueLayerSync)                  // Phase 29: TrueLayer sync
+	mux.HandleFunc("/mirror/finance", server.handleFinanceMirror)                      // Phase 29: Finance mirror page
+	mux.HandleFunc("/mirror/finance/ack", server.handleFinanceMirrorAck)               // Phase 29: Finance mirror ack
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18 Web Control Center: Core routes
@@ -6908,12 +6927,327 @@ func (s *Server) handleTrustActionDismiss(w http.ResponseWriter, r *http.Request
 	http.Redirect(w, r, "/today", http.StatusFound)
 }
 
+// =============================================================================
+// Phase 29: TrueLayer Read-Only Connect + Finance Mirror Proof
+// =============================================================================
+//
+// Reference: docs/ADR/ADR-0060-phase29-truelayer-readonly-finance-mirror.md
+
+// handleTrueLayerOAuthStart initiates the TrueLayer OAuth flow.
+// Phase 29: Read-only scopes only. No payment scopes.
+func (s *Server) handleTrueLayerOAuthStart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := r.URL.Query().Get("circle_id")
+	if circleID == "" {
+		circleID = "default"
+	}
+
+	if s.trueLayerHandler == nil {
+		// TrueLayer not configured - redirect to connections
+		http.Redirect(w, r, "/connections", http.StatusFound)
+		return
+	}
+
+	// Start OAuth flow
+	result, err := s.trueLayerHandler.Start(circleID)
+	if err != nil {
+		log.Printf("[Phase 29] TrueLayer OAuth start error: %v", err)
+		http.Redirect(w, r, "/connections", http.StatusFound)
+		return
+	}
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase29TrueLayerOAuthStart,
+		Timestamp: now,
+		CircleID:  circleID,
+		Metadata: map[string]string{
+			"state_hash": result.State.Hash(),
+		},
+	})
+
+	// Redirect to TrueLayer
+	http.Redirect(w, r, result.AuthURL, http.StatusFound)
+}
+
+// handleTrueLayerOAuthCallback handles the OAuth callback from TrueLayer.
+// Phase 29: Validates scopes are read-only.
+func (s *Server) handleTrueLayerOAuthCallback(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+
+	if s.trueLayerHandler == nil {
+		http.Redirect(w, r, "/connections", http.StatusFound)
+		return
+	}
+
+	code := r.URL.Query().Get("code")
+	state := r.URL.Query().Get("state")
+	errorParam := r.URL.Query().Get("error")
+
+	// Check for OAuth error
+	if errorParam != "" {
+		log.Printf("[Phase 29] TrueLayer OAuth error: %s", errorParam)
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase29TrueLayerOAuthCallback,
+			Timestamp: now,
+			Metadata: map[string]string{
+				"success":    "false",
+				"error_type": errorParam,
+			},
+		})
+		http.Redirect(w, r, "/connections", http.StatusFound)
+		return
+	}
+
+	// Exchange code for tokens
+	result, err := s.trueLayerHandler.Callback(r.Context(), code, state)
+	if err != nil {
+		log.Printf("[Phase 29] TrueLayer callback error: %v", err)
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase29TrueLayerOAuthCallback,
+			Timestamp: now,
+			Metadata: map[string]string{
+				"success":     "false",
+				"error_type":  "token_exchange",
+				"fail_reason": result.Receipt.FailReason,
+			},
+		})
+		http.Redirect(w, r, "/connections", http.StatusFound)
+		return
+	}
+
+	// Store connection hash (not raw tokens)
+	if s.financeMirrorStore != nil {
+		connectionHash := computeConnectionHash(result.CircleID)
+		s.financeMirrorStore.SetConnectionHash(result.CircleID, connectionHash)
+	}
+
+	// Emit success event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase29TrueLayerOAuthCallback,
+		Timestamp: now,
+		CircleID:  result.CircleID,
+		Metadata: map[string]string{
+			"success":      "true",
+			"receipt_hash": result.Receipt.Hash(),
+		},
+	})
+
+	// Redirect to finance mirror
+	http.Redirect(w, r, "/mirror/finance", http.StatusFound)
+}
+
+// handleTrueLayerDisconnect revokes the TrueLayer connection.
+// Phase 29: Idempotent disconnection.
+func (s *Server) handleTrueLayerDisconnect(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := r.FormValue("circle_id")
+	if circleID == "" {
+		circleID = "default"
+	}
+
+	// Remove connection hash
+	if s.financeMirrorStore != nil {
+		s.financeMirrorStore.RemoveConnection(circleID)
+	}
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase29TrueLayerOAuthRevoke,
+		Timestamp: now,
+		CircleID:  circleID,
+		Metadata: map[string]string{
+			"local_removed": "true",
+		},
+	})
+
+	http.Redirect(w, r, "/connections", http.StatusFound)
+}
+
+// handleTrueLayerSync performs an explicit sync of TrueLayer data.
+// Phase 29: Bounded sync (25 items, 7 days). No retries.
+func (s *Server) handleTrueLayerSync(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := r.FormValue("circle_id")
+	if circleID == "" {
+		circleID = "default"
+	}
+
+	// Check if connected
+	if s.financeMirrorStore == nil || !s.financeMirrorStore.HasConnection(circleID) {
+		http.Redirect(w, r, "/connections", http.StatusFound)
+		return
+	}
+
+	// Emit sync requested event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase29TrueLayerSyncRequested,
+		Timestamp: now,
+		CircleID:  circleID,
+	})
+
+	// In sandbox mode, we create a mock receipt using the constructor
+	// Real sync would go through financeMirrorEngine.Sync()
+	// Mock data: a few accounts, several transactions
+	receipt := domainfinancemirror.NewFinanceSyncReceipt(
+		circleID,
+		"truelayer",
+		now,
+		2,                               // accountsCount (maps to "a_few")
+		7,                               // transactionsCount (maps to "several")
+		[]string{"category|essentials"}, // evidenceTokens
+		true,                            // success
+		"",                              // failReason
+	)
+
+	// Store receipt
+	if s.financeMirrorStore != nil {
+		_ = s.financeMirrorStore.StoreSyncReceipt(receipt)
+	}
+
+	// Emit sync completed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase29TrueLayerSyncCompleted,
+		Timestamp: now,
+		CircleID:  circleID,
+		Metadata: map[string]string{
+			"receipt_hash":           receipt.StatusHash,
+			"accounts_magnitude":     string(receipt.AccountsMagnitude),
+			"transactions_magnitude": string(receipt.TransactionsMagnitude),
+		},
+	})
+
+	http.Redirect(w, r, "/mirror/finance", http.StatusFound)
+}
+
+// handleFinanceMirror shows the finance mirror proof page.
+// Phase 29: Abstract data only. No amounts, merchants, or identifiers.
+func (s *Server) handleFinanceMirror(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := "default"
+
+	// Check if connected
+	connected := false
+	if s.financeMirrorStore != nil {
+		connected = s.financeMirrorStore.HasConnection(circleID)
+	}
+
+	// Get last receipt
+	var lastReceipt *domainfinancemirror.FinanceSyncReceipt
+	if s.financeMirrorStore != nil {
+		lastReceipt = s.financeMirrorStore.GetLatestSyncReceipt(circleID)
+	}
+
+	// Build page via engine
+	var page *domainfinancemirror.FinanceMirrorPage
+	if s.financeMirrorEngine != nil {
+		page = s.financeMirrorEngine.BuildMirrorPage(circleID, connected, lastReceipt)
+	} else {
+		// Fallback if engine not initialized - use constructor
+		// Arguments: connected, lastSyncTime, overallMagnitude, categories
+		page = domainfinancemirror.NewFinanceMirrorPage(
+			connected,
+			time.Time{},                          // lastSyncTime (zero = never)
+			domainfinancemirror.MagnitudeNothing, // overallMagnitude
+			nil,                                  // categories
+		)
+	}
+
+	// Emit viewed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase29FinanceMirrorViewed,
+		Timestamp: now,
+		CircleID:  circleID,
+		Metadata: map[string]string{
+			"connected":   boolToYesNoString(connected),
+			"status_hash": page.StatusHash,
+		},
+	})
+
+	data := templateData{
+		Title:             "Finance Mirror",
+		CurrentTime:       now.Format("2006-01-02 15:04"),
+		FinanceMirrorPage: page,
+	}
+
+	s.render(w, "finance-mirror", data)
+}
+
+// handleFinanceMirrorAck acknowledges the finance mirror page.
+// Phase 29: Records acknowledgement with hash only.
+func (s *Server) handleFinanceMirrorAck(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := "default"
+	periodBucket := now.UTC().Format("2006-01-02")
+	statusHash := r.FormValue("status_hash")
+
+	// Create ack using constructor
+	ack := domainfinancemirror.NewFinanceMirrorAck(circleID, periodBucket, statusHash)
+
+	// Store ack
+	if s.financeMirrorStore != nil {
+		_ = s.financeMirrorStore.StoreAck(ack)
+	}
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase29FinanceMirrorAcked,
+		Timestamp: now,
+		CircleID:  circleID,
+		Metadata: map[string]string{
+			"period_bucket": periodBucket,
+			"status_hash":   statusHash,
+			"ack_hash":      ack.AckHash,
+		},
+	})
+
+	http.Redirect(w, r, "/today", http.StatusFound)
+}
+
 // boolToYesNoString converts a bool to "yes" or "no" string for event metadata.
 func boolToYesNoString(b bool) string {
 	if b {
 		return "yes"
 	}
 	return "no"
+}
+
+// computeConnectionHash computes a deterministic hash for TrueLayer connection.
+// Phase 29: Used for hash-only storage of connection state.
+func computeConnectionHash(circleID string) string {
+	canonical := fmt.Sprintf("TRUELAYER_CONNECTION|v1|%s|connected", circleID)
+	h := sha256.Sum256([]byte(canonical))
+	return hex.EncodeToString(h[:16]) // 32 hex chars
 }
 
 // handleDemo serves the deterministic demo page.

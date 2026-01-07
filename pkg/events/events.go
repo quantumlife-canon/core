@@ -1624,6 +1624,31 @@ const (
 
 	// Phase28TrustActionDismissed - trust action invitation was dismissed (kept holding).
 	Phase28TrustActionDismissed EventType = "phase28.trust_action.dismissed"
+
+	// Phase 29: TrueLayer Read-Only Connect + Finance Mirror Proof
+	// Reference: docs/ADR/ADR-0060-phase29-truelayer-readonly-finance-mirror.md
+	//
+	// CRITICAL INVARIANTS:
+	//   - Read-only scopes only (accounts, balance, transactions)
+	//   - No payment scopes allowed
+	//   - Abstract buckets only in events (no raw amounts, merchants, or identifiers)
+	//   - Bounded sync (25 items max, 7 days)
+
+	// TrueLayer OAuth lifecycle events
+	Phase29TrueLayerOAuthStart    EventType = "phase29.truelayer.oauth.start"
+	Phase29TrueLayerOAuthCallback EventType = "phase29.truelayer.oauth.callback"
+	Phase29TrueLayerOAuthRevoke   EventType = "phase29.truelayer.oauth.revoke"
+
+	// TrueLayer sync events
+	Phase29TrueLayerSyncRequested EventType = "phase29.truelayer.sync.requested"
+	Phase29TrueLayerSyncCompleted EventType = "phase29.truelayer.sync.completed"
+	Phase29TrueLayerSyncFailed    EventType = "phase29.truelayer.sync.failed"
+	Phase29TrueLayerSyncPersisted EventType = "phase29.truelayer.sync.persisted"
+
+	// Finance mirror page events
+	Phase29FinanceMirrorRendered EventType = "phase29.finance_mirror.rendered"
+	Phase29FinanceMirrorViewed   EventType = "phase29.finance_mirror.viewed"
+	Phase29FinanceMirrorAcked    EventType = "phase29.finance_mirror.acked"
 )
 
 // Event represents a system event for audit and observability.

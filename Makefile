@@ -7,7 +7,7 @@
 #
 # Guardrails enforce Canon invariants at build time.
 
-.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 demo-phase9 demo-phase10 demo-phase11 demo-phase12 demo-phase13 demo-phase13-1 demo-phase14 demo-phase15 demo-phase16 demo-phase18 demo-phase18-2 demo-phase18-3 demo-phase18-4 demo-phase18-5 demo-phase18-6 demo-phase18-9 demo-phase19-shadow demo-phase19-1 demo-phase19-4 demo-phase19-real-keys-smoke demo-phase20 demo-phase26A demo-phase26B demo-phase26C web web-mock web-demo web-app web-stop web-status run-real-shadow check-real-shadow-config check-today-quietly check-held check-quiet-shift check-proof check-connection-onboarding check-shadow-mode check-shadow-diff check-real-gmail-quiet check-trust-accrual check-journey check-first-minutes check-reality-check ios-open ios-build ios-test ios-clean
+.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 demo-phase9 demo-phase10 demo-phase11 demo-phase12 demo-phase13 demo-phase13-1 demo-phase14 demo-phase15 demo-phase16 demo-phase18 demo-phase18-2 demo-phase18-3 demo-phase18-4 demo-phase18-5 demo-phase18-6 demo-phase18-9 demo-phase19-shadow demo-phase19-1 demo-phase19-4 demo-phase19-real-keys-smoke demo-phase20 demo-phase26A demo-phase26B demo-phase26C demo-phase29 web web-mock web-demo web-app web-stop web-status run-real-shadow check-real-shadow-config check-today-quietly check-held check-quiet-shift check-proof check-connection-onboarding check-shadow-mode check-shadow-diff check-real-gmail-quiet check-trust-accrual check-journey check-first-minutes check-reality-check check-truelayer-finance-mirror ios-open ios-build ios-test ios-clean
 
 # Default target
 all: ci
@@ -71,6 +71,9 @@ help:
 	@echo "  make demo-phase26A - Run Phase 26A guided journey demo"
 	@echo "  make demo-phase26B - Run Phase 26B first minutes proof demo"
 	@echo "  make demo-phase26C - Run Phase 26C connected reality check demo"
+	@echo "  make demo-phase27 - Run Phase 27 real shadow receipt demo"
+	@echo "  make demo-phase28 - Run Phase 28 trust kept demo"
+	@echo "  make demo-phase29 - Run Phase 29 TrueLayer finance mirror demo"
 	@echo ""
 	@echo "Web Server:"
 	@echo "  make web          - Run web server on :8080 (real mode)"
@@ -119,6 +122,9 @@ help:
 	@echo "  make check-journey - Check guided journey constraints (Phase 26A)"
 	@echo "  make check-first-minutes - Check first minutes proof constraints (Phase 26B)"
 	@echo "  make check-reality-check - Check connected reality check constraints (Phase 26C)"
+	@echo "  make check-shadow-receipt-primary - Check shadow receipt primary constraints (Phase 27)"
+	@echo "  make check-trust-kept - Check trust kept constraints (Phase 28)"
+	@echo "  make check-truelayer-finance-mirror - Check TrueLayer finance mirror constraints (Phase 29)"
 	@echo ""
 	@echo "iOS (Phase 19):"
 	@echo "  make ios-open   - Open iOS project in Xcode (macOS only)"
@@ -694,6 +700,17 @@ demo-phase28:
 check-trust-kept:
 	@echo "Checking Phase 28 constraints..."
 	@./scripts/guardrails/trust_kept_enforced.sh
+
+# Run Phase 29 demo: TrueLayer Read-Only Connect + Finance Mirror Proof
+# Reference: docs/ADR/ADR-0060-phase29-truelayer-readonly-finance-mirror.md
+demo-phase29:
+	@echo "Running Phase 29 Demo: TrueLayer Finance Mirror..."
+	go test -v ./internal/demo_phase29_truelayer_finance_mirror/...
+
+# Check Phase 29 TrueLayer finance mirror constraints
+check-truelayer-finance-mirror:
+	@echo "Checking Phase 29 constraints..."
+	@./scripts/guardrails/truelayer_finance_mirror_enforced.sh
 
 # =============================================================================
 # Web Server Targets
