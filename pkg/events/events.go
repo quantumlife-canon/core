@@ -1685,6 +1685,18 @@ const (
 
 	// Commerce observation events (from Gmail receipts)
 	Phase31_1CommerceObservationsPersisted EventType = "phase31_1.commerce_observations.persisted"
+
+	// Phase 31.2: Commerce from Finance (TrueLayer → CommerceSignals)
+	// CRITICAL: NO merchant names, NO amounts - only ProviderCategory, MCC, PaymentChannel.
+	// Deterministic: same inputs => same hashes => same observations.
+	// Reference: docs/ADR/ADR-0064-phase31-2-commerce-from-finance.md
+
+	// Transaction scanning events
+	Phase31_2TransactionScanStarted   EventType = "phase31_2.transaction_scan.started"
+	Phase31_2TransactionScanCompleted EventType = "phase31_2.transaction_scan.completed"
+
+	// Commerce observation events (from TrueLayer transactions)
+	Phase31_2CommerceObservationsPersisted EventType = "phase31_2.commerce_observations.persisted"
 )
 
 // Event represents a system event for audit and observability.

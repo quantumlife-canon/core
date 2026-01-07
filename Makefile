@@ -77,6 +77,7 @@ help:
 	@echo "  make demo-phase30A - Run Phase 30A identity + replay demo"
 	@echo "  make demo-phase31  - Run Phase 31 commerce observers demo"
 	@echo "  make demo-phase31-1 - Run Phase 31.1 gmail receipt observers demo"
+	@echo "  make demo-phase31-2 - Run Phase 31.2 commerce from finance demo"
 	@echo ""
 	@echo "Web Server:"
 	@echo "  make web          - Run web server on :8080 (real mode)"
@@ -131,6 +132,7 @@ help:
 	@echo "  make check-identity-replay - Check identity + replay constraints (Phase 30A)"
 	@echo "  make check-commerce-observer - Check commerce observer constraints (Phase 31)"
 	@echo "  make check-receipt-observer - Check receipt observer constraints (Phase 31.1)"
+	@echo "  make check-commerce-from-finance - Check commerce from finance constraints (Phase 31.2)"
 	@echo ""
 	@echo "iOS (Phase 19):"
 	@echo "  make ios-open   - Open iOS project in Xcode (macOS only)"
@@ -750,6 +752,17 @@ demo-phase31-1:
 check-receipt-observer:
 	@echo "Checking Phase 31.1 constraints..."
 	@./scripts/guardrails/receipt_observer_enforced.sh
+
+# Phase 31.2: Commerce from Finance (TrueLayer -> CommerceSignals)
+# Reference: docs/ADR/ADR-0064-phase31-2-commerce-from-finance.md
+demo-phase31-2:
+	@echo "Running Phase 31.2 Demo: Commerce from Finance..."
+	go test -v ./internal/demo_phase31_2_finance_commerce_observer/...
+
+# Check Phase 31.2 Commerce from Finance constraints
+check-commerce-from-finance:
+	@echo "Checking Phase 31.2 constraints..."
+	@./scripts/guardrails/commerce_from_finance_enforced.sh
 
 # =============================================================================
 # Web Server Targets

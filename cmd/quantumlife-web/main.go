@@ -29,6 +29,7 @@ import (
 	calexec "quantumlife/internal/calendar/execution"
 	"quantumlife/internal/commerceingest"
 	internalcommerceobserver "quantumlife/internal/commerceobserver"
+	"quantumlife/internal/financetxscan"
 	"quantumlife/internal/config"
 	"quantumlife/internal/connectors/auth"
 	"quantumlife/internal/connectors/auth/impl_inmem"
@@ -176,6 +177,7 @@ type Server struct {
 	commerceObserverStore  *persist.CommerceObserverStore     // Phase 31: Commerce observer store
 	commerceObserverEngine *internalcommerceobserver.Engine   // Phase 31: Commerce observer engine
 	commerceIngestEngine   *commerceingest.Engine             // Phase 31.1: Commerce ingest engine
+	financeTxScanEngine    *financetxscan.Engine              // Phase 31.2: Finance tx scan engine
 	// Phase 18 Web Control Center
 	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
 	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
@@ -646,6 +648,9 @@ func main() {
 	// Phase 31.1: Create commerce ingest engine
 	commerceIngestEngine := commerceingest.NewEngine(clk.Now)
 
+	// Phase 31.2: Create finance tx scan engine
+	financeTxScanEngine := financetxscan.NewEngine(clk.Now)
+
 	// Phase 18 Web Control Center: Create stores
 	runStore := runlog.NewInMemoryRunStore()
 	suppressionSet := suppress.NewSuppressionSet()
@@ -713,6 +718,7 @@ func main() {
 		commerceObserverStore:  commerceObserverStore,                         // Phase 31
 		commerceObserverEngine: commerceObserverEngine,                        // Phase 31
 		commerceIngestEngine:   commerceIngestEngine,                          // Phase 31.1
+		financeTxScanEngine:    financeTxScanEngine,                           // Phase 31.2
 		// Phase 18 Web Control Center
 		runStore:       runStore,
 		suppressionSet: suppressionSet,
@@ -7252,6 +7258,77 @@ func (s *Server) handleTrueLayerSync(w http.ResponseWriter, r *http.Request) {
 			"transactions_magnitude": string(receipt.TransactionsMagnitude),
 		},
 	})
+
+	// Phase 31.2: Commerce from Finance (TrueLayer → CommerceSignals)
+	// Classify transactions and build commerce observations
+	// CRITICAL: We use ProviderCategory, MCC, PaymentChannel ONLY
+	// NEVER: MerchantName, Amount, or raw timestamps
+	if s.financeTxScanEngine != nil && s.commerceObserverStore != nil {
+		// Emit transaction scan started event
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase31_2TransactionScanStarted,
+			Timestamp: now,
+			CircleID:  circleID,
+			Metadata: map[string]string{
+				"sync_receipt_hash": receipt.StatusHash,
+			},
+		})
+
+		// Mock transaction data for sandbox mode
+		// In production, this would come from TrueLayer API response
+		// CRITICAL: Only ProviderCategory, ProviderCategoryID, PaymentChannel are used
+		// MerchantName and Amount are deliberately NOT extracted
+		mockTransactions := []financetxscan.TransactionData{
+			financetxscan.ExtractTransactionData("tx-001", "FOOD_AND_DRINK", "5812", "online"),
+			financetxscan.ExtractTransactionData("tx-002", "TRANSPORT", "4121", "contactless"),
+			financetxscan.ExtractTransactionData("tx-003", "FOOD_AND_DRINK", "5814", "in_store"),
+			financetxscan.ExtractTransactionData("tx-004", "SHOPPING", "5311", "online"),
+			financetxscan.ExtractTransactionData("tx-005", "UTILITIES", "4900", "online"),
+			financetxscan.ExtractTransactionData("tx-006", "SUBSCRIPTIONS", "5815", "online"),
+			financetxscan.ExtractTransactionData("tx-007", "TRANSPORT", "5541", "in_store"),
+		}
+
+		// Build commerce observations from transactions
+		period := financetxscan.PeriodFromTime(now)
+		ingestResult := s.financeTxScanEngine.BuildFromTransactions(
+			circleID,
+			period,
+			receipt.StatusHash,
+			mockTransactions,
+		)
+
+		// Persist observations to commerce observer store
+		for _, obs := range ingestResult.Observations {
+			if err := s.commerceObserverStore.PersistObservation(circleID, &obs); err != nil {
+				log.Printf("Phase 31.2: Failed to persist observation: %v", err)
+			}
+		}
+
+		// Emit transaction scan completed event
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase31_2TransactionScanCompleted,
+			Timestamp: now,
+			CircleID:  circleID,
+			Metadata: map[string]string{
+				"period":             period,
+				"overall_magnitude":  string(ingestResult.OverallMagnitude),
+				"observations_count": strconv.Itoa(len(ingestResult.Observations)),
+			},
+		})
+
+		// Emit observations persisted event
+		if len(ingestResult.Observations) > 0 {
+			s.eventEmitter.Emit(events.Event{
+				Type:      events.Phase31_2CommerceObservationsPersisted,
+				Timestamp: now,
+				CircleID:  circleID,
+				Metadata: map[string]string{
+					"status_hash":        ingestResult.StatusHash,
+					"observations_count": strconv.Itoa(len(ingestResult.Observations)),
+				},
+			})
+		}
+	}
 
 	http.Redirect(w, r, "/mirror/finance", http.StatusFound)
 }

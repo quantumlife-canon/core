@@ -121,6 +121,7 @@ func (e *Engine) BuildObservations(in CommerceIngestInput) CommerceIngestResult 
 		evidenceHash := commerceobserver.ComputeEvidenceHash(evidenceTokens)
 
 		obs := commerceobserver.CommerceObservation{
+			Source:       commerceobserver.SourceGmailReceipt,
 			Category:     cat,
 			Frequency:    frequency,
 			Stability:    stability,

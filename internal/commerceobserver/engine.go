@@ -90,6 +90,7 @@ func (e *Engine) Observe(inputs *commerceobserver.CommerceInputs) []commerceobse
 		evidenceHash := commerceobserver.ComputeEvidenceHash(evidenceTokens)
 
 		obs := commerceobserver.CommerceObservation{
+			Source:       commerceobserver.SourceGmailReceipt, // Default source for generic engine
 			Category:     cat,
 			Frequency:    frequency,
 			Stability:    stability,

@@ -241,6 +241,7 @@ func TestBoundedRetention(t *testing.T) {
 	for i := 0; i < 35; i++ {
 		period := formatPeriod(i)
 		obs := &commerceobserver.CommerceObservation{
+			Source:       commerceobserver.SourceGmailReceipt,
 			Category:     commerceobserver.CategoryFoodDelivery,
 			Frequency:    commerceobserver.FrequencyOccasional,
 			Stability:    commerceobserver.StabilityStable,
@@ -271,6 +272,7 @@ func TestStorelogReplay(t *testing.T) {
 	store := persist.NewCommerceObserverStore(clock)
 
 	obs := &commerceobserver.CommerceObservation{
+		Source:       commerceobserver.SourceGmailReceipt,
 		Category:     commerceobserver.CategoryTransport,
 		Frequency:    commerceobserver.FrequencyFrequent,
 		Stability:    commerceobserver.StabilityDrifting,

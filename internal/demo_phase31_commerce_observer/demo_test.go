@@ -116,6 +116,7 @@ func TestHashOnlyStorage(t *testing.T) {
 	store := persist.NewCommerceObserverStore(clock)
 
 	obs := &domaincommerceobserver.CommerceObservation{
+		Source:       domaincommerceobserver.SourceGmailReceipt,
 		Category:     domaincommerceobserver.CategoryFoodDelivery,
 		Frequency:    domaincommerceobserver.FrequencyOccasional,
 		Stability:    domaincommerceobserver.StabilityStable,
@@ -187,6 +188,7 @@ func TestSingleWhisperRule(t *testing.T) {
 
 	observations := []domaincommerceobserver.CommerceObservation{
 		{
+			Source:       domaincommerceobserver.SourceGmailReceipt,
 			Category:     domaincommerceobserver.CategoryFoodDelivery,
 			Frequency:    domaincommerceobserver.FrequencyOccasional,
 			Stability:    domaincommerceobserver.StabilityStable,
@@ -246,6 +248,7 @@ func TestBucketConversion(t *testing.T) {
 // TestCanonicalStrings verifies that pipe-delimited format is used.
 func TestCanonicalStrings(t *testing.T) {
 	obs := &domaincommerceobserver.CommerceObservation{
+		Source:       domaincommerceobserver.SourceGmailReceipt,
 		Category:     domaincommerceobserver.CategoryFoodDelivery,
 		Frequency:    domaincommerceobserver.FrequencyOccasional,
 		Stability:    domaincommerceobserver.StabilityStable,
@@ -260,9 +263,9 @@ func TestCanonicalStrings(t *testing.T) {
 		t.Errorf("Canonical string should start with COMMERCE_OBS, got: %s", canonical[:20])
 	}
 
-	// Should contain version
-	if !containsSubstring(canonical, "|v1|") {
-		t.Error("Canonical string should contain version |v1|")
+	// Should contain version (v2 now includes Source field)
+	if !containsSubstring(canonical, "|v2|") {
+		t.Error("Canonical string should contain version |v2|")
 	}
 
 	// Should contain all fields
@@ -288,6 +291,7 @@ func TestBoundedRetention(t *testing.T) {
 	for i := 0; i < 35; i++ {
 		period := formatPeriod(i)
 		obs := &domaincommerceobserver.CommerceObservation{
+			Source:       domaincommerceobserver.SourceGmailReceipt,
 			Category:     domaincommerceobserver.CategoryFoodDelivery,
 			Frequency:    domaincommerceobserver.FrequencyOccasional,
 			Stability:    domaincommerceobserver.StabilityStable,
@@ -314,6 +318,7 @@ func TestBoundedRetention(t *testing.T) {
 func TestValidation(t *testing.T) {
 	// Valid observation
 	obs := &domaincommerceobserver.CommerceObservation{
+		Source:       domaincommerceobserver.SourceGmailReceipt,
 		Category:     domaincommerceobserver.CategoryFoodDelivery,
 		Frequency:    domaincommerceobserver.FrequencyOccasional,
 		Stability:    domaincommerceobserver.StabilityStable,
@@ -324,7 +329,14 @@ func TestValidation(t *testing.T) {
 		t.Errorf("Valid observation should pass validation: %v", err)
 	}
 
-	// Invalid category
+	// Invalid source
+	obs.Source = "invalid"
+	if err := obs.Validate(); err == nil {
+		t.Error("Invalid source should fail validation")
+	}
+
+	// Reset source, test invalid category
+	obs.Source = domaincommerceobserver.SourceGmailReceipt
 	obs.Category = "invalid"
 	if err := obs.Validate(); err == nil {
 		t.Error("Invalid category should fail validation")

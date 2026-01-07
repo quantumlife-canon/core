@@ -188,11 +188,56 @@ func (s StabilityBucket) DisplayText() string {
 	}
 }
 
+// SourceKind represents the origin of a commerce observation.
+// This enables multi-rail ingestion (email receipts, bank transactions, etc.)
+// while maintaining source attribution for audit trails.
+type SourceKind string
+
+const (
+	// SourceGmailReceipt indicates observation from Gmail receipt classification (Phase 31.1).
+	SourceGmailReceipt SourceKind = "gmail_receipt"
+	// SourceFinanceTrueLayer indicates observation from TrueLayer transaction sync (Phase 31.2).
+	SourceFinanceTrueLayer SourceKind = "finance_truelayer"
+)
+
+// AllSourceKinds returns all source kinds in deterministic order.
+func AllSourceKinds() []SourceKind {
+	return []SourceKind{
+		SourceGmailReceipt,
+		SourceFinanceTrueLayer,
+	}
+}
+
+// Validate checks if the source kind is valid.
+func (s SourceKind) Validate() error {
+	switch s {
+	case SourceGmailReceipt, SourceFinanceTrueLayer:
+		return nil
+	default:
+		return fmt.Errorf("invalid source kind: %s", s)
+	}
+}
+
+// DisplayText returns human-readable text for the source.
+func (s SourceKind) DisplayText() string {
+	switch s {
+	case SourceGmailReceipt:
+		return "Email receipt"
+	case SourceFinanceTrueLayer:
+		return "Bank transaction"
+	default:
+		return "Unknown source"
+	}
+}
+
 // CommerceObservation represents a single category observation.
 //
 // CRITICAL: Contains NO raw data, NO identifiable info.
-// Only: category bucket, frequency bucket, stability bucket, period, evidence hash.
+// Only: source, category bucket, frequency bucket, stability bucket, period, evidence hash.
 type CommerceObservation struct {
+	// Source indicates where this observation originated (gmail_receipt, finance_truelayer).
+	Source SourceKind
+
 	// Category is the abstract category bucket.
 	Category CategoryBucket
 
@@ -212,8 +257,8 @@ type CommerceObservation struct {
 
 // CanonicalString returns the pipe-delimited, version-prefixed canonical form.
 func (o *CommerceObservation) CanonicalString() string {
-	return fmt.Sprintf("COMMERCE_OBS|v1|%s|%s|%s|%s|%s",
-		o.Category, o.Frequency, o.Stability, o.Period, o.EvidenceHash)
+	return fmt.Sprintf("COMMERCE_OBS|v2|%s|%s|%s|%s|%s|%s",
+		o.Source, o.Category, o.Frequency, o.Stability, o.Period, o.EvidenceHash)
 }
 
 // ComputeHash computes a deterministic hash of the observation.
@@ -224,6 +269,9 @@ func (o *CommerceObservation) ComputeHash() string {
 
 // Validate checks if the observation is valid.
 func (o *CommerceObservation) Validate() error {
+	if err := o.Source.Validate(); err != nil {
+		return err
+	}
 	if err := o.Category.Validate(); err != nil {
 		return err
 	}
