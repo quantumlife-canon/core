@@ -213,7 +213,10 @@ func ConfidenceToStability(c ConfidenceLevel) commerceobserver.StabilityBucket {
 // TransactionData contains the minimal transaction metadata for classification.
 // CRITICAL: This data is used for classification ONLY and is NEVER stored.
 //
+// Phase 31.3: Provider field is REQUIRED. Mock/empty providers are rejected.
+//
 // WHAT IS USED:
+//   - Provider: data source (must be real, e.g., "truelayer")
 //   - ProviderCategory: bank-assigned category
 //   - ProviderCategoryID: MCC code or similar
 //   - PaymentChannel: online, in_store, etc.
@@ -225,6 +228,11 @@ func ConfidenceToStability(c ConfidenceLevel) commerceobserver.StabilityBucket {
 type TransactionData struct {
 	// TransactionID is the bank transaction ID (will be hashed, never stored raw).
 	TransactionID string
+
+	// Provider identifies the data source.
+	// Phase 31.3: MUST be a valid real provider (e.g., ProviderTrueLayer).
+	// Mock/empty providers are rejected.
+	Provider ProviderKind
 
 	// ProviderCategory is the bank-assigned category.
 	// Used for classification, NOT stored raw.
@@ -241,6 +249,9 @@ type TransactionData struct {
 
 // BuildFromTransactions converts transaction metadata into observations.
 // This is a convenience function that combines classification and ingestion.
+//
+// Phase 31.3: Validates that all transactions have a real provider.
+// Returns empty result with "rejected_mock_provider" status if any mock/empty.
 //
 // CRITICAL: transactionData is used for classification only and is NEVER stored.
 // After this function returns, all raw data is discarded.
@@ -259,12 +270,26 @@ func (e *Engine) BuildFromTransactions(
 		return result
 	}
 
+	// Phase 31.3: Validate all transactions have a real provider
+	// If ANY transaction has mock/empty provider, reject the entire ingest
+	for _, tx := range transactionData {
+		if err := ValidateProvider(tx.Provider); err != nil {
+			result := FinanceIngestResult{
+				Observations:     nil,
+				OverallMagnitude: MagnitudeNothing,
+				StatusHash:       "rejected_mock_provider",
+			}
+			return result
+		}
+	}
+
 	// Build scan inputs
 	scanInputs := make([]TransactionInput, 0, len(transactionData))
 	for _, tx := range transactionData {
 		input := TransactionInput{
 			CircleID:           circleID,
 			TransactionIDHash:  HashTransactionID(tx.TransactionID),
+			Provider:           tx.Provider,
 			ProviderCategory:   tx.ProviderCategory,
 			ProviderCategoryID: tx.ProviderCategoryID,
 			PaymentChannel:     tx.PaymentChannel,
@@ -287,9 +312,13 @@ func (e *Engine) BuildFromTransactions(
 // ExtractTransactionData extracts TransactionData from raw fields.
 // This is the boundary where raw data enters and abstract signals exit.
 //
+// Phase 31.3: Provider is REQUIRED and must be a real source.
+// Use ProviderTrueLayer for real TrueLayer API data.
+//
 // CRITICAL: merchantName and amount are deliberately NOT accepted.
 // This function signature makes it impossible to pass forbidden data.
 func ExtractTransactionData(
+	provider ProviderKind,
 	transactionID string,
 	providerCategory string,
 	providerCategoryID string,
@@ -297,6 +326,7 @@ func ExtractTransactionData(
 ) TransactionData {
 	return TransactionData{
 		TransactionID:      transactionID,
+		Provider:           provider,
 		ProviderCategory:   providerCategory,
 		ProviderCategoryID: providerCategoryID,
 		PaymentChannel:     paymentChannel,

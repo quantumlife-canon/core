@@ -1697,6 +1697,17 @@ const (
 
 	// Commerce observation events (from TrueLayer transactions)
 	Phase31_2CommerceObservationsPersisted EventType = "phase31_2.commerce_observations.persisted"
+
+	// Phase 31.3: Real Finance Sync → Commerce Observer (No Mock Path)
+	// CRITICAL: Mock data is REJECTED. Only real TrueLayer API responses are processed.
+	// If no real connection exists, NO finance ingest occurs.
+	// Reference: docs/ADR/ADR-0065-phase31-3-real-finance-only.md
+
+	// Real finance ingest events
+	Phase31_3RealFinanceReady          EventType = "phase31_3.real_finance.ready"
+	Phase31_3RealFinanceIngestStarted  EventType = "phase31_3.real_finance.ingest_started"
+	Phase31_3RealFinanceIngestComplete EventType = "phase31_3.real_finance.ingest_completed"
+	Phase31_3MockProviderRejected      EventType = "phase31_3.mock_provider.rejected"
 )
 
 // Event represents a system event for audit and observability.

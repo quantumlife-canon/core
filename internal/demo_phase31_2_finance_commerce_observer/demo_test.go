@@ -30,10 +30,11 @@ func TestDeterminism(t *testing.T) {
 
 	engine := financetxscan.NewEngine(mockClock)
 
+	// Phase 31.3: Use ProviderTrueLayer for real provider
 	transactions := []financetxscan.TransactionData{
-		financetxscan.ExtractTransactionData("tx-001", "FOOD_AND_DRINK", "5812", "online"),
-		financetxscan.ExtractTransactionData("tx-002", "TRANSPORT", "4121", "contactless"),
-		financetxscan.ExtractTransactionData("tx-003", "SHOPPING", "5311", "in_store"),
+		financetxscan.ExtractTransactionData(financetxscan.ProviderTrueLayer, "tx-001", "FOOD_AND_DRINK", "5812", "online"),
+		financetxscan.ExtractTransactionData(financetxscan.ProviderTrueLayer, "tx-002", "TRANSPORT", "4121", "contactless"),
+		financetxscan.ExtractTransactionData(financetxscan.ProviderTrueLayer, "tx-003", "SHOPPING", "5311", "in_store"),
 	}
 
 	result1 := engine.BuildFromTransactions("circle-1", "2024-W03", "sync-hash-1", transactions)
@@ -74,7 +75,7 @@ func TestSourceKindIsFinanceTrueLayer(t *testing.T) {
 	engine := financetxscan.NewEngine(mockClock)
 
 	transactions := []financetxscan.TransactionData{
-		financetxscan.ExtractTransactionData("tx-001", "FOOD_AND_DRINK", "5812", "online"),
+		financetxscan.ExtractTransactionData(financetxscan.ProviderTrueLayer, "tx-001", "FOOD_AND_DRINK", "5812", "online"),
 	}
 
 	result := engine.BuildFromTransactions("circle-1", "2024-W03", "sync-hash-1", transactions)
@@ -94,11 +95,11 @@ func TestMaxThreeCategories(t *testing.T) {
 
 	// Create transactions in 5 different categories
 	transactions := []financetxscan.TransactionData{
-		financetxscan.ExtractTransactionData("tx-001", "FOOD_AND_DRINK", "5812", "online"),
-		financetxscan.ExtractTransactionData("tx-002", "TRANSPORT", "4121", "contactless"),
-		financetxscan.ExtractTransactionData("tx-003", "SHOPPING", "5311", "in_store"),
-		financetxscan.ExtractTransactionData("tx-004", "UTILITIES", "4900", "online"),
-		financetxscan.ExtractTransactionData("tx-005", "SUBSCRIPTIONS", "5815", "online"),
+		financetxscan.ExtractTransactionData(financetxscan.ProviderTrueLayer, "tx-001", "FOOD_AND_DRINK", "5812", "online"),
+		financetxscan.ExtractTransactionData(financetxscan.ProviderTrueLayer, "tx-002", "TRANSPORT", "4121", "contactless"),
+		financetxscan.ExtractTransactionData(financetxscan.ProviderTrueLayer, "tx-003", "SHOPPING", "5311", "in_store"),
+		financetxscan.ExtractTransactionData(financetxscan.ProviderTrueLayer, "tx-004", "UTILITIES", "4900", "online"),
+		financetxscan.ExtractTransactionData(financetxscan.ProviderTrueLayer, "tx-005", "SUBSCRIPTIONS", "5815", "online"),
 	}
 
 	result := engine.BuildFromTransactions("circle-1", "2024-W03", "sync-hash-1", transactions)
@@ -129,6 +130,7 @@ func TestCategoryClassificationByProviderCategory(t *testing.T) {
 			input := financetxscan.TransactionInput{
 				CircleID:           "circle-1",
 				TransactionIDHash:  "hash-1",
+				Provider:           financetxscan.ProviderTrueLayer,
 				ProviderCategory:   tc.providerCategory,
 				ProviderCategoryID: "",
 				PaymentChannel:     "",
@@ -171,6 +173,7 @@ func TestCategoryClassificationByMCC(t *testing.T) {
 			input := financetxscan.TransactionInput{
 				CircleID:           "circle-1",
 				TransactionIDHash:  "hash-1",
+				Provider:           financetxscan.ProviderTrueLayer,
 				ProviderCategory:   "",
 				ProviderCategoryID: tc.mcc,
 				PaymentChannel:     "",
@@ -199,6 +202,7 @@ func TestConfidenceLevelsBySource(t *testing.T) {
 	input1 := financetxscan.TransactionInput{
 		CircleID:          "circle-1",
 		TransactionIDHash: "hash-1",
+		Provider:          financetxscan.ProviderTrueLayer,
 		ProviderCategory:  "FOOD_AND_DRINK",
 	}
 	result1 := financetxscan.Classify(input1)
@@ -211,6 +215,7 @@ func TestConfidenceLevelsBySource(t *testing.T) {
 	input2 := financetxscan.TransactionInput{
 		CircleID:           "circle-1",
 		TransactionIDHash:  "hash-2",
+		Provider:           financetxscan.ProviderTrueLayer,
 		ProviderCategoryID: "5812",
 	}
 	result2 := financetxscan.Classify(input2)
@@ -223,6 +228,7 @@ func TestConfidenceLevelsBySource(t *testing.T) {
 	input3 := financetxscan.TransactionInput{
 		CircleID:          "circle-1",
 		TransactionIDHash: "hash-3",
+		Provider:          financetxscan.ProviderTrueLayer,
 		PaymentChannel:    "in_store",
 	}
 	result3 := financetxscan.Classify(input3)
@@ -239,6 +245,7 @@ func TestUnclassifiableTransaction(t *testing.T) {
 	input := financetxscan.TransactionInput{
 		CircleID:           "circle-1",
 		TransactionIDHash:  "hash-1",
+		Provider:           financetxscan.ProviderTrueLayer,
 		ProviderCategory:   "",
 		ProviderCategoryID: "",
 		PaymentChannel:     "",
@@ -412,14 +419,14 @@ func TestTopCategoriesSelection(t *testing.T) {
 	// Create transactions with varying counts per category
 	// Retail: 3, Transport: 2, Food: 1, Utilities: 1, Subscriptions: 1
 	transactions := []financetxscan.TransactionData{
-		financetxscan.ExtractTransactionData("tx-001", "SHOPPING", "5311", ""),
-		financetxscan.ExtractTransactionData("tx-002", "SHOPPING", "5311", ""),
-		financetxscan.ExtractTransactionData("tx-003", "SHOPPING", "5311", ""),
-		financetxscan.ExtractTransactionData("tx-004", "TRANSPORT", "4121", ""),
-		financetxscan.ExtractTransactionData("tx-005", "TRANSPORT", "4121", ""),
-		financetxscan.ExtractTransactionData("tx-006", "FOOD_AND_DRINK", "5812", ""),
-		financetxscan.ExtractTransactionData("tx-007", "UTILITIES", "4900", ""),
-		financetxscan.ExtractTransactionData("tx-008", "SUBSCRIPTIONS", "5815", ""),
+		financetxscan.ExtractTransactionData(financetxscan.ProviderTrueLayer, "tx-001", "SHOPPING", "5311", ""),
+		financetxscan.ExtractTransactionData(financetxscan.ProviderTrueLayer, "tx-002", "SHOPPING", "5311", ""),
+		financetxscan.ExtractTransactionData(financetxscan.ProviderTrueLayer, "tx-003", "SHOPPING", "5311", ""),
+		financetxscan.ExtractTransactionData(financetxscan.ProviderTrueLayer, "tx-004", "TRANSPORT", "4121", ""),
+		financetxscan.ExtractTransactionData(financetxscan.ProviderTrueLayer, "tx-005", "TRANSPORT", "4121", ""),
+		financetxscan.ExtractTransactionData(financetxscan.ProviderTrueLayer, "tx-006", "FOOD_AND_DRINK", "5812", ""),
+		financetxscan.ExtractTransactionData(financetxscan.ProviderTrueLayer, "tx-007", "UTILITIES", "4900", ""),
+		financetxscan.ExtractTransactionData(financetxscan.ProviderTrueLayer, "tx-008", "SUBSCRIPTIONS", "5815", ""),
 	}
 
 	result := engine.BuildFromTransactions("circle-1", "2024-W03", "sync-hash-1", transactions)
@@ -455,7 +462,7 @@ func TestObservationValidation(t *testing.T) {
 	engine := financetxscan.NewEngine(mockClock)
 
 	transactions := []financetxscan.TransactionData{
-		financetxscan.ExtractTransactionData("tx-001", "FOOD_AND_DRINK", "5812", "online"),
+		financetxscan.ExtractTransactionData(financetxscan.ProviderTrueLayer, "tx-001", "FOOD_AND_DRINK", "5812", "online"),
 	}
 
 	result := engine.BuildFromTransactions("circle-1", "2024-W03", "sync-hash-1", transactions)

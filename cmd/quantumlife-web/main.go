@@ -7259,75 +7259,42 @@ func (s *Server) handleTrueLayerSync(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 
-	// Phase 31.2: Commerce from Finance (TrueLayer → CommerceSignals)
-	// Classify transactions and build commerce observations
+	// Phase 31.2 + 31.3: Commerce from Finance (TrueLayer → CommerceSignals)
+	// Phase 31.3: ONLY real TrueLayer API responses are processed.
+	// Mock data is REJECTED. If no real connection exists, NO commerce ingest occurs.
+	//
 	// CRITICAL: We use ProviderCategory, MCC, PaymentChannel ONLY
 	// NEVER: MerchantName, Amount, or raw timestamps
 	if s.financeTxScanEngine != nil && s.commerceObserverStore != nil {
-		// Emit transaction scan started event
+		// Phase 31.3: Check if real TrueLayer connection exists
+		// For now, we skip commerce observation building since:
+		// - Mock data is rejected (Phase 31.3)
+		// - Real API fetch is not yet implemented
+		//
+		// When real TrueLayer API integration is added:
+		// 1. Fetch transactions from TrueLayer API
+		// 2. Extract using financetxscan.ExtractTransactionData(ProviderTrueLayer, ...)
+		// 3. Call BuildFromTransactions (which validates Provider)
+		// 4. Persist observations
+		//
+		// The validation in financetxscan.ValidateProvider ensures that
+		// ANY mock/empty provider is rejected with "rejected_mock_provider" status.
+
+		// Emit Phase 31.3 event indicating real finance ingest is ready but waiting for real API
 		s.eventEmitter.Emit(events.Event{
-			Type:      events.Phase31_2TransactionScanStarted,
+			Type:      events.Phase31_3RealFinanceReady,
 			Timestamp: now,
 			CircleID:  circleID,
 			Metadata: map[string]string{
 				"sync_receipt_hash": receipt.StatusHash,
+				"status":            "awaiting_real_api",
 			},
 		})
 
-		// Mock transaction data for sandbox mode
-		// In production, this would come from TrueLayer API response
-		// CRITICAL: Only ProviderCategory, ProviderCategoryID, PaymentChannel are used
-		// MerchantName and Amount are deliberately NOT extracted
-		mockTransactions := []financetxscan.TransactionData{
-			financetxscan.ExtractTransactionData("tx-001", "FOOD_AND_DRINK", "5812", "online"),
-			financetxscan.ExtractTransactionData("tx-002", "TRANSPORT", "4121", "contactless"),
-			financetxscan.ExtractTransactionData("tx-003", "FOOD_AND_DRINK", "5814", "in_store"),
-			financetxscan.ExtractTransactionData("tx-004", "SHOPPING", "5311", "online"),
-			financetxscan.ExtractTransactionData("tx-005", "UTILITIES", "4900", "online"),
-			financetxscan.ExtractTransactionData("tx-006", "SUBSCRIPTIONS", "5815", "online"),
-			financetxscan.ExtractTransactionData("tx-007", "TRANSPORT", "5541", "in_store"),
-		}
-
-		// Build commerce observations from transactions
-		period := financetxscan.PeriodFromTime(now)
-		ingestResult := s.financeTxScanEngine.BuildFromTransactions(
-			circleID,
-			period,
-			receipt.StatusHash,
-			mockTransactions,
-		)
-
-		// Persist observations to commerce observer store
-		for _, obs := range ingestResult.Observations {
-			if err := s.commerceObserverStore.PersistObservation(circleID, &obs); err != nil {
-				log.Printf("Phase 31.2: Failed to persist observation: %v", err)
-			}
-		}
-
-		// Emit transaction scan completed event
-		s.eventEmitter.Emit(events.Event{
-			Type:      events.Phase31_2TransactionScanCompleted,
-			Timestamp: now,
-			CircleID:  circleID,
-			Metadata: map[string]string{
-				"period":             period,
-				"overall_magnitude":  string(ingestResult.OverallMagnitude),
-				"observations_count": strconv.Itoa(len(ingestResult.Observations)),
-			},
-		})
-
-		// Emit observations persisted event
-		if len(ingestResult.Observations) > 0 {
-			s.eventEmitter.Emit(events.Event{
-				Type:      events.Phase31_2CommerceObservationsPersisted,
-				Timestamp: now,
-				CircleID:  circleID,
-				Metadata: map[string]string{
-					"status_hash":        ingestResult.StatusHash,
-					"observations_count": strconv.Itoa(len(ingestResult.Observations)),
-				},
-			})
-		}
+		// NOTE: Commerce observation building is intentionally skipped until
+		// real TrueLayer API integration is implemented. This is per Phase 31.3:
+		// "If TrueLayer is connected: → ONLY real API responses may be processed"
+		// "If not connected: → NO finance ingest occurs"
 	}
 
 	http.Redirect(w, r, "/mirror/finance", http.StatusFound)

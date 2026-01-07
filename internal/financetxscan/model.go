@@ -36,6 +36,10 @@ type TransactionInput struct {
 	// TransactionIDHash is a hash of the transaction ID (never raw).
 	TransactionIDHash string
 
+	// Provider identifies the data source (e.g., "truelayer").
+	// Phase 31.3: MUST be a valid real provider. Mock/empty sources are rejected.
+	Provider ProviderKind
+
 	// ProviderCategory is the bank-assigned category (e.g., "FOOD_AND_DRINK").
 	// Used for classification, NOT stored raw.
 	ProviderCategory string
@@ -47,6 +51,56 @@ type TransactionInput struct {
 	// PaymentChannel indicates payment type (e.g., "online", "in_store").
 	// Used for classification, NOT stored raw.
 	PaymentChannel string
+}
+
+// ProviderKind identifies the real data source for transactions.
+// Phase 31.3: Only real providers are allowed; mock/empty rejected.
+type ProviderKind string
+
+const (
+	// ProviderTrueLayer indicates real TrueLayer API data.
+	ProviderTrueLayer ProviderKind = "truelayer"
+
+	// ProviderMock indicates mock data (REJECTED in Phase 31.3).
+	// This constant exists only for explicit rejection.
+	ProviderMock ProviderKind = "mock"
+
+	// ProviderEmpty indicates empty/missing provider (REJECTED in Phase 31.3).
+	ProviderEmpty ProviderKind = ""
+)
+
+// AllValidProviders returns all valid (real) providers.
+// Phase 31.3: Mock and empty are NOT valid.
+func AllValidProviders() []ProviderKind {
+	return []ProviderKind{
+		ProviderTrueLayer,
+	}
+}
+
+// IsValidProvider checks if a provider is a real (non-mock) source.
+// Phase 31.3: Returns false for mock, empty, or unknown providers.
+func IsValidProvider(p ProviderKind) bool {
+	switch p {
+	case ProviderTrueLayer:
+		return true
+	default:
+		return false
+	}
+}
+
+// ValidateProvider checks if the provider is valid for real finance ingest.
+// Returns an error if the provider is mock, empty, or unknown.
+func ValidateProvider(p ProviderKind) error {
+	if p == ProviderEmpty {
+		return fmt.Errorf("phase31_3: provider is empty - real finance connection required")
+	}
+	if p == ProviderMock {
+		return fmt.Errorf("phase31_3: mock provider rejected - real finance connection required")
+	}
+	if !IsValidProvider(p) {
+		return fmt.Errorf("phase31_3: unknown provider %q - real finance connection required", p)
+	}
+	return nil
 }
 
 // TransactionSignal represents a single classified transaction signal.

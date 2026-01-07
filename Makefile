@@ -764,6 +764,17 @@ check-commerce-from-finance:
 	@echo "Checking Phase 31.2 constraints..."
 	@./scripts/guardrails/commerce_from_finance_enforced.sh
 
+# Phase 31.3: Real Finance Only (No Mock Path)
+# Reference: docs/ADR/ADR-0065-phase31-3-real-finance-only.md
+demo-phase31-3:
+	@echo "Running Phase 31.3 Demo: Real Finance Only..."
+	go test -v ./internal/demo_phase31_3_real_finance_only/...
+
+# Check Phase 31.3 Real Finance Only constraints
+check-real-finance-only:
+	@echo "Checking Phase 31.3 constraints..."
+	@./scripts/guardrails/commerce_real_finance_only_enforced.sh
+
 # =============================================================================
 # Web Server Targets
 # =============================================================================
