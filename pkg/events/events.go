@@ -1586,6 +1586,44 @@ const (
 
 	// Phase27ShadowReceiptDismissed - shadow receipt cue was dismissed.
 	Phase27ShadowReceiptDismissed EventType = "phase27.shadow_receipt.dismissed"
+
+	// ==========================================================================
+	// Phase 28: Trust Kept — First Real Act, Then Silence
+	// ==========================================================================
+	//
+	// CRITICAL INVARIANTS:
+	//   - Only calendar_respond action allowed
+	//   - Single execution per period (day)
+	//   - 15-minute undo window (bucketed)
+	//   - After execution: silence forever
+	//   - No growth mechanics, engagement loops, or escalation paths
+	//   - Payloads contain hashes only - never identifiers
+	//
+	// Reference: docs/ADR/ADR-0059-phase28-trust-kept.md
+
+	// Phase28TrustActionEligible - trust action eligibility computed.
+	Phase28TrustActionEligible EventType = "phase28.trust_action.eligible"
+
+	// Phase28TrustActionPreviewViewed - trust action preview was viewed.
+	Phase28TrustActionPreviewViewed EventType = "phase28.trust_action.preview.viewed"
+
+	// Phase28TrustActionExecuted - trust action was executed.
+	Phase28TrustActionExecuted EventType = "phase28.trust_action.executed"
+
+	// Phase28TrustActionUndone - trust action was undone.
+	Phase28TrustActionUndone EventType = "phase28.trust_action.undone"
+
+	// Phase28TrustActionExpired - undo window expired.
+	Phase28TrustActionExpired EventType = "phase28.trust_action.expired"
+
+	// Phase28TrustActionReceiptViewed - trust action receipt was viewed.
+	Phase28TrustActionReceiptViewed EventType = "phase28.trust_action.receipt.viewed"
+
+	// Phase28TrustActionReceiptDismissed - trust action receipt was dismissed.
+	Phase28TrustActionReceiptDismissed EventType = "phase28.trust_action.receipt.dismissed"
+
+	// Phase28TrustActionDismissed - trust action invitation was dismissed (kept holding).
+	Phase28TrustActionDismissed EventType = "phase28.trust_action.dismissed"
 )
 
 // Event represents a system event for audit and observability.

@@ -64,6 +64,7 @@ import (
 	"quantumlife/internal/surface"
 	"quantumlife/internal/todayquietly"
 	trustengine "quantumlife/internal/trust"
+	trustactionengine "quantumlife/internal/trustaction"
 	"quantumlife/internal/undoableexec"
 	"quantumlife/pkg/clock"
 	"quantumlife/pkg/domain/approvaltoken"
@@ -151,6 +152,8 @@ type Server struct {
 	realityEngine          *internalreality.Engine            // Phase 26C: Reality engine
 	realityAckStore        *persist.RealityAckStore           // Phase 26C: Reality ack store
 	shadowReceiptAckStore  *persist.ShadowReceiptAckStore     // Phase 27: Shadow Receipt ack/vote store
+	trustActionStore       *persist.TrustActionStore          // Phase 28: Trust action store
+	trustActionEngine      *trustactionengine.Engine          // Phase 28: Trust action engine
 	// Phase 18 Web Control Center
 	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
 	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
@@ -250,6 +253,11 @@ type templateData struct {
 	RealityCue  *domainreality.RealityCue
 	// Phase 27: Real Shadow Receipt (Primary Proof)
 	ShadowReceiptPrimaryCue *domainshadowview.ShadowReceiptCue
+	// Phase 28: Trust Kept
+	TrustActionPreview   *trustActionPreviewInfo
+	TrustActionReceipt   *trustActionReceiptInfo
+	TrustActionCue       *trustActionCueInfo
+	TrustActionUndoAvail bool
 	// Phase 18 Web Control Center
 	RunSnapshots     []*runlog.RunSnapshot      // List of run snapshots for /runs
 	RunSnapshot      *runlog.RunSnapshot        // Single run snapshot for /runs/:id
@@ -334,6 +342,33 @@ type pendingApprovalInfo struct {
 	IsExpired    bool
 	ApproveURL   string
 	RejectURL    string
+}
+
+// trustActionPreviewInfo contains trust action preview data. Phase 28.
+type trustActionPreviewInfo struct {
+	ActionKind     string
+	AbstractTarget string
+	HorizonBucket  string
+	Reversible     bool
+	DraftID        string
+	PeriodKey      string
+}
+
+// trustActionReceiptInfo contains trust action receipt data. Phase 28.
+type trustActionReceiptInfo struct {
+	ReceiptID     string
+	ActionKind    string
+	State         string
+	Period        string
+	StatusHash    string
+	UndoAvailable bool
+}
+
+// trustActionCueInfo contains trust action cue data. Phase 28.
+type trustActionCueInfo struct {
+	Available bool
+	CueText   string
+	LinkText  string
 }
 
 // mockIdentityRepo implements IdentityRepository for obligations engine.
@@ -623,6 +658,8 @@ func main() {
 		realityEngine:          internalreality.NewEngine(clk),                // Phase 26C
 		realityAckStore:        persist.NewRealityAckStore(clk.Now),           // Phase 26C
 		shadowReceiptAckStore:  persist.NewShadowReceiptAckStore(clk.Now),     // Phase 27
+		trustActionStore:       persist.NewTrustActionStore(clk.Now),          // Phase 28
+		trustActionEngine:      nil,                                           // Phase 28: Set after full initialization
 		// Phase 18 Web Control Center
 		runStore:       runStore,
 		suppressionSet: suppressionSet,
@@ -697,6 +734,11 @@ func main() {
 	mux.HandleFunc("/first-minutes/dismiss", server.handleFirstMinutesDismiss)         // Phase 26B: Dismiss receipt
 	mux.HandleFunc("/reality", server.handleReality)                                   // Phase 26C: Reality check
 	mux.HandleFunc("/reality/ack", server.handleRealityAck)                            // Phase 26C: Acknowledge reality
+	mux.HandleFunc("/trust/action", server.handleTrustAction)                          // Phase 28: Trust action preview
+	mux.HandleFunc("/trust/action/execute", server.handleTrustActionExecute)           // Phase 28: Execute trust action
+	mux.HandleFunc("/trust/action/undo", server.handleTrustActionUndo)                 // Phase 28: Undo trust action
+	mux.HandleFunc("/trust/action/receipt", server.handleTrustActionReceipt)           // Phase 28: Trust action receipt
+	mux.HandleFunc("/trust/action/dismiss", server.handleTrustActionDismiss)           // Phase 28: Dismiss trust action
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18 Web Control Center: Core routes
@@ -1268,13 +1310,14 @@ func (s *Server) handleToday(w http.ResponseWriter, r *http.Request) {
 
 	// Phase 18.5.1: Single whisper rule
 	// Show at most ONE whisper cue on /today.
-	// Priority: surface cue > proof cue > first-minutes cue > reality cue > shadow receipt primary cue
+	// Priority: surface cue > proof cue > first-minutes cue > reality cue > shadow receipt primary cue > trust action cue
 	// If surface is available, hide proof cue (proof accessible via /surface).
 	var displaySurfaceCue *surface.SurfaceCue
 	var displayProofCue *proof.ProofCue
 	var displayFirstMinutesCue *domainfirstminutes.FirstMinutesCue
 	var displayRealityCue *domainreality.RealityCue
 	var displayShadowReceiptPrimaryCue *domainshadowview.ShadowReceiptCue
+	var displayTrustActionCue *trustActionCueInfo
 
 	circleID := identity.EntityID("default")
 	now := s.clk.Now()
@@ -1349,6 +1392,18 @@ func (s *Server) handleToday(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
+
+			// Phase 28: Trust Action cue (lowest priority)
+			// Only show if no other cues are active (including shadow receipt primary)
+			if displayShadowReceiptPrimaryCue == nil {
+				if s.trustActionEngine != nil && s.trustActionEngine.ShouldShowCue(circleID) {
+					displayTrustActionCue = &trustActionCueInfo{
+						Available: true,
+						CueText:   "One thing could happen — if you let it.",
+						LinkText:  "preview",
+					}
+				}
+			}
 		}
 	}
 
@@ -1361,6 +1416,7 @@ func (s *Server) handleToday(w http.ResponseWriter, r *http.Request) {
 		FirstMinutesCue:         displayFirstMinutesCue,
 		RealityCue:              displayRealityCue,
 		ShadowReceiptPrimaryCue: displayShadowReceiptPrimaryCue,
+		TrustActionCue:          displayTrustActionCue,
 	}
 
 	s.render(w, "today", data)
@@ -6609,6 +6665,247 @@ func (s *Server) buildRealityInputs(circleID identity.EntityID, now time.Time) *
 	}
 
 	return inputs
+}
+
+// =============================================================================
+// Phase 28: Trust Kept — First Real Act, Then Silence
+// =============================================================================
+//
+// CRITICAL INVARIANTS:
+//   - Only calendar_respond action allowed
+//   - Single execution per period (day)
+//   - 15-minute undo window (bucketed)
+//   - After execution: silence forever
+//   - No growth mechanics, engagement loops, or escalation paths
+//
+// Reference: docs/ADR/ADR-0059-phase28-trust-kept.md
+
+// handleTrustAction shows the trust action preview page.
+// Phase 28: Users can choose "Let it happen" or "Keep holding".
+func (s *Server) handleTrustAction(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := identity.EntityID("default")
+
+	// Check eligibility
+	if s.trustActionEngine == nil {
+		// Engine not initialized - redirect to today
+		http.Redirect(w, r, "/today", http.StatusFound)
+		return
+	}
+
+	eligibility := s.trustActionEngine.CheckEligibility(circleID)
+	if !eligibility.Eligible {
+		// Not eligible - redirect to today
+		http.Redirect(w, r, "/today", http.StatusFound)
+		return
+	}
+
+	// Emit preview viewed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase28TrustActionPreviewViewed,
+		Timestamp: now,
+		CircleID:  string(circleID),
+		Metadata: map[string]string{
+			"period":         eligibility.PeriodKey,
+			"action_kind":    string(eligibility.Preview.ActionKind),
+			"horizon_bucket": string(eligibility.Preview.HorizonBucket),
+		},
+	})
+
+	// Render preview page
+	data := templateData{
+		Title:       "Trust Action",
+		CurrentTime: now.Format("2006-01-02 15:04"),
+		TrustActionPreview: &trustActionPreviewInfo{
+			ActionKind:     string(eligibility.Preview.ActionKind),
+			AbstractTarget: eligibility.Preview.AbstractTarget,
+			HorizonBucket:  string(eligibility.Preview.HorizonBucket),
+			Reversible:     eligibility.Preview.Reversible,
+			DraftID:        eligibility.DraftID,
+			PeriodKey:      eligibility.PeriodKey,
+		},
+	}
+
+	s.render(w, "trust-action", data)
+}
+
+// handleTrustActionExecute executes the trust action.
+// Phase 28: Single execution per period, via Phase 5 calendar boundary.
+func (s *Server) handleTrustActionExecute(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := identity.EntityID("default")
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+	draftID := r.FormValue("draft_id")
+
+	if s.trustActionEngine == nil {
+		http.Redirect(w, r, "/today", http.StatusFound)
+		return
+	}
+
+	// Execute via engine (delegates to Phase 5 calendar boundary)
+	result := s.trustActionEngine.Execute(r.Context(), circleID, draftID)
+	if !result.Success {
+		// Execution failed - redirect to today
+		log.Printf("Trust action execution failed: %s", result.Error)
+		http.Redirect(w, r, "/today", http.StatusFound)
+		return
+	}
+
+	// Emit executed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase28TrustActionExecuted,
+		Timestamp: now,
+		CircleID:  string(circleID),
+		Metadata: map[string]string{
+			"period":       result.Receipt.Period,
+			"receipt_hash": result.Receipt.StatusHash,
+			"action_kind":  string(result.Receipt.ActionKind),
+		},
+	})
+
+	// Redirect to receipt page
+	http.Redirect(w, r, "/trust/action/receipt", http.StatusFound)
+}
+
+// handleTrustActionUndo undoes a previously executed trust action.
+// Phase 28: Must be within 15-minute undo window.
+func (s *Server) handleTrustActionUndo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := identity.EntityID("default")
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+	receiptID := r.FormValue("receipt_id")
+
+	if s.trustActionEngine == nil {
+		http.Redirect(w, r, "/today", http.StatusFound)
+		return
+	}
+
+	// Undo via engine
+	result := s.trustActionEngine.Undo(r.Context(), receiptID)
+	if !result.Success {
+		// Undo failed - redirect to receipt
+		log.Printf("Trust action undo failed: %s", result.Error)
+		http.Redirect(w, r, "/trust/action/receipt", http.StatusFound)
+		return
+	}
+
+	// Emit undone event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase28TrustActionUndone,
+		Timestamp: now,
+		CircleID:  string(circleID),
+		Metadata: map[string]string{
+			"period":       result.Receipt.Period,
+			"receipt_hash": result.Receipt.StatusHash,
+		},
+	})
+
+	// Redirect to receipt page
+	http.Redirect(w, r, "/trust/action/receipt", http.StatusFound)
+}
+
+// handleTrustActionReceipt shows the trust action receipt page.
+// Phase 28: Shows proof of action, undo option if available, then silence.
+func (s *Server) handleTrustActionReceipt(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := identity.EntityID("default")
+
+	// Get latest receipt
+	var receiptInfo *trustActionReceiptInfo
+	var undoAvailable bool
+
+	if s.trustActionEngine != nil {
+		latestReceipt := s.trustActionEngine.GetLatestReceipt(circleID)
+		if latestReceipt != nil {
+			// Undo available if in executed state and within window
+			undoAvailable = latestReceipt.State == "executed" && !latestReceipt.UndoBucket.IsExpired(now)
+			receiptInfo = &trustActionReceiptInfo{
+				ReceiptID:     latestReceipt.ReceiptID,
+				ActionKind:    string(latestReceipt.ActionKind),
+				State:         string(latestReceipt.State),
+				Period:        latestReceipt.Period,
+				StatusHash:    latestReceipt.StatusHash,
+				UndoAvailable: undoAvailable,
+			}
+		}
+	}
+
+	if receiptInfo == nil {
+		// No receipt - redirect to today
+		http.Redirect(w, r, "/today", http.StatusFound)
+		return
+	}
+
+	// Emit receipt viewed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase28TrustActionReceiptViewed,
+		Timestamp: now,
+		CircleID:  string(circleID),
+		Metadata:  map[string]string{},
+	})
+
+	data := templateData{
+		Title:                "Trust Kept",
+		CurrentTime:          now.Format("2006-01-02 15:04"),
+		TrustActionReceipt:   receiptInfo,
+		TrustActionUndoAvail: undoAvailable,
+	}
+
+	s.render(w, "trust-action-receipt", data)
+}
+
+// handleTrustActionDismiss handles dismissing the trust action invitation.
+// Phase 28: User chose "Keep holding" - silence resumes.
+func (s *Server) handleTrustActionDismiss(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := identity.EntityID("default")
+	period := now.UTC().Format("2006-01-02")
+
+	// Emit dismissed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase28TrustActionDismissed,
+		Timestamp: now,
+		CircleID:  string(circleID),
+		Metadata: map[string]string{
+			"period": period,
+		},
+	})
+
+	// Redirect to today - silence resumes
+	http.Redirect(w, r, "/today", http.StatusFound)
 }
 
 // boolToYesNoString converts a bool to "yes" or "no" string for event metadata.

@@ -104,6 +104,13 @@ const (
 	// CRITICAL: Vote feeds Phase 19 calibration only.
 	RecordTypeShadowReceiptAck  = "SHADOW_RECEIPT_ACK"
 	RecordTypeShadowReceiptVote = "SHADOW_RECEIPT_VOTE"
+
+	// Phase 28: Trust Kept record types
+	// CRITICAL: Contains ONLY hashes - never identifiers.
+	// CRITICAL: First and only trust-confirming real action.
+	// CRITICAL: After execution: silence forever.
+	RecordTypeTrustActionReceipt = "TRUST_ACTION_RECEIPT"
+	RecordTypeTrustActionUpdate  = "TRUST_ACTION_UPDATE"
 )
 
 // Common errors

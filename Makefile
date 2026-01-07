@@ -684,6 +684,17 @@ check-shadow-receipt-primary:
 	@echo "Checking Phase 27 constraints..."
 	@./scripts/guardrails/shadow_receipt_primary_enforced.sh
 
+# Run Phase 28 demo: Trust Kept — First Real Act, Then Silence
+# Reference: docs/ADR/ADR-0059-phase28-trust-kept.md
+demo-phase28:
+	@echo "Running Phase 28 Demo: Trust Kept..."
+	go test -v ./internal/demo_phase28_trust_kept/...
+
+# Check Phase 28 trust kept constraints
+check-trust-kept:
+	@echo "Checking Phase 28 constraints..."
+	@./scripts/guardrails/trust_kept_enforced.sh
+
 # =============================================================================
 # Web Server Targets
 # =============================================================================
