@@ -251,9 +251,13 @@ func (i *FirstMinutesInputs) HasMeaningfulSignals() bool {
 type FirstMinutesCue struct {
 	Available   bool
 	CueText     string
+	LinkText    string
 	SummaryHash string
 	Period      FirstMinutesPeriod
 }
 
 // DefaultCueText is the subtle cue text shown on /today.
 const DefaultCueText = "If you ever wondered how the beginning went."
+
+// DefaultLinkText is the link text for the first minutes cue.
+const DefaultLinkText = "see"

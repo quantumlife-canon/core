@@ -238,6 +238,7 @@ func (e *Engine) ComputeCue(inputs *firstminutes.FirstMinutesInputs) *firstminut
 	return &firstminutes.FirstMinutesCue{
 		Available:   true,
 		CueText:     firstminutes.DefaultCueText,
+		LinkText:    firstminutes.DefaultLinkText,
 		SummaryHash: summary.StatusHash,
 		Period:      summary.Period,
 	}

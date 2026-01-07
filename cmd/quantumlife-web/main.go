@@ -10392,4 +10392,171 @@ const templates = `
     </footer>
 </div>
 {{end}}
+
+{{/* ================================================================
+     Phase 26A: Guided Journey
+     ================================================================ */}}
+{{define "journey"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "journey-content"}}
+<div class="journey-page">
+    {{if .JourneyPage}}
+    {{if .JourneyPage.IsDone}}
+    <section class="journey-done">
+        <h1 class="journey-title">{{.JourneyPage.Title}}</h1>
+        <p class="journey-subtitle">{{.JourneyPage.Subtitle}}</p>
+        <footer class="journey-footer">
+            <a href="/today" class="journey-back-link">Back to Today</a>
+        </footer>
+    </section>
+    {{else}}
+    <header class="journey-header">
+        <span class="journey-step-label">{{.JourneyPage.StepLabel}}</span>
+    </header>
+
+    <section class="journey-card">
+        <h1 class="journey-title">{{.JourneyPage.Title}}</h1>
+        <p class="journey-subtitle">{{.JourneyPage.Subtitle}}</p>
+
+        {{if .JourneyPage.Lines}}
+        <div class="journey-lines">
+            {{range .JourneyPage.Lines}}
+            <p class="journey-line">{{.}}</p>
+            {{end}}
+        </div>
+        {{end}}
+
+        <div class="journey-actions">
+            {{if eq .JourneyPage.PrimaryAction.Method "POST"}}
+            <form method="POST" action="{{.JourneyPage.PrimaryAction.Path}}">
+                {{range $k, $v := .JourneyPage.PrimaryAction.FormFields}}
+                <input type="hidden" name="{{$k}}" value="{{$v}}">
+                {{end}}
+                <button type="submit" class="journey-primary-btn">{{.JourneyPage.PrimaryAction.Label}}</button>
+            </form>
+            {{else}}
+            <a href="{{.JourneyPage.PrimaryAction.Path}}" class="journey-primary-btn">{{.JourneyPage.PrimaryAction.Label}}</a>
+            {{end}}
+
+            {{if .JourneyPage.SecondaryAction}}
+            <form method="POST" action="{{.JourneyPage.SecondaryAction.Path}}" class="journey-secondary-form">
+                {{range $k, $v := .JourneyPage.SecondaryAction.FormFields}}
+                <input type="hidden" name="{{$k}}" value="{{$v}}">
+                {{end}}
+                <button type="submit" class="journey-secondary-btn">{{.JourneyPage.SecondaryAction.Label}}</button>
+            </form>
+            {{end}}
+        </div>
+    </section>
+
+    <footer class="journey-footer">
+        <span class="journey-hash">Hash: {{slice .JourneyPage.StatusHash 0 12}}...</span>
+    </footer>
+    {{end}}
+    {{else}}
+    <section class="journey-empty">
+        <p>Journey not available.</p>
+        <a href="/today" class="journey-back-link">Back to Today</a>
+    </section>
+    {{end}}
+</div>
+{{end}}
+
+{{/* ================================================================
+     Phase 26B: First Five Minutes Proof
+     ================================================================ */}}
+{{define "first-minutes"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "first-minutes-content"}}
+<div class="first-minutes-page">
+    {{if .FirstMinutesSummary}}
+    <header class="first-minutes-header">
+        <h1 class="first-minutes-title">How it began</h1>
+        <p class="first-minutes-period">{{.FirstMinutesSummary.Period}}</p>
+    </header>
+
+    <section class="first-minutes-card">
+        <p class="first-minutes-calm-line">{{.FirstMinutesSummary.CalmLine}}</p>
+
+        {{if .FirstMinutesSummary.Signals}}
+        <ul class="first-minutes-signals">
+            {{range .FirstMinutesSummary.Signals}}
+            <li class="first-minutes-signal">
+                <span class="first-minutes-signal-kind">{{.Kind}}</span>
+                <span class="first-minutes-signal-magnitude">{{.Magnitude}}</span>
+            </li>
+            {{end}}
+        </ul>
+        {{end}}
+    </section>
+
+    <footer class="first-minutes-footer">
+        <form method="POST" action="/first-minutes/dismiss">
+            <input type="hidden" name="status_hash" value="{{.FirstMinutesSummary.StatusHash}}">
+            <button type="submit" class="first-minutes-dismiss-btn">Dismiss</button>
+        </form>
+        <span class="first-minutes-hash">Hash: {{slice .FirstMinutesSummary.StatusHash 0 12}}...</span>
+        <a href="/today" class="first-minutes-back-link">Back to Today</a>
+    </footer>
+    {{else}}
+    <section class="first-minutes-empty">
+        <p>Nothing to show yet.</p>
+        <a href="/today" class="first-minutes-back-link">Back to Today</a>
+    </section>
+    {{end}}
+</div>
+{{end}}
+
+{{/* ================================================================
+     Phase 26C: Connected Reality Check
+     ================================================================ */}}
+{{define "reality"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "reality-content"}}
+<div class="reality-page">
+    {{if .RealityPage}}
+    <header class="reality-header">
+        <h1 class="reality-title">{{.RealityPage.Title}}</h1>
+        <p class="reality-subtitle">{{.RealityPage.Subtitle}}</p>
+    </header>
+
+    <section class="reality-card">
+        {{if .RealityPage.Lines}}
+        <dl class="reality-lines">
+            {{range .RealityPage.Lines}}
+            <div class="reality-line reality-line-{{.Kind}}">
+                <dt class="reality-label">{{.Label}}</dt>
+                <dd class="reality-value">{{.Value}}</dd>
+            </div>
+            {{end}}
+        </dl>
+        {{end}}
+
+        {{if .RealityPage.CalmLine}}
+        <p class="reality-calm-line">{{.RealityPage.CalmLine}}</p>
+        {{end}}
+    </section>
+
+    <footer class="reality-footer">
+        <form method="POST" action="/reality/ack">
+            <input type="hidden" name="status_hash" value="{{.RealityPage.StatusHash}}">
+            <button type="submit" class="reality-ack-btn">Acknowledge</button>
+        </form>
+        <span class="reality-hash">Hash: {{slice .RealityPage.StatusHash 0 12}}...</span>
+        <a href="{{.RealityPage.BackPath}}" class="reality-back-link">Back</a>
+    </footer>
+    {{else}}
+    <section class="reality-empty">
+        <p>Reality check not available.</p>
+        <a href="/today" class="reality-back-link">Back to Today</a>
+    </section>
+    {{end}}
+</div>
+{{end}}
 `
