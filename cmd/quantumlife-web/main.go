@@ -34,6 +34,7 @@ import (
 	"quantumlife/internal/connectors/auth/impl_inmem"
 	mockcal "quantumlife/internal/connectors/calendar/write/providers/mock"
 	mockemail "quantumlife/internal/connectors/email/write/providers/mock"
+	truelayer "quantumlife/internal/connectors/finance/read/providers/truelayer"
 	internaldeviceidentity "quantumlife/internal/deviceidentity"
 	"quantumlife/internal/drafts"
 	"quantumlife/internal/drafts/calendar"
@@ -170,6 +171,9 @@ type Server struct {
 	financeMirrorStore     *persist.FinanceMirrorStore        // Phase 29: Finance mirror store
 	financeMirrorEngine    *financemirror.Engine              // Phase 29: Finance mirror engine
 	trueLayerHandler       *oauth.TrueLayerHandler            // Phase 29: TrueLayer OAuth handler
+	trueLayerTokenStore    *persist.TrueLayerTokenStore       // Phase 31.3b: TrueLayer token store
+	trueLayerSyncService   *truelayer.SyncService             // Phase 31.3b: TrueLayer sync service
+	trueLayerClient        *truelayer.Client                  // Phase 31.3b: TrueLayer API client
 	deviceKeyStore         *persist.DeviceKeyStore            // Phase 30A: Device key store
 	circleBindingStore     *persist.CircleBindingStore        // Phase 30A: Circle binding store
 	deviceIdentityEngine   *internaldeviceidentity.Engine     // Phase 30A: Device identity engine
@@ -711,6 +715,9 @@ func main() {
 		financeMirrorStore:     persist.NewFinanceMirrorStore(clk.Now),        // Phase 29
 		financeMirrorEngine:    nil,                                           // Phase 29: Set after full initialization
 		trueLayerHandler:       nil,                                           // Phase 29: Set after full initialization
+		trueLayerTokenStore:    persist.NewTrueLayerTokenStore(clk.Now),       // Phase 31.3b: Token store
+		trueLayerSyncService:   nil,                                           // Phase 31.3b: Set after TrueLayer client
+		trueLayerClient:        nil,                                           // Phase 31.3b: Set after config load
 		deviceKeyStore:         deviceKeyStore,                                // Phase 30A
 		circleBindingStore:     circleBindingStore,                            // Phase 30A
 		deviceIdentityEngine:   deviceIdentityEngine,                          // Phase 30A
@@ -7154,6 +7161,27 @@ func (s *Server) handleTrueLayerOAuthCallback(w http.ResponseWriter, r *http.Req
 		s.financeMirrorStore.SetConnectionHash(result.CircleID, connectionHash)
 	}
 
+	// Phase 31.3b: Store tokens for real sync
+	// CRITICAL: Tokens stored in memory only, never persisted to disk
+	if s.trueLayerTokenStore != nil {
+		s.trueLayerTokenStore.StoreToken(
+			result.CircleID,
+			result.AccessToken,
+			result.RefreshToken,
+			result.ExpiresIn,
+		)
+
+		// Emit token stored event (hash only, never raw token)
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase31_3bTrueLayerTokenStored,
+			Timestamp: now,
+			CircleID:  result.CircleID,
+			Metadata: map[string]string{
+				"token_hash": s.trueLayerTokenStore.GetTokenHash(result.CircleID),
+			},
+		})
+	}
+
 	// Emit success event
 	s.eventEmitter.Emit(events.Event{
 		Type:      events.Phase29TrueLayerOAuthCallback,
@@ -7188,6 +7216,11 @@ func (s *Server) handleTrueLayerDisconnect(w http.ResponseWriter, r *http.Reques
 		s.financeMirrorStore.RemoveConnection(circleID)
 	}
 
+	// Phase 31.3b: Remove tokens
+	if s.trueLayerTokenStore != nil {
+		s.trueLayerTokenStore.RemoveToken(circleID)
+	}
+
 	// Emit event
 	s.eventEmitter.Emit(events.Event{
 		Type:      events.Phase29TrueLayerOAuthRevoke,
@@ -7202,7 +7235,8 @@ func (s *Server) handleTrueLayerDisconnect(w http.ResponseWriter, r *http.Reques
 }
 
 // handleTrueLayerSync performs an explicit sync of TrueLayer data.
-// Phase 29: Bounded sync (25 items, 7 days). No retries.
+// Phase 31.3b: Real TrueLayer sync with bounded limits (25 accounts, 25 tx/account, 7 days).
+// CRITICAL: No retries. Single attempt. Fail gracefully. Clock injection for determinism.
 func (s *Server) handleTrueLayerSync(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -7221,83 +7255,190 @@ func (s *Server) handleTrueLayerSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Emit sync requested event
+	// Emit sync started event
 	s.eventEmitter.Emit(events.Event{
-		Type:      events.Phase29TrueLayerSyncRequested,
+		Type:      events.Phase31_3bTrueLayerSyncStarted,
 		Timestamp: now,
 		CircleID:  circleID,
 	})
 
-	// In sandbox mode, we create a mock receipt using the constructor
-	// Real sync would go through financeMirrorEngine.Sync()
-	// Mock data: a few accounts, several transactions
-	receipt := domainfinancemirror.NewFinanceSyncReceipt(
-		circleID,
-		"truelayer",
-		now,
-		2,                               // accountsCount (maps to "a_few")
-		7,                               // transactionsCount (maps to "several")
-		[]string{"category|essentials"}, // evidenceTokens
-		true,                            // success
-		"",                              // failReason
-	)
+	// Phase 31.3b: Check for valid access token
+	var accessToken string
+	if s.trueLayerTokenStore != nil {
+		accessToken = s.trueLayerTokenStore.GetToken(circleID)
+	}
+
+	var receipt *domainfinancemirror.FinanceSyncReceipt
+	var syncOutput *truelayer.SyncOutput
+
+	// Phase 31.3b: Real TrueLayer sync if token and sync service available
+	if accessToken != "" && s.trueLayerSyncService != nil {
+		// Perform real sync via TrueLayer API
+		output, err := s.trueLayerSyncService.Sync(r.Context(), truelayer.SyncInput{
+			CircleID:    circleID,
+			AccessToken: accessToken,
+		})
+		if err != nil {
+			// Emit failure event (no PII in error)
+			s.eventEmitter.Emit(events.Event{
+				Type:      events.Phase31_3bTrueLayerSyncFailed,
+				Timestamp: now,
+				CircleID:  circleID,
+				Metadata: map[string]string{
+					"fail_reason": "sync_error",
+				},
+			})
+			http.Redirect(w, r, "/mirror/finance", http.StatusFound)
+			return
+		}
+
+		syncOutput = output
+		receipt = truelayer.BuildSyncReceipt(circleID, output)
+
+		if !output.Success {
+			// Emit failure event
+			s.eventEmitter.Emit(events.Event{
+				Type:      events.Phase31_3bTrueLayerSyncFailed,
+				Timestamp: now,
+				CircleID:  circleID,
+				Metadata: map[string]string{
+					"fail_reason": output.FailReason,
+				},
+			})
+		}
+	} else {
+		// No valid token or sync service - create fallback receipt
+		// This happens when TrueLayer is not configured or token expired
+		failReason := "no_valid_token"
+		if s.trueLayerSyncService == nil {
+			failReason = "sync_service_not_configured"
+		}
+
+		receipt = domainfinancemirror.NewFinanceSyncReceipt(
+			circleID,
+			"truelayer",
+			now,
+			0,   // accountsCount
+			0,   // transactionsCount
+			nil, // evidenceTokens
+			false,
+			failReason,
+		)
+
+		// Emit failure event
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase31_3bTrueLayerSyncFailed,
+			Timestamp: now,
+			CircleID:  circleID,
+			Metadata: map[string]string{
+				"fail_reason": failReason,
+			},
+		})
+	}
 
 	// Store receipt
-	if s.financeMirrorStore != nil {
+	if s.financeMirrorStore != nil && receipt != nil {
 		_ = s.financeMirrorStore.StoreSyncReceipt(receipt)
 	}
 
 	// Emit sync completed event
-	s.eventEmitter.Emit(events.Event{
-		Type:      events.Phase29TrueLayerSyncCompleted,
-		Timestamp: now,
-		CircleID:  circleID,
-		Metadata: map[string]string{
-			"receipt_hash":           receipt.StatusHash,
-			"accounts_magnitude":     string(receipt.AccountsMagnitude),
-			"transactions_magnitude": string(receipt.TransactionsMagnitude),
-		},
-	})
-
-	// Phase 31.2 + 31.3: Commerce from Finance (TrueLayer → CommerceSignals)
-	// Phase 31.3: ONLY real TrueLayer API responses are processed.
-	// Mock data is REJECTED. If no real connection exists, NO commerce ingest occurs.
-	//
-	// CRITICAL: We use ProviderCategory, MCC, PaymentChannel ONLY
-	// NEVER: MerchantName, Amount, or raw timestamps
-	if s.financeTxScanEngine != nil && s.commerceObserverStore != nil {
-		// Phase 31.3: Check if real TrueLayer connection exists
-		// For now, we skip commerce observation building since:
-		// - Mock data is rejected (Phase 31.3)
-		// - Real API fetch is not yet implemented
-		//
-		// When real TrueLayer API integration is added:
-		// 1. Fetch transactions from TrueLayer API
-		// 2. Extract using financetxscan.ExtractTransactionData(ProviderTrueLayer, ...)
-		// 3. Call BuildFromTransactions (which validates Provider)
-		// 4. Persist observations
-		//
-		// The validation in financetxscan.ValidateProvider ensures that
-		// ANY mock/empty provider is rejected with "rejected_mock_provider" status.
-
-		// Emit Phase 31.3 event indicating real finance ingest is ready but waiting for real API
+	if receipt != nil && receipt.Success {
 		s.eventEmitter.Emit(events.Event{
-			Type:      events.Phase31_3RealFinanceReady,
+			Type:      events.Phase31_3bTrueLayerSyncCompleted,
 			Timestamp: now,
 			CircleID:  circleID,
 			Metadata: map[string]string{
-				"sync_receipt_hash": receipt.StatusHash,
-				"status":            "awaiting_real_api",
+				"receipt_hash":           receipt.StatusHash,
+				"accounts_magnitude":     string(receipt.AccountsMagnitude),
+				"transactions_magnitude": string(receipt.TransactionsMagnitude),
 			},
 		})
+	}
 
-		// NOTE: Commerce observation building is intentionally skipped until
-		// real TrueLayer API integration is implemented. This is per Phase 31.3:
-		// "If TrueLayer is connected: → ONLY real API responses may be processed"
-		// "If not connected: → NO finance ingest occurs"
+	// Phase 31.3b: Commerce from Finance (TrueLayer → CommerceSignals)
+	// CRITICAL: Only real TrueLayer API responses are processed (Phase 31.3 validated)
+	// Use ProviderCategory, MCC, PaymentChannel ONLY - NEVER MerchantName, Amount, timestamps
+	if syncOutput != nil && syncOutput.Success && len(syncOutput.TransactionData) > 0 {
+		if s.financeTxScanEngine != nil && s.commerceObserverStore != nil {
+			// Emit ingest started event
+			s.eventEmitter.Emit(events.Event{
+				Type:      events.Phase31_3bTrueLayerIngestStarted,
+				Timestamp: now,
+				CircleID:  circleID,
+				Metadata: map[string]string{
+					"transaction_count": intToString(len(syncOutput.TransactionData)),
+				},
+			})
+
+			// Convert TransactionClassification to TransactionData for financetxscan
+			// CRITICAL: Only classification fields - no amounts, merchants, timestamps
+			txData := make([]financetxscan.TransactionData, 0, len(syncOutput.TransactionData))
+			for _, tx := range syncOutput.TransactionData {
+				txData = append(txData, financetxscan.ExtractTransactionData(
+					financetxscan.ProviderTrueLayer, // Phase 31.3: Real provider only
+					tx.TransactionID,
+					tx.ProviderCategory,
+					tx.ProviderCategoryID,
+					tx.PaymentChannel,
+				))
+			}
+
+			// Build commerce observations from transactions
+			period := financetxscan.PeriodFromTime(now)
+			result := s.financeTxScanEngine.BuildFromTransactions(
+				circleID,
+				period,
+				receipt.StatusHash,
+				txData,
+			)
+
+			// Check for mock provider rejection (Phase 31.3 safeguard)
+			if result.StatusHash == "rejected_mock_provider" {
+				s.eventEmitter.Emit(events.Event{
+					Type:      events.Phase31_3MockProviderRejected,
+					Timestamp: now,
+					CircleID:  circleID,
+				})
+			} else {
+				// Persist observations
+				for _, obs := range result.Observations {
+					_ = s.commerceObserverStore.PersistObservation(circleID, &obs)
+				}
+
+				// Emit ingest completed event
+				s.eventEmitter.Emit(events.Event{
+					Type:      events.Phase31_3bTrueLayerIngestCompleted,
+					Timestamp: now,
+					CircleID:  circleID,
+					Metadata: map[string]string{
+						"observations_count":   intToString(len(result.Observations)),
+						"overall_magnitude":    string(result.OverallMagnitude),
+						"ingest_status_hash":   result.StatusHash,
+						"sync_receipt_hash":    receipt.StatusHash,
+					},
+				})
+			}
+		}
 	}
 
 	http.Redirect(w, r, "/mirror/finance", http.StatusFound)
+}
+
+// intToString converts an int to string without importing strconv in this file.
+func intToString(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	digits := make([]byte, 0, 10)
+	for n > 0 {
+		digits = append(digits, byte('0'+n%10))
+		n /= 10
+	}
+	// Reverse
+	for i, j := 0, len(digits)-1; i < j; i, j = i+1, j-1 {
+		digits[i], digits[j] = digits[j], digits[i]
+	}
+	return string(digits)
 }
 
 // handleFinanceMirror shows the finance mirror proof page.

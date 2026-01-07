@@ -78,6 +78,7 @@ help:
 	@echo "  make demo-phase31  - Run Phase 31 commerce observers demo"
 	@echo "  make demo-phase31-1 - Run Phase 31.1 gmail receipt observers demo"
 	@echo "  make demo-phase31-2 - Run Phase 31.2 commerce from finance demo"
+	@echo "  make demo-phase31-3b - Run Phase 31.3b TrueLayer real sync demo"
 	@echo ""
 	@echo "Web Server:"
 	@echo "  make web          - Run web server on :8080 (real mode)"
@@ -774,6 +775,17 @@ demo-phase31-3:
 check-real-finance-only:
 	@echo "Checking Phase 31.3 constraints..."
 	@./scripts/guardrails/commerce_real_finance_only_enforced.sh
+
+# Phase 31.3b: Real TrueLayer Sync (Accounts + Transactions → Finance Mirror + Commerce Observer)
+# Reference: docs/ADR/ADR-0066-phase31-3b-truelayer-real-sync.md
+demo-phase31-3b:
+	@echo "Running Phase 31.3b Demo: TrueLayer Real Sync..."
+	go test -v ./internal/demo_phase31_3b_truelayer_real_sync/...
+
+# Check Phase 31.3b TrueLayer Real Sync constraints
+check-truelayer-real-sync:
+	@echo "Checking Phase 31.3b constraints..."
+	@./scripts/guardrails/truelayer_real_sync_enforced.sh
 
 # =============================================================================
 # Web Server Targets

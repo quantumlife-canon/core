@@ -1708,6 +1708,25 @@ const (
 	Phase31_3RealFinanceIngestStarted  EventType = "phase31_3.real_finance.ingest_started"
 	Phase31_3RealFinanceIngestComplete EventType = "phase31_3.real_finance.ingest_completed"
 	Phase31_3MockProviderRejected      EventType = "phase31_3.mock_provider.rejected"
+
+	// Phase 31.3b: Real TrueLayer Sync (Accounts + Transactions → Finance Mirror + Commerce Observer)
+	// CRITICAL: Real TrueLayer API calls with bounded limits (25 accounts, 25 tx/account, 7 days).
+	// NO retries. Single attempt. Fail gracefully. Clock injection for determinism.
+	// Reference: docs/ADR/ADR-0066-phase31-3b-truelayer-real-sync.md
+
+	// TrueLayer sync lifecycle events
+	Phase31_3bTrueLayerSyncStarted   EventType = "phase31_3b.truelayer.sync.started"
+	Phase31_3bTrueLayerSyncCompleted EventType = "phase31_3b.truelayer.sync.completed"
+	Phase31_3bTrueLayerSyncFailed    EventType = "phase31_3b.truelayer.sync.failed"
+
+	// TrueLayer ingest events (finance mirror + commerce observer)
+	Phase31_3bTrueLayerIngestStarted   EventType = "phase31_3b.truelayer.ingest.started"
+	Phase31_3bTrueLayerIngestCompleted EventType = "phase31_3b.truelayer.ingest.completed"
+
+	// Token events (hash-only, never raw tokens)
+	Phase31_3bTrueLayerTokenStored   EventType = "phase31_3b.truelayer.token.stored"
+	Phase31_3bTrueLayerTokenRefreshed EventType = "phase31_3b.truelayer.token.refreshed"
+	Phase31_3bTrueLayerTokenExpired   EventType = "phase31_3b.truelayer.token.expired"
 )
 
 // Event represents a system event for audit and observability.
