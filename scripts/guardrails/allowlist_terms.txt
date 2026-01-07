@@ -301,3 +301,9 @@ internal/demo_phase30A_identity_replay/*.go
 # This is standard financial/billing terminology for receipt classification,
 # NOT "user account". QuantumLife core uses "circle" for identity.
 internal/receiptscan/*.go
+
+# Phase 31.3b: Real TrueLayer Sync (ADR-0066)
+# Demo tests use "account" for bank/financial accounts from TrueLayer API,
+# NOT "user account". Tests verify bounded sync limits (25 accounts, 25 tx/account).
+# QuantumLife core uses "circle" for identity - these are TrueLayer data adapters.
+internal/demo_phase31_3b_truelayer_real_sync/*.go
