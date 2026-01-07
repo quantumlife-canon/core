@@ -1739,6 +1739,29 @@ const (
 	Phase31_4PressurePersisted     EventType = "phase31_4.pressure.persisted"
 	Phase31_4ExternalCircleDerived EventType = "phase31_4.external_circle.derived"
 	Phase31_4RealityViewed         EventType = "phase31_4.reality.viewed"
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	// Phase 32: Pressure Decision Gate (Classification Only)
+	// Reference: docs/ADR/ADR-0068-phase32-pressure-decision-gate.md
+	//
+	// CRITICAL: Classification ONLY. NO notifications. NO execution. NO UI buttons.
+	// CRITICAL: Deterministic rules only. NO LLM authority.
+	// CRITICAL: Max 2 INTERRUPT_CANDIDATEs per day.
+	// CRITICAL: HOLD is the default. Silence is success.
+	// ═══════════════════════════════════════════════════════════════════════════
+
+	// Pressure decision lifecycle events
+	Phase32PressureDecisionComputed  EventType = "phase32.pressure_decision.computed"
+	Phase32PressureDecisionPersisted EventType = "phase32.pressure_decision.persisted"
+
+	// Rate limiting events
+	Phase32InterruptCandidateRateLimited EventType = "phase32.interrupt_candidate.rate_limited"
+
+	// Trust protection events
+	Phase32TrustFragileDowngrade EventType = "phase32.trust_fragile.downgrade"
+
+	// Batch processing events
+	Phase32DecisionBatchComputed EventType = "phase32.decision_batch.computed"
 )
 
 // Event represents a system event for audit and observability.

@@ -800,6 +800,16 @@ check-external-pressure:
 	@echo "Checking Phase 31.4 constraints..."
 	@./scripts/guardrails/external_pressure_enforced.sh
 
+# Run Phase 32 Demo: Pressure Decision Gate
+demo-phase32:
+	@echo "Running Phase 32 Demo: Pressure Decision Gate..."
+	go test -v ./internal/demo_phase32_pressure_decision/...
+
+# Check Phase 32 Pressure Decision Gate constraints
+check-pressure-decision-gate:
+	@echo "Checking Phase 32 constraints..."
+	@./scripts/guardrails/pressure_decision_gate_enforced.sh
+
 # =============================================================================
 # Web Server Targets
 # =============================================================================
