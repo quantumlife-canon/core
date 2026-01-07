@@ -140,6 +140,11 @@ const (
 	// CRITICAL: Default stance is NO interrupts allowed.
 	RecordTypeInterruptPolicy   = "INTERRUPT_POLICY"
 	RecordTypeInterruptProofAck = "INTERRUPT_PROOF_ACK"
+
+	// Phase 34: Permitted Interrupt Preview record types
+	// CRITICAL: Web-only preview. NO external signals.
+	// CRITICAL: Hash-only, bucket-only. No raw identifiers.
+	RecordTypeInterruptPreviewAck = "INTERRUPT_PREVIEW_ACK"
 )
 
 // Common errors

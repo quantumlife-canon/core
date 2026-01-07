@@ -316,3 +316,27 @@ internal/demo_phase31_3b_truelayer_real_sync/*.go
 # NOT QuantumLife identity. QuantumLife core uses "circle" for identity.
 pkg/domain/externalpressure/*.go
 internal/demo_phase31_4_external_pressure/*.go
+
+# Phase 32: Pressure Decision Gate (ADR-0068)
+# Domain types use "User" in comments to describe what the user sees
+# (e.g., "User sees it only if they look"). This is domain terminology for
+# describing visibility behavior, NOT QuantumLife identity.
+pkg/domain/pressuredecision/*.go
+
+# Phase 33: Interrupt Permission Contract (ADR-0069)
+# Domain types use "user" to describe the human's interrupt permission settings
+# (e.g., "user's configured max", "user must explicitly enable"). Engine uses
+# "user" in comments about surfacing interruptions. This is domain terminology
+# for the human-in-the-loop permission workflow, NOT QuantumLife identity.
+pkg/domain/interruptpolicy/*.go
+internal/interruptpolicy/*.go
+
+# Phase 34: Permitted Interrupt Preview (ADR-0070)
+# Domain types use "user" to describe acknowledgment types (e.g., "user acknowledgment")
+# and input states (e.g., "user already dismissed"). Engine uses "user" in comments
+# about preview states. Demo tests describe "user-initiated" preview and
+# "user dismissed" scenarios. This is domain terminology for the preview workflow,
+# NOT QuantumLife identity. QuantumLife core uses "circle" for identity.
+pkg/domain/interruptpreview/*.go
+internal/interruptpreview/*.go
+internal/demo_phase34_interrupt_preview/*.go

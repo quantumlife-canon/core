@@ -1781,6 +1781,30 @@ const (
 
 	// Permission evaluation events
 	Phase33InterruptPermissionComputed EventType = "phase33.interrupt_permission.computed"
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	// Phase 34: Permitted Interrupt Preview (Web-only, No External Signals)
+	// ═══════════════════════════════════════════════════════════════════════════
+	// CRITICAL: NO external signals. Web-only preview.
+	// CRITICAL: Hash-only, bucket-only. No raw identifiers.
+	// ═══════════════════════════════════════════════════════════════════════════
+
+	// Preview cue events
+	Phase34InterruptPreviewCueComputed EventType = "phase34.interrupt_preview.cue_computed"
+	Phase34InterruptPreviewCueShown    EventType = "phase34.interrupt_preview.cue_shown"
+
+	// Preview page events
+	Phase34InterruptPreviewPageRequested EventType = "phase34.interrupt_preview.page_requested"
+	Phase34InterruptPreviewPageRendered  EventType = "phase34.interrupt_preview.page_rendered"
+
+	// Preview acknowledgment events
+	Phase34InterruptPreviewViewed    EventType = "phase34.interrupt_preview.viewed"
+	Phase34InterruptPreviewDismissed EventType = "phase34.interrupt_preview.dismissed"
+	Phase34InterruptPreviewHeld      EventType = "phase34.interrupt_preview.held"
+
+	// Proof page events
+	Phase34InterruptPreviewProofRequested EventType = "phase34.interrupt_preview.proof_requested"
+	Phase34InterruptPreviewProofRendered  EventType = "phase34.interrupt_preview.proof_rendered"
 )
 
 // Event represents a system event for audit and observability.

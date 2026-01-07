@@ -820,6 +820,16 @@ check-interrupt-permission:
 	@echo "Checking Phase 33 constraints..."
 	@./scripts/guardrails/interrupt_permission_enforced.sh
 
+# Run Phase 34 Demo: Permitted Interrupt Preview
+demo-phase34:
+	@echo "Running Phase 34 Demo: Permitted Interrupt Preview..."
+	go test -v ./internal/demo_phase34_interrupt_preview/...
+
+# Check Phase 34 Permitted Interrupt Preview constraints
+check-interrupt-preview:
+	@echo "Checking Phase 34 constraints..."
+	@./scripts/guardrails/interrupt_preview_enforced.sh
+
 # =============================================================================
 # Web Server Targets
 # =============================================================================
