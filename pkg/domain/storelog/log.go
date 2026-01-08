@@ -208,6 +208,14 @@ const (
 	// CRITICAL: Delivery cap: max 2/day per circle.
 	RecordTypeInterruptRehearsalReceipt = "INTERRUPT_REHEARSAL_RECEIPT"
 	RecordTypeInterruptRehearsalAck     = "INTERRUPT_REHEARSAL_ACK"
+
+	// Phase 42: Delegated Holding Contracts record types
+	// CRITICAL: Contains ONLY abstract buckets and hashes - never identifiers.
+	// CRITICAL: Pre-consent to HOLD only. Cannot execute or interrupt.
+	// CRITICAL: Trust baseline required. One active contract per circle.
+	// CRITICAL: Bounded retention: 30 days OR 200 records max.
+	RecordTypeDelegatedHoldingContract   = "DELEGATED_HOLDING_CONTRACT"
+	RecordTypeDelegatedHoldingRevocation = "DELEGATED_HOLDING_REVOCATION"
 )
 
 // Common errors

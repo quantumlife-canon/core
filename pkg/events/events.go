@@ -1988,6 +1988,15 @@ const (
 	Phase41RehearsalDeliveryCompleted   EventType = "phase41.rehearsal.delivery_completed"
 	Phase41RehearsalReceiptPersisted    EventType = "phase41.rehearsal.receipt_persisted"
 	Phase41RehearsalProofViewed         EventType = "phase41.rehearsal.proof_viewed"
+
+	// Phase 42: Delegated Holding Contracts
+	// CRITICAL: Hash/bucket only payloads. No identifiers.
+	// CRITICAL: Pre-consent to HOLD only. Cannot execute or interrupt.
+	Phase42DelegationCreated   EventType = "phase42.delegation.created"
+	Phase42DelegationRevoked   EventType = "phase42.delegation.revoked"
+	Phase42DelegationExpired   EventType = "phase42.delegation.expired"
+	Phase42DelegationApplied   EventType = "phase42.delegation.applied"
+	Phase42DelegationProofViewed EventType = "phase42.delegation.proof.viewed"
 )
 
 // Event represents a system event for audit and observability.

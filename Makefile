@@ -7,7 +7,7 @@
 #
 # Guardrails enforce Canon invariants at build time.
 
-.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 demo-phase9 demo-phase10 demo-phase11 demo-phase12 demo-phase13 demo-phase13-1 demo-phase14 demo-phase15 demo-phase16 demo-phase18 demo-phase18-2 demo-phase18-3 demo-phase18-4 demo-phase18-5 demo-phase18-6 demo-phase18-9 demo-phase19-shadow demo-phase19-1 demo-phase19-4 demo-phase19-real-keys-smoke demo-phase20 demo-phase26A demo-phase26B demo-phase26C demo-phase29 demo-phase31-4 web web-mock web-demo web-app web-stop web-status run-real-shadow check-real-shadow-config check-today-quietly check-held check-quiet-shift check-proof check-connection-onboarding check-shadow-mode check-shadow-diff check-real-gmail-quiet check-trust-accrual check-journey check-first-minutes check-reality-check check-truelayer-finance-mirror check-external-pressure ios-open ios-build ios-test ios-clean
+.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 demo-phase9 demo-phase10 demo-phase11 demo-phase12 demo-phase13 demo-phase13-1 demo-phase14 demo-phase15 demo-phase16 demo-phase18 demo-phase18-2 demo-phase18-3 demo-phase18-4 demo-phase18-5 demo-phase18-6 demo-phase18-9 demo-phase19-shadow demo-phase19-1 demo-phase19-4 demo-phase19-real-keys-smoke demo-phase20 demo-phase26A demo-phase26B demo-phase26C demo-phase29 demo-phase31-4 demo-phase42 web web-mock web-demo web-app web-stop web-status run-real-shadow check-real-shadow-config check-today-quietly check-held check-quiet-shift check-proof check-connection-onboarding check-shadow-mode check-shadow-diff check-real-gmail-quiet check-trust-accrual check-journey check-first-minutes check-reality-check check-truelayer-finance-mirror check-external-pressure check-delegated-holding ios-open ios-build ios-test ios-clean
 
 # Default target
 all: ci
@@ -80,6 +80,7 @@ help:
 	@echo "  make demo-phase31-2 - Run Phase 31.2 commerce from finance demo"
 	@echo "  make demo-phase31-3b - Run Phase 31.3b TrueLayer real sync demo"
 	@echo "  make demo-phase31-4 - Run Phase 31.4 external pressure circles demo"
+	@echo "  make demo-phase42 - Run Phase 42 delegated holding contracts demo"
 	@echo ""
 	@echo "Web Server:"
 	@echo "  make web          - Run web server on :8080 (real mode)"
@@ -136,6 +137,7 @@ help:
 	@echo "  make check-receipt-observer - Check receipt observer constraints (Phase 31.1)"
 	@echo "  make check-commerce-from-finance - Check commerce from finance constraints (Phase 31.2)"
 	@echo "  make check-external-pressure - Check external pressure constraints (Phase 31.4)"
+	@echo "  make check-delegated-holding - Check delegated holding constraints (Phase 42)"
 	@echo ""
 	@echo "iOS (Phase 19):"
 	@echo "  make ios-open   - Open iOS project in Xcode (macOS only)"
@@ -909,6 +911,16 @@ demo-phase41:
 check-interrupt-rehearsal:
 	@echo "Checking Phase 41 constraints..."
 	@./scripts/guardrails/interrupt_rehearsal_enforced.sh
+
+# Run Phase 42 Demo: Delegated Holding Contracts
+demo-phase42:
+	@echo "Running Phase 42 Demo: Delegated Holding Contracts..."
+	go test -v ./internal/demo_phase42_delegated_holding/...
+
+# Check Phase 42 Delegated Holding constraints
+check-delegated-holding:
+	@echo "Checking Phase 42 constraints..."
+	@./scripts/guardrails/delegated_holding_enforced.sh
 
 # =============================================================================
 # Web Server Targets

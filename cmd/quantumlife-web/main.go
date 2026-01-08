@@ -59,6 +59,7 @@ import (
 	internalinterruptpolicy "quantumlife/internal/interruptpolicy"
 	internalinterruptpreview "quantumlife/internal/interruptpreview"
 	internalrehearsal "quantumlife/internal/interruptrehearsal"
+	internaldelegatedholding "quantumlife/internal/delegatedholding"
 	internalinvitation "quantumlife/internal/invitation"
 	"quantumlife/internal/journey"
 	"quantumlife/internal/loop"
@@ -105,6 +106,7 @@ import (
 	interruptpolicy "quantumlife/pkg/domain/interruptpolicy"
 	interruptpreview "quantumlife/pkg/domain/interruptpreview"
 	domainrehearsal "quantumlife/pkg/domain/interruptrehearsal"
+	domaindelegatedholding "quantumlife/pkg/domain/delegatedholding"
 	domaininvitation "quantumlife/pkg/domain/invitation"
 	domainmirror "quantumlife/pkg/domain/mirror"
 	"quantumlife/pkg/domain/obligation"
@@ -216,6 +218,8 @@ type Server struct {
 	timeWindowEngine       *internaltimewindow.Engine           // Phase 40: Time window engine
 	rehearsalStore         *persist.InterruptRehearsalStore     // Phase 41: Interrupt rehearsal store
 	rehearsalEngine        *internalrehearsal.Engine            // Phase 41: Interrupt rehearsal engine
+	delegatedHoldingStore  *persist.DelegatedHoldingStore       // Phase 42: Delegated holding store
+	delegatedHoldingEngine *internaldelegatedholding.Engine     // Phase 42: Delegated holding engine
 	// Phase 18 Web Control Center
 	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
 	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
@@ -342,6 +346,8 @@ type templateData struct {
 	// Phase 41: Live Interrupt Loop (APNs)
 	RehearsePage      *domainrehearsal.RehearsePage
 	RehearseProofPage *domainrehearsal.RehearsalProofPage
+	DelegatePage      *domaindelegatedholding.DelegatePage
+	DelegateProofPage *domaindelegatedholding.DelegateProofPage
 	// Phase 18 Web Control Center
 	RunSnapshots     []*runlog.RunSnapshot      // List of run snapshots for /runs
 	RunSnapshot      *runlog.RunSnapshot        // Single run snapshot for /runs/:id
@@ -740,6 +746,11 @@ func main() {
 	rehearsalStore := persist.NewInterruptRehearsalStore(nil)
 	rehearsalEngine := internalrehearsal.NewEngine(nil, nil, nil, rehearsalStore, nil, nil)
 
+	// Phase 42: Create delegated holding store and engine
+	// NOTE: Engine dependencies (trust, preview) are provided via adapters in handlers
+	delegatedHoldingStore := persist.NewDelegatedHoldingStore(nil)
+	delegatedHoldingEngine := internaldelegatedholding.NewEngine(nil, nil, delegatedHoldingStore, clk)
+
 	// Phase 18 Web Control Center: Create stores
 	runStore := runlog.NewInMemoryRunStore()
 	suppressionSet := suppress.NewSuppressionSet()
@@ -829,6 +840,8 @@ func main() {
 		timeWindowEngine:       timeWindowEngine,                              // Phase 40
 		rehearsalStore:         rehearsalStore,                                // Phase 41
 		rehearsalEngine:        rehearsalEngine,                               // Phase 41
+		delegatedHoldingStore:  delegatedHoldingStore,                         // Phase 42
+		delegatedHoldingEngine: delegatedHoldingEngine,                        // Phase 42
 		// Phase 18 Web Control Center
 		runStore:       runStore,
 		suppressionSet: suppressionSet,
@@ -943,6 +956,10 @@ func main() {
 	mux.HandleFunc("/interrupts/rehearse/send", server.handleRehearseSend)                  // Phase 41: Send rehearsal push (POST)
 	mux.HandleFunc("/proof/interrupts/rehearse", server.handleRehearseProof)                // Phase 41: Rehearsal proof page (GET)
 	mux.HandleFunc("/proof/interrupts/rehearse/dismiss", server.handleRehearseProofDismiss) // Phase 41: Dismiss proof (POST)
+	mux.HandleFunc("/delegate", server.handleDelegate)                                      // Phase 42: Delegation page (GET)
+	mux.HandleFunc("/delegate/create", server.handleDelegateCreate)                         // Phase 42: Create contract (POST)
+	mux.HandleFunc("/delegate/revoke", server.handleDelegateRevoke)                         // Phase 42: Revoke contract (POST)
+	mux.HandleFunc("/proof/delegate", server.handleDelegateProof)                           // Phase 42: Delegation proof page (GET)
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18 Web Control Center: Core routes
@@ -9653,6 +9670,306 @@ func (s *Server) buildRehearsalEnvelopeSource(circleIDHash string, now time.Time
 }
 
 // ============================================================================
+// Phase 42: Delegated Holding Contract Handlers
+// ============================================================================
+
+// handleDelegate shows the delegation page.
+// Phase 42: Shows current contract status and eligibility.
+func (s *Server) handleDelegate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleIDHash := computeSovereignCircleHash()
+
+	// Emit page viewed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase42DelegationProofViewed,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"circle_hash": circleIDHash[:16],
+		},
+	})
+
+	// Build page using engine with adapters
+	var page *domaindelegatedholding.DelegatePage
+	if s.delegatedHoldingEngine != nil {
+		trustSource := s.buildDelegatedHoldingTrustSource(circleIDHash)
+		previewSource := s.buildDelegatedHoldingPreviewSource(circleIDHash)
+
+		engine := internaldelegatedholding.NewEngine(
+			trustSource,
+			previewSource,
+			s.delegatedHoldingStore,
+			s.clk,
+		)
+		page = engine.BuildDelegatePage(circleIDHash)
+	}
+
+	if page == nil {
+		page = domaindelegatedholding.NewDefaultDelegatePage()
+	}
+
+	data := templateData{
+		Title:        "Delegate",
+		CurrentTime:  now.Format("2006-01-02 15:04"),
+		DelegatePage: page,
+	}
+
+	s.render(w, "delegate", data)
+}
+
+// handleDelegateCreate creates a new holding contract.
+// Phase 42: POST only. Creates contract and redirects to /delegate.
+func (s *Server) handleDelegateCreate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleIDHash := computeSovereignCircleHash()
+	nowBucket := now.UTC().Format("2006-01-02-15")
+
+	// Parse form
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form", http.StatusBadRequest)
+		return
+	}
+
+	// Build input from form
+	input := domaindelegatedholding.CreateContractInput{
+		CircleIDHash: circleIDHash,
+		Scope:        domaindelegatedholding.DelegationScope(r.FormValue("scope")),
+		Action:       domaindelegatedholding.DelegationAction(r.FormValue("action")),
+		Duration:     domaindelegatedholding.DelegationDuration(r.FormValue("duration")),
+		MaxHorizon:   domainexternalpressure.PressureHorizon(r.FormValue("max_horizon")),
+		MaxMagnitude: domainexternalpressure.PressureMagnitude(r.FormValue("max_magnitude")),
+		NowBucket:    nowBucket,
+	}
+
+	// Validate input
+	if err := input.Validate(); err != nil {
+		http.Error(w, "Invalid input", http.StatusBadRequest)
+		return
+	}
+
+	// Check eligibility
+	trustSource := s.buildDelegatedHoldingTrustSource(circleIDHash)
+	previewSource := s.buildDelegatedHoldingPreviewSource(circleIDHash)
+
+	engine := internaldelegatedholding.NewEngine(
+		trustSource,
+		previewSource,
+		s.delegatedHoldingStore,
+		s.clk,
+	)
+
+	inputs := engine.BuildDelegationInputs(circleIDHash)
+	decision := engine.CanCreateContract(inputs)
+
+	if !decision.Allowed {
+		// Redirect back with error (eligibility failed)
+		http.Redirect(w, r, "/delegate", http.StatusSeeOther)
+		return
+	}
+
+	// Create contract
+	contract := engine.CreateContract(input)
+	if contract == nil {
+		http.Redirect(w, r, "/delegate", http.StatusSeeOther)
+		return
+	}
+
+	// Persist contract
+	if err := engine.PersistContract(contract); err != nil {
+		http.Redirect(w, r, "/delegate", http.StatusSeeOther)
+		return
+	}
+
+	// Emit created event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase42DelegationCreated,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"circle_hash":   circleIDHash[:16],
+			"contract_hash": contract.ContractIDHash[:16],
+			"scope":         string(contract.Scope),
+			"action":        string(contract.Action),
+			"duration":      string(contract.Duration),
+		},
+	})
+
+	http.Redirect(w, r, "/delegate", http.StatusSeeOther)
+}
+
+// handleDelegateRevoke revokes an active contract.
+// Phase 42: POST only. Revokes contract and redirects to /delegate.
+func (s *Server) handleDelegateRevoke(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleIDHash := computeSovereignCircleHash()
+	nowBucket := now.UTC().Format("2006-01-02-15")
+
+	// Parse form
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form", http.StatusBadRequest)
+		return
+	}
+
+	contractIDHash := r.FormValue("contract_id_hash")
+	if contractIDHash == "" {
+		// Try to get active contract
+		if s.delegatedHoldingStore != nil {
+			active := s.delegatedHoldingStore.GetActiveContract(circleIDHash, nowBucket)
+			if active != nil {
+				contractIDHash = active.ContractIDHash
+			}
+		}
+	}
+
+	if contractIDHash == "" {
+		http.Redirect(w, r, "/delegate", http.StatusSeeOther)
+		return
+	}
+
+	// Build revoke input
+	input := domaindelegatedholding.RevokeContractInput{
+		CircleIDHash:   circleIDHash,
+		ContractIDHash: contractIDHash,
+		NowBucket:      nowBucket,
+	}
+
+	// Revoke via engine
+	trustSource := s.buildDelegatedHoldingTrustSource(circleIDHash)
+	previewSource := s.buildDelegatedHoldingPreviewSource(circleIDHash)
+
+	engine := internaldelegatedholding.NewEngine(
+		trustSource,
+		previewSource,
+		s.delegatedHoldingStore,
+		s.clk,
+	)
+
+	_ = engine.RevokeContract(input)
+
+	// Emit revoked event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase42DelegationRevoked,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"circle_hash":   circleIDHash[:16],
+			"contract_hash": contractIDHash[:16],
+		},
+	})
+
+	http.Redirect(w, r, "/delegate", http.StatusSeeOther)
+}
+
+// handleDelegateProof shows the delegation proof page.
+// Phase 42: Shows abstract contract status and hashes.
+func (s *Server) handleDelegateProof(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleIDHash := computeSovereignCircleHash()
+
+	// Emit viewed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase42DelegationProofViewed,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"circle_hash": circleIDHash[:16],
+		},
+	})
+
+	// Build proof page using engine
+	var page *domaindelegatedholding.DelegateProofPage
+	if s.delegatedHoldingEngine != nil {
+		trustSource := s.buildDelegatedHoldingTrustSource(circleIDHash)
+		previewSource := s.buildDelegatedHoldingPreviewSource(circleIDHash)
+
+		engine := internaldelegatedholding.NewEngine(
+			trustSource,
+			previewSource,
+			s.delegatedHoldingStore,
+			s.clk,
+		)
+		page = engine.BuildProofPage(circleIDHash)
+	}
+
+	if page == nil {
+		page = domaindelegatedholding.NewDefaultProofPage()
+	}
+
+	data := templateData{
+		Title:             "Delegate Proof",
+		CurrentTime:       now.Format("2006-01-02 15:04"),
+		DelegateProofPage: page,
+	}
+
+	s.render(w, "delegate-proof", data)
+}
+
+// ============================================================================
+// Phase 42 Helper Functions
+// ============================================================================
+
+// buildDelegatedHoldingTrustSource builds a TrustSource adapter.
+func (s *Server) buildDelegatedHoldingTrustSource(circleIDHash string) internaldelegatedholding.TrustSource {
+	// Check if trust baseline exists (from Phase 20)
+	// Note: TrustSummary is not per-circle currently, so we check for any trust signal
+	hasTrust := false
+	if s.trustStore != nil {
+		// Look for any trust summary (trust baseline established)
+		summaries := s.trustStore.ListSummaries()
+		hasTrust = len(summaries) > 0
+	}
+
+	return &stubTrustSource{hasTrust: hasTrust}
+}
+
+// stubTrustSource implements TrustSource for testing.
+type stubTrustSource struct {
+	hasTrust bool
+}
+
+func (s *stubTrustSource) HasTrustBaseline(circleIDHash string) bool {
+	return s.hasTrust
+}
+
+// buildDelegatedHoldingPreviewSource builds an InterruptPreviewSource adapter.
+func (s *Server) buildDelegatedHoldingPreviewSource(circleIDHash string) internaldelegatedholding.InterruptPreviewSource {
+	// Check if interrupt preview is active (from Phase 34)
+	hasPreview := false
+	if s.interruptPreviewStore != nil {
+		// Check for active preview by looking at recent acks
+		// For now, assume no active preview
+		hasPreview = false
+	}
+
+	return &stubPreviewSource{hasPreview: hasPreview}
+}
+
+// stubPreviewSource implements InterruptPreviewSource for testing.
+type stubPreviewSource struct {
+	hasPreview bool
+}
+
+func (s *stubPreviewSource) HasActivePreview(circleIDHash string) bool {
+	return s.hasPreview
+}
+
+// ============================================================================
 // Phase 30A: Identity + Replay Handlers
 // ============================================================================
 
@@ -11455,6 +11772,10 @@ const templates = `
     {{template "rehearse-content" .}}
 {{else if eq .Title "Rehearsal Proof"}}
     {{template "rehearse-proof-content" .}}
+{{else if eq .Title "Delegate"}}
+    {{template "delegate-content" .}}
+{{else if eq .Title "Delegate Proof"}}
+    {{template "delegate-proof-content" .}}
 {{else}}
     {{template "legacy-content" .}}
 {{end}}
@@ -13212,6 +13533,164 @@ const templates = `
     <h1 class="rehearse-proof-title">Rehearsal delivery</h1>
     <p class="rehearse-proof-line">No rehearsal attempted this period.</p>
     <a href="/today" class="rehearse-proof-back-link">Back</a>
+</div>
+{{end}}
+{{end}}
+
+{{/* ================================================================
+     Phase 42: Delegate Page
+     ================================================================ */}}
+{{define "delegate"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "delegate-content"}}
+{{if .DelegatePage}}
+<div class="delegate-page">
+    <header class="delegate-header">
+        <h1 class="delegate-title">{{.DelegatePage.Title}}</h1>
+        {{range .DelegatePage.Lines}}
+        <p class="delegate-line">{{.}}</p>
+        {{end}}
+    </header>
+
+    {{if .DelegatePage.HasActiveContract}}
+    <section class="delegate-active">
+        <div class="delegate-status-item">
+            <span class="delegate-label">Scope:</span>
+            <span class="delegate-value">{{.DelegatePage.ActiveContract.Scope.DisplayText}}</span>
+        </div>
+        <div class="delegate-status-item">
+            <span class="delegate-label">Action:</span>
+            <span class="delegate-value">{{.DelegatePage.ActiveContract.Action.DisplayText}}</span>
+        </div>
+        <div class="delegate-status-item">
+            <span class="delegate-label">Duration:</span>
+            <span class="delegate-value">{{.DelegatePage.ActiveContract.Duration.DisplayText}}</span>
+        </div>
+        <form method="POST" action="{{.DelegatePage.RevokePath}}" class="delegate-form">
+            <button type="submit" class="btn btn-secondary">Revoke</button>
+        </form>
+    </section>
+    {{else if .DelegatePage.CanCreate}}
+    <section class="delegate-create">
+        <form method="POST" action="{{.DelegatePage.CreatePath}}" class="delegate-form">
+            <div class="delegate-field">
+                <label for="scope">Scope:</label>
+                <select name="scope" id="scope">
+                    <option value="human">People</option>
+                    <option value="institution">Institutions</option>
+                </select>
+            </div>
+            <div class="delegate-field">
+                <label for="action">Action:</label>
+                <select name="action" id="action">
+                    <option value="hold_silently">Hold silently</option>
+                    <option value="queue_proof">Queue proof</option>
+                </select>
+            </div>
+            <div class="delegate-field">
+                <label for="duration">Duration:</label>
+                <select name="duration" id="duration">
+                    <option value="hour">One hour</option>
+                    <option value="day">One day</option>
+                    <option value="trip">Until revoked</option>
+                </select>
+            </div>
+            <div class="delegate-field">
+                <label for="max_horizon">Max horizon:</label>
+                <select name="max_horizon" id="max_horizon">
+                    <option value="soon">Soon</option>
+                    <option value="later">Later</option>
+                    <option value="unknown">Unknown</option>
+                </select>
+            </div>
+            <div class="delegate-field">
+                <label for="max_magnitude">Max magnitude:</label>
+                <select name="max_magnitude" id="max_magnitude">
+                    <option value="nothing">Nothing</option>
+                    <option value="a_few">A few</option>
+                    <option value="several">Several</option>
+                </select>
+            </div>
+            <button type="submit" class="btn btn-primary">Create agreement</button>
+        </form>
+    </section>
+    {{else}}
+    <section class="delegate-blocked">
+        <p class="delegate-blocked-reason">{{.DelegatePage.BlockedReason}}</p>
+    </section>
+    {{end}}
+
+    <footer class="delegate-footer">
+        <a href="{{.DelegatePage.ProofPath}}" class="delegate-link">View proof</a>
+        <a href="{{.DelegatePage.BackLink}}" class="delegate-back-link">Back</a>
+    </footer>
+</div>
+{{else}}
+<div class="delegate-page">
+    <h1 class="delegate-title">Held, by agreement.</h1>
+    <p class="delegate-line">No holding agreement is active.</p>
+    <a href="/today" class="delegate-back-link">Back</a>
+</div>
+{{end}}
+{{end}}
+
+{{/* ================================================================
+     Phase 42: Delegate Proof Page
+     ================================================================ */}}
+{{define "delegate-proof"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "delegate-proof-content"}}
+{{if .DelegateProofPage}}
+<div class="delegate-proof-page">
+    <header class="delegate-proof-header">
+        <h1 class="delegate-proof-title">{{.DelegateProofPage.Title}}</h1>
+        {{range .DelegateProofPage.Lines}}
+        <p class="delegate-proof-line">{{.}}</p>
+        {{end}}
+    </header>
+
+    {{if .DelegateProofPage.HasContract}}
+    <section class="delegate-proof-summary">
+        <div class="delegate-proof-item">
+            <span class="delegate-proof-label">Active:</span>
+            <span class="delegate-proof-value">{{if .DelegateProofPage.IsActive}}Yes{{else}}No{{end}}</span>
+        </div>
+        <div class="delegate-proof-item">
+            <span class="delegate-proof-label">Scope:</span>
+            <span class="delegate-proof-value">{{.DelegateProofPage.Scope.DisplayText}}</span>
+        </div>
+        <div class="delegate-proof-item">
+            <span class="delegate-proof-label">Created:</span>
+            <span class="delegate-proof-value">{{.DelegateProofPage.CreatedBucket}}</span>
+        </div>
+        {{if .DelegateProofPage.ContractHashPrefix}}
+        <div class="delegate-proof-item">
+            <span class="delegate-proof-label">Contract:</span>
+            <span class="delegate-proof-value delegate-proof-hash">{{.DelegateProofPage.ContractHashPrefix}}...</span>
+        </div>
+        {{end}}
+        {{if .DelegateProofPage.StatusHashPrefix}}
+        <div class="delegate-proof-item">
+            <span class="delegate-proof-label">Status:</span>
+            <span class="delegate-proof-value delegate-proof-hash">{{.DelegateProofPage.StatusHashPrefix}}...</span>
+        </div>
+        {{end}}
+    </section>
+    {{end}}
+
+    <footer class="delegate-proof-footer">
+        <a href="{{.DelegateProofPage.BackLink}}" class="delegate-proof-back-link">Back</a>
+    </footer>
+</div>
+{{else}}
+<div class="delegate-proof-page">
+    <h1 class="delegate-proof-title">Agreement, kept.</h1>
+    <p class="delegate-proof-line">No delegation recorded.</p>
+    <a href="/delegate" class="delegate-proof-back-link">Back</a>
 </div>
 {{end}}
 {{end}}
