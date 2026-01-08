@@ -12,6 +12,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"html/template"
@@ -26,6 +27,7 @@ import (
 	"syscall"
 	"time"
 
+	internalenvelope "quantumlife/internal/attentionenvelope"
 	calexec "quantumlife/internal/calendar/execution"
 	"quantumlife/internal/commerceingest"
 	internalcommerceobserver "quantumlife/internal/commerceobserver"
@@ -61,6 +63,7 @@ import (
 	"quantumlife/internal/loop"
 	"quantumlife/internal/mirror"
 	"quantumlife/internal/mode"
+	internalnotificationobserver "quantumlife/internal/notificationobserver"
 	"quantumlife/internal/oauth"
 	"quantumlife/internal/obligations"
 	"quantumlife/internal/persist"
@@ -83,6 +86,7 @@ import (
 	"quantumlife/internal/undoableexec"
 	"quantumlife/pkg/clock"
 	"quantumlife/pkg/domain/approvaltoken"
+	domainenvelope "quantumlife/pkg/domain/attentionenvelope"
 	domaincommerceobserver "quantumlife/pkg/domain/commerceobserver"
 	pkgconfig "quantumlife/pkg/domain/config"
 	"quantumlife/pkg/domain/connection"
@@ -131,75 +135,79 @@ type Server struct {
 	execRouter             *execrouter.Router
 	execExecutor           *execexecutor.Executor
 	multiCircleConfig      *config.MultiCircleConfig
-	identityRepo           *identity.InMemoryRepository       // Phase 13.1: Identity graph
-	interestStore          *interest.Store                    // Phase 18.1: Interest capture
-	todayEngine            *todayquietly.Engine               // Phase 18.2: Today, quietly
-	preferenceStore        *todayquietly.PreferenceStore      // Phase 18.2: Preference capture
-	heldEngine             *held.Engine                       // Phase 18.3: Held, not shown
-	heldStore              *held.SummaryStore                 // Phase 18.3: Summary store
-	surfaceEngine          *surface.Engine                    // Phase 18.4: Quiet Shift
-	surfaceStore           *surface.ActionStore               // Phase 18.4: Action store
-	proofEngine            *proof.Engine                      // Phase 18.5: Quiet Proof
-	proofAckStore          *proof.AckStore                    // Phase 18.5: Ack store
-	connectionStore        *persist.InMemoryConnectionStore   // Phase 18.6: First Connect
-	mirrorEngine           *mirror.Engine                     // Phase 18.7: Mirror Proof
-	mirrorAckStore         *mirror.AckStore                   // Phase 18.7: Mirror Ack store
-	tokenBroker            auth.TokenBroker                   // Phase 18.8: OAuth token broker
-	oauthStateManager      *oauth.StateManager                // Phase 18.8: OAuth state management
-	gmailHandler           *oauth.GmailHandler                // Phase 18.8: Gmail OAuth handler
-	syncReceiptStore       *persist.SyncReceiptStore          // Phase 19.1: Sync receipt store
-	shadowEngine           *shadowllm.Engine                  // Phase 19.2: Shadow mode engine
-	shadowReceiptStore     *persist.ShadowReceiptStore        // Phase 19.2: Shadow receipt store
-	shadowCalibrationStore *persist.ShadowCalibrationStore    // Phase 19.4: Shadow calibration store
-	shadowGateStore        *persist.ShadowGateStore           // Phase 19.5: Shadow gating store
-	rulepackStore          *persist.RulePackStore             // Phase 19.6: Rule pack store
-	trustStore             *persist.TrustStore                // Phase 20: Trust store
-	trustEngine            *trustengine.Engine                // Phase 20: Trust engine
-	modeEngine             *mode.Engine                       // Phase 21: Mode derivation engine
-	shadowviewEngine       *shadowview.Engine                 // Phase 21: Shadow receipt viewer engine
-	shadowviewAckStore     *shadowview.AckStore               // Phase 21: Shadow receipt acknowledgement store
-	quietMirrorEngine      *internalquietmirror.Engine        // Phase 22: Quiet Inbox Mirror engine
-	quietMirrorStore       *persist.QuietMirrorStore          // Phase 22: Quiet Inbox Mirror store
-	quietMirrorDismissals  *persist.QuietMirrorDismissalStore // Phase 22: Whisper dismissal store
-	invitationEngine       *internalinvitation.Engine         // Phase 23: Gentle Action Invitation engine
-	invitationStore        *persist.InvitationStore           // Phase 23: Invitation decision store
-	firstActionEngine      *internalfirstaction.Engine        // Phase 24: First Reversible Action engine
-	firstActionStore       *persist.FirstActionStore          // Phase 24: First action store
-	undoableExecEngine     *undoableexec.Engine               // Phase 25: Undoable execution engine
-	undoableExecStore      *persist.UndoableExecStore         // Phase 25: Undoable execution store
-	journeyEngine          *journey.Engine                    // Phase 26A: Guided Journey engine
-	journeyDismissalStore  *persist.JourneyDismissalStore     // Phase 26A: Journey dismissal store
-	firstMinutesEngine     *internalfirstminutes.Engine       // Phase 26B: First Minutes engine
-	firstMinutesStore      *persist.FirstMinutesStore         // Phase 26B: First Minutes store
-	realityEngine          *internalreality.Engine            // Phase 26C: Reality engine
-	realityAckStore        *persist.RealityAckStore           // Phase 26C: Reality ack store
-	shadowReceiptAckStore  *persist.ShadowReceiptAckStore     // Phase 27: Shadow Receipt ack/vote store
-	trustActionStore       *persist.TrustActionStore          // Phase 28: Trust action store
-	trustActionEngine      *trustactionengine.Engine          // Phase 28: Trust action engine
-	financeMirrorStore     *persist.FinanceMirrorStore        // Phase 29: Finance mirror store
-	financeMirrorEngine    *financemirror.Engine              // Phase 29: Finance mirror engine
-	trueLayerHandler       *oauth.TrueLayerHandler            // Phase 29: TrueLayer OAuth handler
-	trueLayerTokenStore    *persist.TrueLayerTokenStore       // Phase 31.3b: TrueLayer token store
-	trueLayerSyncService   *truelayer.SyncService             // Phase 31.3b: TrueLayer sync service
-	trueLayerClient        *truelayer.Client                  // Phase 31.3b: TrueLayer API client
-	deviceKeyStore         *persist.DeviceKeyStore            // Phase 30A: Device key store
-	circleBindingStore     *persist.CircleBindingStore        // Phase 30A: Circle binding store
-	deviceIdentityEngine   *internaldeviceidentity.Engine     // Phase 30A: Device identity engine
-	replayEngine           *internalreplay.Engine             // Phase 30A: Replay bundle engine
-	commerceObserverStore  *persist.CommerceObserverStore     // Phase 31: Commerce observer store
-	commerceObserverEngine *internalcommerceobserver.Engine   // Phase 31: Commerce observer engine
-	commerceIngestEngine   *commerceingest.Engine             // Phase 31.1: Commerce ingest engine
-	financeTxScanEngine    *financetxscan.Engine              // Phase 31.2: Finance tx scan engine
-	externalCircleStore    *persist.ExternalCircleStore       // Phase 31.4: External circle store
-	pressureMapStore       *persist.PressureMapStore          // Phase 31.4: Pressure map store
-	externalPressureEngine *internalexternalpressure.Engine   // Phase 31.4: External pressure engine
-	interruptPolicyStore   *persist.InterruptPolicyStore      // Phase 33: Interrupt policy store
-	interruptProofAckStore *persist.InterruptProofAckStore    // Phase 33: Interrupt proof ack store
-	interruptPolicyEngine  *internalinterruptpolicy.Engine    // Phase 33: Interrupt policy engine
-	interruptPreviewStore  *persist.InterruptPreviewAckStore  // Phase 34: Interrupt preview ack store
-	interruptPreviewEngine *internalinterruptpreview.Engine   // Phase 34: Interrupt preview engine
-	deviceRegStore         *persist.DeviceRegistrationStore   // Phase 37: Device registration store
-	deviceRegEngine        *internaldevicereg.Engine          // Phase 37: Device registration engine
+	identityRepo           *identity.InMemoryRepository         // Phase 13.1: Identity graph
+	interestStore          *interest.Store                      // Phase 18.1: Interest capture
+	todayEngine            *todayquietly.Engine                 // Phase 18.2: Today, quietly
+	preferenceStore        *todayquietly.PreferenceStore        // Phase 18.2: Preference capture
+	heldEngine             *held.Engine                         // Phase 18.3: Held, not shown
+	heldStore              *held.SummaryStore                   // Phase 18.3: Summary store
+	surfaceEngine          *surface.Engine                      // Phase 18.4: Quiet Shift
+	surfaceStore           *surface.ActionStore                 // Phase 18.4: Action store
+	proofEngine            *proof.Engine                        // Phase 18.5: Quiet Proof
+	proofAckStore          *proof.AckStore                      // Phase 18.5: Ack store
+	connectionStore        *persist.InMemoryConnectionStore     // Phase 18.6: First Connect
+	mirrorEngine           *mirror.Engine                       // Phase 18.7: Mirror Proof
+	mirrorAckStore         *mirror.AckStore                     // Phase 18.7: Mirror Ack store
+	tokenBroker            auth.TokenBroker                     // Phase 18.8: OAuth token broker
+	oauthStateManager      *oauth.StateManager                  // Phase 18.8: OAuth state management
+	gmailHandler           *oauth.GmailHandler                  // Phase 18.8: Gmail OAuth handler
+	syncReceiptStore       *persist.SyncReceiptStore            // Phase 19.1: Sync receipt store
+	shadowEngine           *shadowllm.Engine                    // Phase 19.2: Shadow mode engine
+	shadowReceiptStore     *persist.ShadowReceiptStore          // Phase 19.2: Shadow receipt store
+	shadowCalibrationStore *persist.ShadowCalibrationStore      // Phase 19.4: Shadow calibration store
+	shadowGateStore        *persist.ShadowGateStore             // Phase 19.5: Shadow gating store
+	rulepackStore          *persist.RulePackStore               // Phase 19.6: Rule pack store
+	trustStore             *persist.TrustStore                  // Phase 20: Trust store
+	trustEngine            *trustengine.Engine                  // Phase 20: Trust engine
+	modeEngine             *mode.Engine                         // Phase 21: Mode derivation engine
+	shadowviewEngine       *shadowview.Engine                   // Phase 21: Shadow receipt viewer engine
+	shadowviewAckStore     *shadowview.AckStore                 // Phase 21: Shadow receipt acknowledgement store
+	quietMirrorEngine      *internalquietmirror.Engine          // Phase 22: Quiet Inbox Mirror engine
+	quietMirrorStore       *persist.QuietMirrorStore            // Phase 22: Quiet Inbox Mirror store
+	quietMirrorDismissals  *persist.QuietMirrorDismissalStore   // Phase 22: Whisper dismissal store
+	invitationEngine       *internalinvitation.Engine           // Phase 23: Gentle Action Invitation engine
+	invitationStore        *persist.InvitationStore             // Phase 23: Invitation decision store
+	firstActionEngine      *internalfirstaction.Engine          // Phase 24: First Reversible Action engine
+	firstActionStore       *persist.FirstActionStore            // Phase 24: First action store
+	undoableExecEngine     *undoableexec.Engine                 // Phase 25: Undoable execution engine
+	undoableExecStore      *persist.UndoableExecStore           // Phase 25: Undoable execution store
+	journeyEngine          *journey.Engine                      // Phase 26A: Guided Journey engine
+	journeyDismissalStore  *persist.JourneyDismissalStore       // Phase 26A: Journey dismissal store
+	firstMinutesEngine     *internalfirstminutes.Engine         // Phase 26B: First Minutes engine
+	firstMinutesStore      *persist.FirstMinutesStore           // Phase 26B: First Minutes store
+	realityEngine          *internalreality.Engine              // Phase 26C: Reality engine
+	realityAckStore        *persist.RealityAckStore             // Phase 26C: Reality ack store
+	shadowReceiptAckStore  *persist.ShadowReceiptAckStore       // Phase 27: Shadow Receipt ack/vote store
+	trustActionStore       *persist.TrustActionStore            // Phase 28: Trust action store
+	trustActionEngine      *trustactionengine.Engine            // Phase 28: Trust action engine
+	financeMirrorStore     *persist.FinanceMirrorStore          // Phase 29: Finance mirror store
+	financeMirrorEngine    *financemirror.Engine                // Phase 29: Finance mirror engine
+	trueLayerHandler       *oauth.TrueLayerHandler              // Phase 29: TrueLayer OAuth handler
+	trueLayerTokenStore    *persist.TrueLayerTokenStore         // Phase 31.3b: TrueLayer token store
+	trueLayerSyncService   *truelayer.SyncService               // Phase 31.3b: TrueLayer sync service
+	trueLayerClient        *truelayer.Client                    // Phase 31.3b: TrueLayer API client
+	deviceKeyStore         *persist.DeviceKeyStore              // Phase 30A: Device key store
+	circleBindingStore     *persist.CircleBindingStore          // Phase 30A: Circle binding store
+	deviceIdentityEngine   *internaldeviceidentity.Engine       // Phase 30A: Device identity engine
+	replayEngine           *internalreplay.Engine               // Phase 30A: Replay bundle engine
+	commerceObserverStore  *persist.CommerceObserverStore       // Phase 31: Commerce observer store
+	commerceObserverEngine *internalcommerceobserver.Engine     // Phase 31: Commerce observer engine
+	commerceIngestEngine   *commerceingest.Engine               // Phase 31.1: Commerce ingest engine
+	financeTxScanEngine    *financetxscan.Engine                // Phase 31.2: Finance tx scan engine
+	externalCircleStore    *persist.ExternalCircleStore         // Phase 31.4: External circle store
+	pressureMapStore       *persist.PressureMapStore            // Phase 31.4: Pressure map store
+	externalPressureEngine *internalexternalpressure.Engine     // Phase 31.4: External pressure engine
+	interruptPolicyStore   *persist.InterruptPolicyStore        // Phase 33: Interrupt policy store
+	interruptProofAckStore *persist.InterruptProofAckStore      // Phase 33: Interrupt proof ack store
+	interruptPolicyEngine  *internalinterruptpolicy.Engine      // Phase 33: Interrupt policy engine
+	interruptPreviewStore  *persist.InterruptPreviewAckStore    // Phase 34: Interrupt preview ack store
+	interruptPreviewEngine *internalinterruptpreview.Engine     // Phase 34: Interrupt preview engine
+	deviceRegStore         *persist.DeviceRegistrationStore     // Phase 37: Device registration store
+	deviceRegEngine        *internaldevicereg.Engine            // Phase 37: Device registration engine
+	notifObserverStore     *persist.NotificationObserverStore   // Phase 38: Notification observer store
+	notifObserverEngine    *internalnotificationobserver.Engine // Phase 38: Notification observer engine
+	envelopeStore          *persist.AttentionEnvelopeStore      // Phase 39: Attention envelope store
+	envelopeEngine         *internalenvelope.Engine             // Phase 39: Attention envelope engine
 	// Phase 18 Web Control Center
 	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
 	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
@@ -704,6 +712,14 @@ func main() {
 	deviceRegStore := persist.NewDeviceRegistrationStore(persist.DefaultDeviceRegistrationStoreConfig())
 	deviceRegEngine := internaldevicereg.NewEngine()
 
+	// Phase 38: Create notification observer store and engine
+	notifObserverStore := persist.NewNotificationObserverStore(persist.DefaultNotificationObserverStoreConfig())
+	notifObserverEngine := internalnotificationobserver.NewEngine()
+
+	// Phase 39: Create attention envelope store and engine
+	envelopeStore := persist.NewAttentionEnvelopeStore(persist.DefaultAttentionEnvelopeStoreConfig())
+	envelopeEngine := internalenvelope.NewEngine()
+
 	// Phase 18 Web Control Center: Create stores
 	runStore := runlog.NewInMemoryRunStore()
 	suppressionSet := suppress.NewSuppressionSet()
@@ -785,6 +801,10 @@ func main() {
 		interruptPreviewEngine: interruptPreviewEngine,                        // Phase 34
 		deviceRegStore:         deviceRegStore,                                // Phase 37
 		deviceRegEngine:        deviceRegEngine,                               // Phase 37
+		notifObserverStore:     notifObserverStore,                            // Phase 38
+		notifObserverEngine:    notifObserverEngine,                           // Phase 38
+		envelopeStore:          envelopeStore,                                 // Phase 39
+		envelopeEngine:         envelopeEngine,                                // Phase 39
 		// Phase 18 Web Control Center
 		runStore:       runStore,
 		suppressionSet: suppressionSet,
@@ -888,6 +908,11 @@ func main() {
 	mux.HandleFunc("/devices/register", server.handleDeviceRegister)                    // Phase 37: Register device (POST)
 	mux.HandleFunc("/proof/device", server.handleDeviceProof)                           // Phase 37: Device proof page
 	mux.HandleFunc("/open", server.handleOpen)                                          // Phase 37: Deep link redirect
+	mux.HandleFunc("/observe/notification", server.handleObserveNotification)           // Phase 38: Notification metadata observer (POST)
+	mux.HandleFunc("/envelope", server.handleEnvelope)                                  // Phase 39: Attention envelope page (GET)
+	mux.HandleFunc("/envelope/start", server.handleEnvelopeStart)                       // Phase 39: Start envelope (POST)
+	mux.HandleFunc("/envelope/stop", server.handleEnvelopeStop)                         // Phase 39: Stop envelope (POST)
+	mux.HandleFunc("/proof/envelope", server.handleEnvelopeProof)                       // Phase 39: Envelope proof page (GET)
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18 Web Control Center: Core routes
@@ -8560,6 +8585,441 @@ func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
 func computeDeviceCircleHash(circleID string) string {
 	h := sha256.Sum256([]byte("device_reg:" + circleID))
 	return fmt.Sprintf("%x", h[:])
+}
+
+// ============================================================================
+// Phase 38: Mobile Notification Metadata Observer Handlers
+// ============================================================================
+// CRITICAL: Observation ONLY. No notification content. No app names. No identifiers.
+// CRITICAL: Cannot deliver, cannot interrupt, cannot make decisions.
+// CRITICAL: Feeds Phase 31.4 pressure pipeline only.
+// Reference: docs/ADR/ADR-0075-phase38-notification-metadata-observer.md
+
+// handleObserveNotification observes notification metadata and produces pressure signals.
+// Phase 38: POST /observe/notification
+//
+// Request body (JSON):
+//
+//	{
+//	  "app_class": "transport|health|institution|commerce|unknown",
+//	  "magnitude": "nothing|a_few|several",
+//	  "horizon": "now|soon|later"
+//	}
+//
+// CRITICAL: No notification content, no app names, no device identifiers.
+// CRITICAL: Magnitude and horizon are pre-bucketed BEFORE this endpoint.
+func (s *Server) handleObserveNotification(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	periodKey := now.Format("2006-01-02")
+
+	// Parse request body
+	var req struct {
+		AppClass  string `json:"app_class"`
+		Magnitude string `json:"magnitude"`
+		Horizon   string `json:"horizon"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Build input using engine (validates parameters)
+	input := s.notifObserverEngine.BuildInputFromParams(
+		req.AppClass,
+		req.Magnitude,
+		req.Horizon,
+		periodKey,
+	)
+	if input == nil {
+		// Invalid parameters - emit ignored event
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase38NotificationIgnored,
+			Timestamp: now,
+			Metadata: map[string]string{
+				"reason": "invalid_params",
+			},
+		})
+		http.Error(w, "Invalid parameters", http.StatusBadRequest)
+		return
+	}
+
+	// Observe notification metadata
+	signal := s.notifObserverEngine.ObserveNotificationMetadata(input)
+	if signal == nil {
+		// No meaningful pressure (magnitude was "nothing")
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase38NotificationIgnored,
+			Timestamp: now,
+			Metadata: map[string]string{
+				"reason":     "no_pressure",
+				"app_class":  string(input.AppClass),
+				"magnitude":  string(input.Magnitude),
+				"period_key": periodKey,
+			},
+		})
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, `{"status":"ignored","reason":"no_pressure"}`)
+		return
+	}
+
+	// Emit observed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase38NotificationObserved,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"signal_id":     signal.SignalID,
+			"app_class":     string(signal.AppClass),
+			"magnitude":     string(signal.Magnitude),
+			"horizon":       string(signal.Horizon),
+			"period_key":    signal.PeriodKey,
+			"evidence_hash": signal.EvidenceHash[:16],
+		},
+	})
+
+	// Persist signal (store handles deduplication)
+	if s.notifObserverStore != nil {
+		if err := s.notifObserverStore.AppendSignal(signal); err == nil {
+			s.eventEmitter.Emit(events.Event{
+				Type:      events.Phase38NotificationPersisted,
+				Timestamp: now,
+				Metadata: map[string]string{
+					"signal_id":   signal.SignalID,
+					"status_hash": signal.StatusHash,
+				},
+			})
+		}
+	}
+
+	// Convert to pressure pipeline input (Phase 31.4 integration)
+	// NOTE: This only creates input - it does NOT affect any decisions
+	sovereignCircleIDHash := computeSovereignCircleHash()
+	pressureInput := s.notifObserverEngine.ConvertToPressureInput(signal, sovereignCircleIDHash)
+	if pressureInput != nil {
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase38PressureInputCreated,
+			Timestamp: now,
+			Metadata: map[string]string{
+				"signal_id": signal.SignalID,
+				"category":  string(pressureInput.Category),
+				"source":    string(pressureInput.Source),
+			},
+		})
+	}
+
+	// Return success
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, `{"status":"observed","signal_id":"%s","status_hash":"%s"}`,
+		signal.SignalID, signal.StatusHash)
+}
+
+// computeSovereignCircleHash returns a hash for the sovereign circle.
+// Phase 38: Used for pressure pipeline integration.
+func computeSovereignCircleHash() string {
+	h := sha256.Sum256([]byte("sovereign_circle:default"))
+	return fmt.Sprintf("%x", h[:])
+}
+
+// ============================================================================
+// Phase 39: Attention Envelope Handlers
+// ============================================================================
+//
+// These handlers manage time-boxed attention windows that temporarily modify
+// pressure input to Phase 32 (Pressure Decision Gate).
+//
+// CRITICAL: Calm is default. No envelope = zero behavioral change.
+// CRITICAL: Commerce circles are NEVER escalated (exclusion enforced).
+// CRITICAL: Bounded effects only (max 1 step horizon, +1 magnitude, +1 cap).
+//
+// Reference: docs/ADR/ADR-0076-phase39-attention-envelopes.md
+
+// handleEnvelope shows the current envelope state.
+// Phase 39: Attention envelope management page (GET only).
+func (s *Server) handleEnvelope(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleIDHash := computeSovereignCircleHash()
+
+	// Get active envelope (if any)
+	var activeEnvelope *domainenvelope.AttentionEnvelope
+	if s.envelopeStore != nil {
+		activeEnvelope = s.envelopeStore.GetActiveEnvelope(circleIDHash, now)
+	}
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase39EnvelopePageRendered,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"has_active": boolToYesNoString(activeEnvelope != nil),
+		},
+	})
+
+	// Render HTML
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprint(w, `<!DOCTYPE html>
+<html>
+<head><title>Attention Envelope</title></head>
+<body style="font-family: system-ui; max-width: 600px; margin: 40px auto; padding: 20px;">
+<h1>Attention Envelope</h1>
+<p style="color: #666;">Time-boxed attention windows. Calm is default.</p>
+`)
+
+	if activeEnvelope != nil && s.envelopeEngine.IsActive(activeEnvelope, now) {
+		// Show active envelope
+		fmt.Fprintf(w, `
+<div style="background: #f0f9ff; padding: 20px; border-radius: 8px; margin: 20px 0;">
+  <h2 style="margin: 0 0 10px;">Active: %s</h2>
+  <p><strong>Duration:</strong> %s</p>
+  <p><strong>Reason:</strong> %s</p>
+  <p><strong>Expires:</strong> Period %s</p>
+  <form action="/envelope/stop" method="POST" style="margin-top: 20px;">
+    <button type="submit" style="padding: 10px 20px; background: #e11d48; color: white; border: none; border-radius: 4px; cursor: pointer;">Stop Early</button>
+  </form>
+</div>
+`, activeEnvelope.Kind.DisplayText(), activeEnvelope.Duration.DisplayText(), activeEnvelope.Reason.DisplayText(), activeEnvelope.ExpiresAtPeriod)
+	} else {
+		// Show form to start new envelope
+		fmt.Fprint(w, `
+<div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+  <h2>Start an Envelope</h2>
+  <form action="/envelope/start" method="POST">
+    <div style="margin-bottom: 15px;">
+      <label><strong>Kind:</strong></label><br>
+      <select name="kind" style="width: 100%; padding: 8px; margin-top: 5px;">
+        <option value="on_call">On-Call</option>
+        <option value="working">Working</option>
+        <option value="travel">Travel</option>
+        <option value="emergency">Emergency</option>
+      </select>
+    </div>
+    <div style="margin-bottom: 15px;">
+      <label><strong>Duration:</strong></label><br>
+      <select name="duration" style="width: 100%; padding: 8px; margin-top: 5px;">
+        <option value="15m">15 minutes</option>
+        <option value="1h">1 hour</option>
+        <option value="4h">4 hours</option>
+        <option value="day">Today</option>
+      </select>
+    </div>
+    <div style="margin-bottom: 15px;">
+      <label><strong>Reason:</strong></label><br>
+      <select name="reason" style="width: 100%; padding: 8px; margin-top: 5px;">
+        <option value="awaiting_important">Awaiting important communication</option>
+        <option value="deadline">Working on deadline</option>
+        <option value="travel_transit">In transit</option>
+        <option value="on_call_duty">On-call duty</option>
+        <option value="family_matter">Family matter</option>
+      </select>
+    </div>
+    <button type="submit" style="padding: 10px 20px; background: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer;">Start Envelope</button>
+  </form>
+</div>
+<p style="font-size: 0.9em; color: #666;">
+  <strong>What envelopes do:</strong><br>
+  • Temporarily heighten attention to specific circles<br>
+  • Max effect: 1 step horizon shift, +1 magnitude<br>
+  • Commerce is never escalated (by design)<br>
+  • Auto-expire at end of duration
+</p>
+`)
+	}
+
+	fmt.Fprint(w, `
+<p style="margin-top: 30px;"><a href="/proof/envelope">View envelope proof</a> | <a href="/today">Back to Today</a></p>
+</body>
+</html>
+`)
+}
+
+// handleEnvelopeStart starts a new attention envelope.
+// Phase 39: POST only. Creates time-boxed attention window.
+func (s *Server) handleEnvelopeStart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleIDHash := computeSovereignCircleHash()
+
+	// Emit request event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase39EnvelopeStartRequested,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"circle_id_hash": circleIDHash[:16],
+		},
+	})
+
+	// Parse form
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+
+	kindStr := r.FormValue("kind")
+	durationStr := r.FormValue("duration")
+	reasonStr := r.FormValue("reason")
+
+	// Convert strings to typed enums
+	kind := domainenvelope.EnvelopeKind(kindStr)
+	duration := domainenvelope.DurationBucket(durationStr)
+	reason := domainenvelope.EnvelopeReason(reasonStr)
+
+	// Build envelope using engine
+	envelope, err := s.envelopeEngine.BuildEnvelope(kind, duration, reason, circleIDHash, now)
+	if err != nil {
+		log.Printf("Phase 39: Failed to build envelope: %v", err)
+		http.Error(w, "Invalid envelope parameters", http.StatusBadRequest)
+		return
+	}
+
+	// Store envelope
+	if s.envelopeStore != nil {
+		if err := s.envelopeStore.StartEnvelope(envelope); err != nil {
+			log.Printf("Phase 39: Failed to start envelope: %v", err)
+			http.Error(w, "Failed to start envelope", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// Emit started event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase39EnvelopeStarted,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"envelope_id":    envelope.EnvelopeID,
+			"kind":           string(envelope.Kind),
+			"duration":       string(envelope.Duration),
+			"reason":         string(envelope.Reason),
+			"expires_period": envelope.ExpiresAtPeriod,
+		},
+	})
+
+	// Redirect to envelope page
+	http.Redirect(w, r, "/envelope", http.StatusSeeOther)
+}
+
+// handleEnvelopeStop stops an active attention envelope.
+// Phase 39: POST only. User can stop early (revocation).
+func (s *Server) handleEnvelopeStop(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleIDHash := computeSovereignCircleHash()
+
+	// Emit request event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase39EnvelopeStopRequested,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"circle_id_hash": circleIDHash[:16],
+		},
+	})
+
+	// Stop envelope
+	if s.envelopeStore != nil {
+		stoppedEnvelope := s.envelopeStore.StopEnvelope(circleIDHash)
+
+		if stoppedEnvelope != nil {
+			// Emit stopped event
+			s.eventEmitter.Emit(events.Event{
+				Type:      events.Phase39EnvelopeStopped,
+				Timestamp: now,
+				Metadata: map[string]string{
+					"envelope_id": stoppedEnvelope.EnvelopeID,
+					"kind":        string(stoppedEnvelope.Kind),
+					"status_hash": stoppedEnvelope.StatusHash,
+				},
+			})
+		}
+	}
+
+	// Redirect to envelope page
+	http.Redirect(w, r, "/envelope", http.StatusSeeOther)
+}
+
+// handleEnvelopeProof shows the envelope proof page.
+// Phase 39: Audit trail with receipts (hashes and buckets only).
+func (s *Server) handleEnvelopeProof(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleIDHash := computeSovereignCircleHash()
+
+	// Get receipts
+	var receipts []*domainenvelope.EnvelopeReceipt
+	if s.envelopeStore != nil {
+		receipts = s.envelopeStore.GetReceipts(circleIDHash)
+	}
+
+	// Build proof page
+	proofPage := domainenvelope.BuildEnvelopeProofPage(receipts)
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase39EnvelopeProofViewed,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"receipt_count": string(proofPage.ReceiptCountBucket),
+			"circle_hash":   circleIDHash[:16],
+		},
+	})
+
+	// Render HTML
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprint(w, `<!DOCTYPE html>
+<html>
+<head><title>Envelope Proof</title></head>
+<body style="font-family: system-ui; max-width: 600px; margin: 40px auto; padding: 20px;">
+<h1>Envelope Proof</h1>
+<p style="color: #666;">Audit trail of attention envelopes (hashes and abstract buckets only).</p>
+`)
+
+	fmt.Fprintf(w, `
+<div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 20px 0;">
+  <p><strong>Total receipts:</strong> %s</p>
+  <p><strong>Status hash:</strong> <code>%s</code></p>
+</div>
+`, proofPage.ReceiptCountBucket.DisplayText(), proofPage.StatusHash[:16]+"...")
+
+	if len(receipts) > 0 {
+		fmt.Fprint(w, `<h2>Recent Receipts</h2><ul style="list-style: none; padding: 0;">`)
+		for _, receipt := range receipts {
+			fmt.Fprintf(w, `
+<li style="background: #f0f0f0; padding: 10px; margin: 5px 0; border-radius: 4px;">
+  <strong>%s</strong> | Period: %s<br>
+  <small>Hash: <code>%s</code></small>
+</li>
+`, receipt.Action.DisplayText(), receipt.PeriodKey, receipt.EnvelopeHash[:16]+"...")
+		}
+		fmt.Fprint(w, `</ul>`)
+	} else {
+		fmt.Fprint(w, `<p style="color: #666;">No envelope receipts yet. Calm is default.</p>`)
+	}
+
+	fmt.Fprint(w, `
+<p style="margin-top: 30px;"><a href="/envelope">Manage envelopes</a> | <a href="/today">Back to Today</a></p>
+</body>
+</html>
+`)
 }
 
 // ============================================================================

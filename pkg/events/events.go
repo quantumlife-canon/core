@@ -1912,6 +1912,50 @@ const (
 	// Device cue events
 	Phase37DeviceCueComputed EventType = "phase37.device.cue.computed"
 	Phase37DeviceCueShown    EventType = "phase37.device.cue.shown"
+
+	// ═══════════════════════════════════════════════════════════════════════════════
+	// Phase 38: Mobile Notification Metadata Observer
+	// ═══════════════════════════════════════════════════════════════════════════════
+	// CRITICAL: Observation ONLY. No notification content. No app names. No identifiers.
+	// CRITICAL: Cannot deliver, cannot interrupt, cannot make decisions.
+	// CRITICAL: Feeds Phase 31.4 pressure pipeline only.
+	// Reference: docs/ADR/ADR-0075-phase38-notification-metadata-observer.md
+
+	// Notification observation events
+	Phase38NotificationObserved  EventType = "phase38.notification.observed"
+	Phase38NotificationIgnored   EventType = "phase38.notification.ignored"
+	Phase38NotificationPersisted EventType = "phase38.notification.persisted"
+
+	// Signal processing events
+	Phase38SignalMerged    EventType = "phase38.signal.merged"
+	Phase38SignalConverted EventType = "phase38.signal.converted"
+
+	// Pressure pipeline integration events
+	Phase38PressureInputCreated EventType = "phase38.pressure.input.created"
+
+	// ═══════════════════════════════════════════════════════════════════════════════
+	// Phase 39: Attention Envelopes
+	// ═══════════════════════════════════════════════════════════════════════════════
+	// CRITICAL: Time-boxed, explicit, revocable attention windows.
+	// CRITICAL: Modifies ONLY Phase 32 pressure input (horizon, magnitude).
+	// CRITICAL: Does NOT bypass Phase 33/34 permission/preview.
+	// CRITICAL: Commerce excluded - never escalated.
+	// Reference: docs/ADR/ADR-0076-phase39-attention-envelopes.md
+
+	// Envelope lifecycle events
+	Phase39EnvelopeStartRequested EventType = "phase39.envelope.start.requested"
+	Phase39EnvelopeStarted        EventType = "phase39.envelope.started"
+	Phase39EnvelopeStopRequested  EventType = "phase39.envelope.stop.requested"
+	Phase39EnvelopeStopped        EventType = "phase39.envelope.stopped"
+	Phase39EnvelopeExpired        EventType = "phase39.envelope.expired"
+
+	// Envelope application events
+	Phase39EnvelopeApplied EventType = "phase39.envelope.applied"
+	Phase39EnvelopeSkipped EventType = "phase39.envelope.skipped"
+
+	// Proof and UI events
+	Phase39EnvelopePageRendered EventType = "phase39.envelope.page.rendered"
+	Phase39EnvelopeProofViewed  EventType = "phase39.envelope.proof.viewed"
 )
 
 // Event represents a system event for audit and observability.

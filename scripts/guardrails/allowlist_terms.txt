@@ -347,3 +347,18 @@ internal/demo_phase34_interrupt_preview/*.go
 # documentation of access restrictions, NOT QuantumLife identity.
 # QuantumLife core uses "circle" for identity.
 internal/persist/sealed_secret_store.go
+
+# Phase 38: Mobile Notification Metadata Observer (ADR-0075)
+# Demo tests use "user@example.com" as test data for forbidden pattern detection.
+# This is test data to verify that email patterns are correctly rejected,
+# NOT QuantumLife identity. Store uses "user" in comment about not storing
+# lookups by user. QuantumLife core uses "circle" for identity.
+internal/demo_phase38_notification_observer/*.go
+internal/persist/notificationobserver_store.go
+
+# Phase 39: Temporal Attention Envelopes (ADR-0076)
+# Domain types use "user" in comments to describe the human's stated reason
+# (e.g., "user's stated reason") and "stopped early by user" for the stop state.
+# This is domain terminology for the human-in-the-loop envelope workflow,
+# NOT QuantumLife identity. QuantumLife core uses "circle" for identity.
+pkg/domain/attentionenvelope/*.go

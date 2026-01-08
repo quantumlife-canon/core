@@ -173,6 +173,24 @@ const (
 	// CRITICAL: No identifiers in records.
 	RecordTypeDeviceRegistration = "DEVICE_REGISTRATION"
 	RecordTypeDeviceRegAck       = "DEVICE_REG_ACK"
+
+	// Phase 38: Mobile Notification Metadata Observer record types
+	// CRITICAL: Contains ONLY abstract buckets and hashes - never notification content.
+	// CRITICAL: No app names, no device identifiers, no timestamps.
+	// CRITICAL: Max 1 signal per app class per period.
+	// CRITICAL: Observation ONLY - cannot deliver, cannot interrupt.
+	RecordTypeNotificationSignal = "NOTIFICATION_SIGNAL"
+
+	// Phase 39: Attention Envelope record types
+	// CRITICAL: Contains ONLY abstract buckets and hashes - never timestamps.
+	// CRITICAL: One active envelope per circle.
+	// CRITICAL: Envelope modifies ONLY Phase 32 pressure input.
+	// CRITICAL: Does NOT bypass Phase 33/34 permission/preview.
+	// CRITICAL: Commerce excluded - never escalated.
+	RecordTypeEnvelopeStart  = "ENVELOPE_START"
+	RecordTypeEnvelopeStop   = "ENVELOPE_STOP"
+	RecordTypeEnvelopeExpire = "ENVELOPE_EXPIRE"
+	RecordTypeEnvelopeApply  = "ENVELOPE_APPLY"
 )
 
 // Common errors

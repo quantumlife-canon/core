@@ -870,6 +870,26 @@ check-device-registration:
 	@echo "Checking Phase 37 constraints..."
 	@./scripts/guardrails/device_registration_enforced.sh
 
+# Run Phase 38 Demo: Mobile Notification Metadata Observer
+demo-phase38:
+	@echo "Running Phase 38 Demo: Mobile Notification Metadata Observer..."
+	go test -v ./internal/demo_phase38_notification_observer/...
+
+# Check Phase 38 Notification Observer constraints
+check-notification-observer:
+	@echo "Checking Phase 38 constraints..."
+	@./scripts/guardrails/notification_observer_enforced.sh
+
+# Run Phase 39 Demo: Attention Envelopes
+demo-phase39:
+	@echo "Running Phase 39 Demo: Attention Envelopes..."
+	go test -v ./internal/demo_phase39_attention_envelope/...
+
+# Check Phase 39 Attention Envelope constraints
+check-attention-envelope:
+	@echo "Checking Phase 39 constraints..."
+	@./scripts/guardrails/attention_envelope_enforced.sh
+
 # =============================================================================
 # Web Server Targets
 # =============================================================================
