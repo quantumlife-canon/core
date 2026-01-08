@@ -11451,6 +11451,10 @@ const templates = `
             {{template "app-policies-content" .}}
         </div>
     </div>
+{{else if eq .Title "Rehearsal"}}
+    {{template "rehearse-content" .}}
+{{else if eq .Title "Rehearsal Proof"}}
+    {{template "rehearse-proof-content" .}}
 {{else}}
     {{template "legacy-content" .}}
 {{end}}
@@ -13074,5 +13078,141 @@ const templates = `
     </section>
     {{end}}
 </div>
+{{end}}
+
+{{/* ================================================================
+     Phase 41: Rehearsal Page
+     ================================================================ */}}
+{{define "rehearse"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "rehearse-content"}}
+{{if .RehearsePage}}
+<div class="rehearse-page">
+    <header class="rehearse-header">
+        <h1 class="rehearse-title">{{.RehearsePage.Title}}</h1>
+        {{range .RehearsePage.Lines}}
+        <p class="rehearse-line">{{.}}</p>
+        {{end}}
+    </header>
+
+    <section class="rehearse-status">
+        <div class="rehearse-status-item">
+            <span class="rehearse-label">Device:</span>
+            <span class="rehearse-value">{{if .RehearsePage.DeviceRegistered}}Registered{{else}}Not registered{{end}}</span>
+        </div>
+        <div class="rehearse-status-item">
+            <span class="rehearse-label">Candidate:</span>
+            <span class="rehearse-value">{{if .RehearsePage.CandidateAvailable}}Available{{else}}None{{end}}</span>
+        </div>
+        {{if .RehearsePage.PolicyAllowanceLabel}}
+        <div class="rehearse-status-item">
+            <span class="rehearse-label">Policy:</span>
+            <span class="rehearse-value">{{.RehearsePage.PolicyAllowanceLabel}}</span>
+        </div>
+        {{end}}
+        {{if .RehearsePage.DailyCapLabel}}
+        <div class="rehearse-status-item">
+            <span class="rehearse-label">Cap:</span>
+            <span class="rehearse-value">{{.RehearsePage.DailyCapLabel}}</span>
+        </div>
+        {{end}}
+    </section>
+
+    {{if .RehearsePage.CanSend}}
+    <form method="POST" action="{{.RehearsePage.SendPath}}" class="rehearse-form">
+        <button type="submit" class="btn btn-primary">Send rehearsal push</button>
+    </form>
+    {{else}}
+    <section class="rehearse-blocked">
+        <p class="rehearse-blocked-reason">{{.RehearsePage.BlockedReason}}</p>
+    </section>
+    {{end}}
+
+    <footer class="rehearse-footer">
+        <a href="{{.RehearsePage.ProofPath}}" class="rehearse-link">View proof</a>
+        <a href="{{.RehearsePage.BackLink}}" class="rehearse-back-link">Back</a>
+    </footer>
+</div>
+{{else}}
+<div class="rehearse-page">
+    <h1 class="rehearse-title">Rehearsal delivery</h1>
+    <p class="rehearse-line">Test that push delivery works.</p>
+    <a href="/today" class="rehearse-back-link">Back</a>
+</div>
+{{end}}
+{{end}}
+
+{{/* ================================================================
+     Phase 41: Rehearsal Proof Page
+     ================================================================ */}}
+{{define "rehearse-proof"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "rehearse-proof-content"}}
+{{if .RehearseProofPage}}
+<div class="rehearse-proof-page">
+    <header class="rehearse-proof-header">
+        <h1 class="rehearse-proof-title">{{.RehearseProofPage.Title}}</h1>
+        {{range .RehearseProofPage.Lines}}
+        <p class="rehearse-proof-line">{{.}}</p>
+        {{end}}
+    </header>
+
+    {{if .RehearseProofPage.ReceiptSummary}}
+    <section class="rehearse-proof-summary">
+        <div class="rehearse-proof-item">
+            <span class="rehearse-proof-label">Status:</span>
+            <span class="rehearse-proof-value">{{.RehearseProofPage.ReceiptSummary.Status}}</span>
+        </div>
+        {{if .RehearseProofPage.ReceiptSummary.TransportLabel}}
+        <div class="rehearse-proof-item">
+            <span class="rehearse-proof-label">Transport:</span>
+            <span class="rehearse-proof-value">{{.RehearseProofPage.ReceiptSummary.TransportLabel}}</span>
+        </div>
+        {{end}}
+        {{if .RehearseProofPage.ReceiptSummary.RejectReasonLabel}}
+        <div class="rehearse-proof-item">
+            <span class="rehearse-proof-label">Reason:</span>
+            <span class="rehearse-proof-value">{{.RehearseProofPage.ReceiptSummary.RejectReasonLabel}}</span>
+        </div>
+        {{end}}
+        {{if .RehearseProofPage.ReceiptSummary.CandidateHashPrefix}}
+        <div class="rehearse-proof-item">
+            <span class="rehearse-proof-label">Candidate:</span>
+            <span class="rehearse-proof-value rehearse-proof-hash">{{.RehearseProofPage.ReceiptSummary.CandidateHashPrefix}}...</span>
+        </div>
+        {{end}}
+        {{if .RehearseProofPage.ReceiptSummary.AttemptHashPrefix}}
+        <div class="rehearse-proof-item">
+            <span class="rehearse-proof-label">Attempt:</span>
+            <span class="rehearse-proof-value rehearse-proof-hash">{{.RehearseProofPage.ReceiptSummary.AttemptHashPrefix}}...</span>
+        </div>
+        {{end}}
+        {{if .RehearseProofPage.ReceiptSummary.StatusHashPrefix}}
+        <div class="rehearse-proof-item">
+            <span class="rehearse-proof-label">Proof:</span>
+            <span class="rehearse-proof-value rehearse-proof-hash">{{.RehearseProofPage.ReceiptSummary.StatusHashPrefix}}...</span>
+        </div>
+        {{end}}
+    </section>
+    {{end}}
+
+    <footer class="rehearse-proof-footer">
+        <form method="POST" action="/proof/interrupts/rehearse/dismiss" class="rehearse-dismiss-form">
+            <button type="submit" class="btn btn-secondary">Dismiss</button>
+        </form>
+        <a href="{{.RehearseProofPage.BackLink}}" class="rehearse-proof-back-link">Back</a>
+    </footer>
+</div>
+{{else}}
+<div class="rehearse-proof-page">
+    <h1 class="rehearse-proof-title">Rehearsal delivery</h1>
+    <p class="rehearse-proof-line">No rehearsal attempted this period.</p>
+    <a href="/today" class="rehearse-proof-back-link">Back</a>
+</div>
+{{end}}
 {{end}}
 `
