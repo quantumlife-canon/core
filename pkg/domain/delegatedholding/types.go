@@ -1,6 +1,6 @@
 // Package delegatedholding provides domain types for Phase 42: Delegated Holding Contracts.
 //
-// Delegated Holding Contracts allow users to explicitly set time-bounded, revocable
+// Delegated Holding Contracts allow circles to explicitly set time-bounded, revocable
 // agreements that bias the system toward HOLD for specific pressure scopes.
 //
 // CRITICAL INVARIANTS:
@@ -181,7 +181,7 @@ const (
 	StateActive DelegationState = "active"
 	// StateExpired means the contract has passed its duration.
 	StateExpired DelegationState = "expired"
-	// StateRevoked means the user explicitly revoked the contract.
+	// StateRevoked means the circle explicitly revoked the contract.
 	StateRevoked DelegationState = "revoked"
 )
 
