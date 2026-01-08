@@ -850,6 +850,16 @@ check-apns-sealed:
 	@echo "Checking Phase 35b constraints..."
 	@./scripts/guardrails/apns_sealed_secret_enforced.sh
 
+# Run Phase 36 Demo: Interrupt Delivery Orchestrator
+demo-phase36:
+	@echo "Running Phase 36 Demo: Interrupt Delivery Orchestrator..."
+	go test -v ./internal/demo_phase36_interrupt_delivery/...
+
+# Check Phase 36 Interrupt Delivery constraints
+check-interrupt-delivery:
+	@echo "Checking Phase 36 constraints..."
+	@./scripts/guardrails/interrupt_delivery_enforced.sh
+
 # =============================================================================
 # Web Server Targets
 # =============================================================================

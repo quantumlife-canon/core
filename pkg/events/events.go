@@ -1863,6 +1863,31 @@ const (
 	// APNs proof events
 	Phase35bAPNsProofRequested EventType = "phase35b.apns.proof_requested"
 	Phase35bAPNsProofRendered  EventType = "phase35b.apns.proof_rendered"
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	// PHASE 36: INTERRUPT DELIVERY ORCHESTRATOR
+	// ═══════════════════════════════════════════════════════════════════════════
+	// Explicit, deterministic delivery orchestration.
+	// CRITICAL: POST-only delivery. No background execution.
+	// CRITICAL: Max 2 deliveries per day. Hash-only storage.
+	// CRITICAL: Transport-agnostic. Uses Phase 35 transport interface.
+	// ═══════════════════════════════════════════════════════════════════════════
+
+	// Delivery orchestration events
+	Phase36DeliveryRequested EventType = "phase36.delivery.requested"
+	Phase36DeliveryAttempted EventType = "phase36.delivery.attempted"
+	Phase36DeliveryCompleted EventType = "phase36.delivery.completed"
+	Phase36DeliverySkipped   EventType = "phase36.delivery.skipped"
+	Phase36DeliveryDeduped   EventType = "phase36.delivery.deduped"
+
+	// Delivery proof events
+	Phase36ProofRequested EventType = "phase36.proof.requested"
+	Phase36ProofRendered  EventType = "phase36.proof.rendered"
+	Phase36ProofDismissed EventType = "phase36.proof.dismissed"
+
+	// Delivery cue events
+	Phase36CueComputed EventType = "phase36.cue.computed"
+	Phase36CueShown    EventType = "phase36.cue.shown"
 )
 
 // Event represents a system event for audit and observability.

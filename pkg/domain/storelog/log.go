@@ -159,6 +159,13 @@ const (
 	// CRITICAL: No device identifiers in storelog records.
 	RecordTypeAPNsRegistration = "APNS_REGISTRATION"
 	RecordTypeAPNsDelivery     = "APNS_DELIVERY"
+
+	// Phase 36: Interrupt Delivery Orchestrator record types
+	// CRITICAL: Contains ONLY hashes and abstract buckets - never identifiers.
+	// CRITICAL: Hash-only deduplication. No raw content stored.
+	RecordTypeDeliveryAttempt = "DELIVERY_ATTEMPT"
+	RecordTypeDeliveryReceipt = "DELIVERY_RECEIPT"
+	RecordTypeDeliveryAck     = "DELIVERY_ACK"
 )
 
 // Common errors
