@@ -61,6 +61,7 @@ import (
 	internalrehearsal "quantumlife/internal/interruptrehearsal"
 	internaldelegatedholding "quantumlife/internal/delegatedholding"
 	internalheldproof "quantumlife/internal/heldproof"
+	internaltrusttransfer "quantumlife/internal/trusttransfer"
 	internalinvitation "quantumlife/internal/invitation"
 	"quantumlife/internal/journey"
 	"quantumlife/internal/loop"
@@ -109,6 +110,7 @@ import (
 	domainrehearsal "quantumlife/pkg/domain/interruptrehearsal"
 	domaindelegatedholding "quantumlife/pkg/domain/delegatedholding"
 	domainheldproof "quantumlife/pkg/domain/heldproof"
+	domaintrusttransfer "quantumlife/pkg/domain/trusttransfer"
 	domaininvitation "quantumlife/pkg/domain/invitation"
 	domainmirror "quantumlife/pkg/domain/mirror"
 	"quantumlife/pkg/domain/obligation"
@@ -225,6 +227,9 @@ type Server struct {
 	heldProofSignalStore   *persist.HeldProofSignalStore        // Phase 43: Held proof signal store
 	heldProofAckStore      *persist.HeldProofAckStore           // Phase 43: Held proof ack store
 	heldProofEngine        *internalheldproof.Engine            // Phase 43: Held proof engine
+	trustTransferContractStore   *persist.TrustTransferContractStore   // Phase 44: Trust transfer contract store
+	trustTransferRevocationStore *persist.TrustTransferRevocationStore // Phase 44: Trust transfer revocation store
+	trustTransferEngine          *internaltrusttransfer.Engine         // Phase 44: Trust transfer engine
 	// Phase 18 Web Control Center
 	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
 	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
@@ -356,6 +361,10 @@ type templateData struct {
 	// Phase 43: Held Under Agreement Proof Ledger
 	HeldProofPage *domainheldproof.HeldProofPage
 	HeldProofCue  *domainheldproof.HeldProofCue
+	// Phase 44: Cross-Circle Trust Transfer
+	TrustTransferStatusPage *domaintrusttransfer.TrustTransferStatusPage
+	TrustTransferProofPage  *domaintrusttransfer.TrustTransferProofPage
+	TrustTransferCue        *domaintrusttransfer.TrustTransferCue
 	// Phase 18 Web Control Center
 	RunSnapshots     []*runlog.RunSnapshot      // List of run snapshots for /runs
 	RunSnapshot      *runlog.RunSnapshot        // Single run snapshot for /runs/:id
@@ -768,6 +777,15 @@ func main() {
 		clk,
 	)
 
+	// Phase 44: Create trust transfer stores and engine
+	trustTransferContractStore := persist.NewTrustTransferContractStore(nil)
+	trustTransferRevocationStore := persist.NewTrustTransferRevocationStore(nil)
+	trustTransferEngine := internaltrusttransfer.NewEngine(
+		&trustTransferContractStoreAdapter{store: trustTransferContractStore, clk: clk},
+		&trustTransferRevocationStoreAdapter{store: trustTransferRevocationStore, clk: clk},
+		clk,
+	)
+
 	// Phase 18 Web Control Center: Create stores
 	runStore := runlog.NewInMemoryRunStore()
 	suppressionSet := suppress.NewSuppressionSet()
@@ -862,6 +880,9 @@ func main() {
 		heldProofSignalStore:   heldProofSignalStore,                          // Phase 43
 		heldProofAckStore:      heldProofAckStore,                             // Phase 43
 		heldProofEngine:        heldProofEngine,                               // Phase 43
+		trustTransferContractStore:   trustTransferContractStore,              // Phase 44
+		trustTransferRevocationStore: trustTransferRevocationStore,            // Phase 44
+		trustTransferEngine:          trustTransferEngine,                     // Phase 44
 		// Phase 18 Web Control Center
 		runStore:       runStore,
 		suppressionSet: suppressionSet,
@@ -982,6 +1003,11 @@ func main() {
 	mux.HandleFunc("/proof/delegate", server.handleDelegateProof)                           // Phase 42: Delegation proof page (GET)
 	mux.HandleFunc("/proof/held", server.handleHeldProof)                                  // Phase 43: Held proof page (GET)
 	mux.HandleFunc("/proof/held/dismiss", server.handleHeldProofDismiss)                   // Phase 43: Dismiss held proof (POST)
+	mux.HandleFunc("/delegate/transfer", server.handleTrustTransferStatus)                 // Phase 44: Trust transfer status (GET)
+	mux.HandleFunc("/delegate/transfer/propose", server.handleTrustTransferPropose)        // Phase 44: Propose transfer (POST)
+	mux.HandleFunc("/delegate/transfer/accept", server.handleTrustTransferAccept)          // Phase 44: Accept transfer (POST)
+	mux.HandleFunc("/delegate/transfer/revoke", server.handleTrustTransferRevoke)          // Phase 44: Revoke transfer (POST)
+	mux.HandleFunc("/proof/transfer", server.handleTrustTransferProof)                     // Phase 44: Trust transfer proof (GET)
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18 Web Control Center: Core routes
@@ -1553,7 +1579,7 @@ func (s *Server) handleToday(w http.ResponseWriter, r *http.Request) {
 
 	// Phase 18.5.1: Single whisper rule
 	// Show at most ONE whisper cue on /today.
-	// Priority: surface cue > proof cue > first-minutes cue > reality cue > shadow receipt primary cue > trust action cue
+	// Priority: surface cue > proof cue > first-minutes cue > reality cue > shadow receipt primary cue > trust action cue > trust transfer cue
 	// If surface is available, hide proof cue (proof accessible via /surface).
 	var displaySurfaceCue *surface.SurfaceCue
 	var displayProofCue *proof.ProofCue
@@ -1561,6 +1587,7 @@ func (s *Server) handleToday(w http.ResponseWriter, r *http.Request) {
 	var displayRealityCue *domainreality.RealityCue
 	var displayShadowReceiptPrimaryCue *domainshadowview.ShadowReceiptCue
 	var displayTrustActionCue *trustActionCueInfo
+	var displayTrustTransferCue *domaintrusttransfer.TrustTransferCue
 
 	circleID := identity.EntityID("default")
 	now := s.clk.Now()
@@ -1647,6 +1674,12 @@ func (s *Server) handleToday(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
+
+			// Phase 44: Trust Transfer cue (after trust action)
+			// Only show if no other cues are active (including trust action)
+			if displayTrustActionCue == nil {
+				displayTrustTransferCue = s.buildTrustTransferCueForToday()
+			}
 		}
 	}
 
@@ -1660,6 +1693,7 @@ func (s *Server) handleToday(w http.ResponseWriter, r *http.Request) {
 		RealityCue:              displayRealityCue,
 		ShadowReceiptPrimaryCue: displayShadowReceiptPrimaryCue,
 		TrustActionCue:          displayTrustActionCue,
+		TrustTransferCue:        displayTrustTransferCue,
 	}
 
 	s.render(w, "today", data)
@@ -10031,6 +10065,46 @@ func (a *heldProofAckStoreAdapter) HasViewed(dayKey, statusHash string) bool {
 	return a.store.HasViewed(dayKey, statusHash)
 }
 
+// ============================================================================
+// Phase 44: Trust Transfer Store Adapters
+// ============================================================================
+
+// trustTransferContractStoreAdapter adapts TrustTransferContractStore to internaltrusttransfer.ContractStore.
+type trustTransferContractStoreAdapter struct {
+	store *persist.TrustTransferContractStore
+	clk   clock.Clock
+}
+
+func (a *trustTransferContractStoreAdapter) AppendContract(contract domaintrusttransfer.TrustTransferContract) error {
+	return a.store.AppendContract(contract, a.clk.Now())
+}
+
+func (a *trustTransferContractStoreAdapter) GetActiveForFromCircle(fromCircleHash, periodKey string) *domaintrusttransfer.TrustTransferContract {
+	return a.store.GetActiveForFromCircle(fromCircleHash, periodKey)
+}
+
+func (a *trustTransferContractStoreAdapter) ListContracts() []domaintrusttransfer.TrustTransferContract {
+	return a.store.ListContracts()
+}
+
+func (a *trustTransferContractStoreAdapter) UpdateState(contractHash string, state domaintrusttransfer.TransferState) error {
+	return a.store.UpdateState(contractHash, state)
+}
+
+// trustTransferRevocationStoreAdapter adapts TrustTransferRevocationStore to internaltrusttransfer.RevocationStore.
+type trustTransferRevocationStoreAdapter struct {
+	store *persist.TrustTransferRevocationStore
+	clk   clock.Clock
+}
+
+func (a *trustTransferRevocationStoreAdapter) AppendRevocation(rev domaintrusttransfer.TrustTransferRevocation) error {
+	return a.store.AppendRevocation(rev, a.clk.Now())
+}
+
+func (a *trustTransferRevocationStoreAdapter) ListRevocations() []domaintrusttransfer.TrustTransferRevocation {
+	return a.store.ListRevocations()
+}
+
 // handleHeldProof shows the held proof page.
 // Phase 43: Shows abstract proof of items held under agreement.
 // CRITICAL: Proof-only. No decisions. No behavior changes.
@@ -10165,6 +10239,251 @@ func (s *Server) buildHeldProofCueForToday() *domainheldproof.HeldProofCue {
 	viewed := s.heldProofAckStore.HasViewed(dayKey, statusHash)
 
 	return s.heldProofEngine.BuildCue(page, dismissed, viewed)
+}
+
+// ============================================================================
+// Phase 44: Trust Transfer Handlers
+// ============================================================================
+
+// handleTrustTransferStatus shows the trust transfer status page.
+// Phase 44: Shows shared holding status. No identifiers displayed.
+func (s *Server) handleTrustTransferStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleHash := "default" // In production, from session
+
+	// Build status page
+	var page *domaintrusttransfer.TrustTransferStatusPage
+	if s.trustTransferEngine != nil {
+		page = s.trustTransferEngine.BuildStatusPage(circleHash)
+	} else {
+		page = domaintrusttransfer.NewDefaultStatusPage()
+	}
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase44TransferProposed, // Using proposed for view for now
+		Timestamp: now,
+		Metadata: map[string]string{
+			"has_active": boolToYesNoString(page.HasActiveContract),
+		},
+	})
+
+	data := templateData{
+		Title:                   "Shared Holding",
+		TrustTransferStatusPage: page,
+	}
+	s.render(w, "trust-transfer", data)
+}
+
+// handleTrustTransferPropose handles trust transfer proposal.
+// Phase 44: POST only. Creates a new transfer proposal.
+// CRITICAL: HOLD-only mode. No escalation capabilities.
+func (s *Server) handleTrustTransferPropose(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+
+	// Parse form
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form", http.StatusBadRequest)
+		return
+	}
+
+	fromCircleHash := "default" // In production, from session
+	toCircleHash := r.FormValue("to_circle")
+	scopeStr := r.FormValue("scope")
+	durationStr := r.FormValue("duration")
+	reasonStr := r.FormValue("reason")
+
+	if toCircleHash == "" {
+		http.Error(w, "Missing to_circle", http.StatusBadRequest)
+		return
+	}
+
+	// Parse scope
+	scope := domaintrusttransfer.TransferScope(scopeStr)
+	if err := scope.Validate(); err != nil {
+		scope = domaintrusttransfer.ScopeHuman // Default
+	}
+
+	// Parse duration
+	duration := domaintrusttransfer.TransferDuration(durationStr)
+	if err := duration.Validate(); err != nil {
+		duration = domaintrusttransfer.DurationHour // Default
+	}
+
+	// Parse reason
+	reason := domaintrusttransfer.ProposalReason(reasonStr)
+	if err := reason.Validate(); err != nil {
+		reason = domaintrusttransfer.ReasonUnknown // Default
+	}
+
+	// Build proposal
+	if s.trustTransferEngine != nil {
+		input := internaltrusttransfer.ProposalInput{
+			FromCircleHash: fromCircleHash,
+			ToCircleHash:   toCircleHash,
+			Scope:          scope,
+			Duration:       duration,
+			Reason:         reason,
+		}
+
+		proposal, err := s.trustTransferEngine.BuildProposal(input)
+		if err != nil {
+			log.Printf("Phase 44: Failed to build proposal: %v", err)
+			http.Redirect(w, r, "/delegate/transfer?error=failed", http.StatusSeeOther)
+			return
+		}
+
+		if proposal == nil {
+			// Contract already exists
+			http.Redirect(w, r, "/delegate/transfer?error=exists", http.StatusSeeOther)
+			return
+		}
+
+		// Accept immediately (for now, no signature verification)
+		contract, err := s.trustTransferEngine.AcceptProposal(proposal)
+		if err != nil || contract == nil {
+			log.Printf("Phase 44: Failed to accept proposal: %v", err)
+			http.Redirect(w, r, "/delegate/transfer?error=accept_failed", http.StatusSeeOther)
+			return
+		}
+
+		// Emit event
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase44TransferAccepted,
+			Timestamp: now,
+			Metadata: map[string]string{
+				"scope":       scope.CanonicalString(),
+				"duration":    duration.CanonicalString(),
+				"status_hash": contract.StatusHash[:16],
+			},
+		})
+	}
+
+	http.Redirect(w, r, "/delegate/transfer", http.StatusSeeOther)
+}
+
+// handleTrustTransferAccept handles trust transfer acceptance.
+// Phase 44: POST only. For now, proposals are accepted immediately.
+func (s *Server) handleTrustTransferAccept(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// For now, accept is handled inline with propose
+	http.Redirect(w, r, "/delegate/transfer", http.StatusSeeOther)
+}
+
+// handleTrustTransferRevoke handles trust transfer revocation.
+// Phase 44: POST only. Revokes an active transfer.
+func (s *Server) handleTrustTransferRevoke(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+
+	// Parse form
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form", http.StatusBadRequest)
+		return
+	}
+
+	fromCircleHash := "default" // In production, from session
+	contractHash := r.FormValue("contract_hash")
+	reasonStr := r.FormValue("reason")
+
+	if contractHash == "" {
+		http.Error(w, "Missing contract_hash", http.StatusBadRequest)
+		return
+	}
+
+	// Parse reason
+	reason := domaintrusttransfer.RevokeReason(reasonStr)
+	if err := reason.Validate(); err != nil {
+		reason = domaintrusttransfer.RevokeReasonUnknown // Default
+	}
+
+	// Revoke
+	if s.trustTransferEngine != nil {
+		rev, err := s.trustTransferEngine.Revoke(contractHash, fromCircleHash, reason)
+		if err != nil {
+			log.Printf("Phase 44: Failed to revoke: %v", err)
+		}
+
+		if rev != nil {
+			// Emit event
+			s.eventEmitter.Emit(events.Event{
+				Type:      events.Phase44TransferRevoked,
+				Timestamp: now,
+				Metadata: map[string]string{
+					"reason":      reason.CanonicalString(),
+					"status_hash": rev.RevocationHash[:16],
+				},
+			})
+		}
+	}
+
+	http.Redirect(w, r, "/delegate/transfer", http.StatusSeeOther)
+}
+
+// handleTrustTransferProof shows the trust transfer proof page.
+// Phase 44: Shows proof of shared holding. No identifiers displayed.
+func (s *Server) handleTrustTransferProof(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleHash := "default" // In production, from session
+
+	// Build proof page
+	var page *domaintrusttransfer.TrustTransferProofPage
+	if s.trustTransferEngine != nil {
+		contract := s.trustTransferEngine.GetActiveForFromCircle(circleHash)
+		page = s.trustTransferEngine.BuildProofPage(contract)
+	} else {
+		page = domaintrusttransfer.NewDefaultProofPage()
+	}
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase44TransferProofRendered,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"has_contract": boolToYesNoString(page.HasContract),
+			"is_active":    boolToYesNoString(page.IsActive),
+		},
+	})
+
+	data := templateData{
+		Title:                  "Shared Holding Proof",
+		TrustTransferProofPage: page,
+	}
+	s.render(w, "trust-transfer-proof", data)
+}
+
+// buildTrustTransferCueForToday builds the trust transfer cue for /today whisper chain.
+// Returns nil if no active transfer exists.
+func (s *Server) buildTrustTransferCueForToday() *domaintrusttransfer.TrustTransferCue {
+	if s.trustTransferEngine == nil {
+		return nil
+	}
+
+	circleHash := "default" // In production, from session
+	return s.trustTransferEngine.BuildCue(circleHash)
 }
 
 // ============================================================================
@@ -11655,9 +11974,25 @@ const templates = `
     </section>
     {{end}}
 
+    {{/* Phase 28: Trust Action cue */}}
+    {{if and .TrustActionCue .TrustActionCue.Available}}
+    <section class="whisper-cue trust-action-cue">
+        <p class="whisper-cue-text">{{.TrustActionCue.CueText}}</p>
+        <a href="/action/once" class="whisper-cue-link">{{.TrustActionCue.LinkText}}</a>
+    </section>
+    {{end}}
+
+    {{/* Phase 44: Trust Transfer cue (shared holding) */}}
+    {{if and .TrustTransferCue .TrustTransferCue.Available}}
+    <section class="whisper-cue trust-transfer-cue">
+        <p class="whisper-cue-text">{{.TrustTransferCue.CueText}}</p>
+        <a href="{{.TrustTransferCue.Path}}" class="whisper-cue-link">view</a>
+    </section>
+    {{end}}
+
     {{/* Phase 19.2: Shadow mode whisper link (very subtle) */}}
     {{/* Only show if no other whisper is active */}}
-    {{if and (not .SurfaceCue) (not .ProofCue) (not .FirstMinutesCue) (not .RealityCue) (not .ShadowReceiptPrimaryCue)}}
+    {{if and (not .SurfaceCue) (not .ProofCue) (not .FirstMinutesCue) (not .RealityCue) (not .ShadowReceiptPrimaryCue) (not .TrustActionCue) (not .TrustTransferCue)}}
     <section class="shadow-whisper">
         <form action="/run/shadow" method="POST" class="shadow-whisper-form">
             <button type="submit" class="shadow-whisper-link">If you wanted to, we could sanity-check this day.</button>
@@ -11976,6 +12311,10 @@ const templates = `
     {{template "delegate-proof-content" .}}
 {{else if eq .Title "Held Proof"}}
     {{template "held-proof-content" .}}
+{{else if eq .Title "Shared Holding"}}
+    {{template "trust-transfer-content" .}}
+{{else if eq .Title "Shared Holding Proof"}}
+    {{template "trust-transfer-proof-content" .}}
 {{else}}
     {{template "legacy-content" .}}
 {{end}}
@@ -13944,6 +14283,160 @@ const templates = `
     <h1 class="held-proof-title">Held, quietly.</h1>
     <p class="held-proof-line">Nothing held today.</p>
     <a href="/today" class="held-proof-back-link">Back</a>
+</div>
+{{end}}
+{{end}}
+
+{{/* ================================================================
+     Phase 44: Trust Transfer Pages
+     ================================================================ */}}
+{{define "trust-transfer"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "trust-transfer-content"}}
+{{if .TrustTransferStatusPage}}
+<div class="trust-transfer-page">
+    <header class="trust-transfer-header">
+        <h1 class="trust-transfer-title">{{.TrustTransferStatusPage.Title}}</h1>
+        {{range .TrustTransferStatusPage.Lines}}
+        <p class="trust-transfer-line">{{.}}</p>
+        {{end}}
+    </header>
+
+    {{if .TrustTransferStatusPage.HasActiveContract}}
+    <section class="trust-transfer-active">
+        <div class="trust-transfer-item">
+            <span class="trust-transfer-label">Status:</span>
+            <span class="trust-transfer-value">Active</span>
+        </div>
+        {{if .TrustTransferStatusPage.ActiveContract}}
+        <div class="trust-transfer-item">
+            <span class="trust-transfer-label">Scope:</span>
+            <span class="trust-transfer-value">{{.TrustTransferStatusPage.ActiveContract.Scope.DisplayName}}</span>
+        </div>
+        <div class="trust-transfer-item">
+            <span class="trust-transfer-label">Duration:</span>
+            <span class="trust-transfer-value">{{.TrustTransferStatusPage.ActiveContract.Duration.DisplayName}}</span>
+        </div>
+        {{end}}
+    </section>
+
+    <footer class="trust-transfer-footer">
+        <form action="/delegate/transfer/revoke" method="POST" class="trust-transfer-revoke-form">
+            <input type="hidden" name="contract_hash" value="{{.TrustTransferStatusPage.ActiveContract.ContractHash}}">
+            <select name="reason" class="trust-transfer-reason-select">
+                <option value="done">Done</option>
+                <option value="too_much">Too much</option>
+                <option value="changed_mind">Changed mind</option>
+            </select>
+            <button type="submit" class="trust-transfer-revoke-btn">End sharing</button>
+        </form>
+        <a href="/proof/transfer" class="trust-transfer-proof-link">View proof</a>
+        <a href="/delegate" class="trust-transfer-back-link">Back</a>
+    </footer>
+    {{else if .TrustTransferStatusPage.CanPropose}}
+    <section class="trust-transfer-propose">
+        <form action="/delegate/transfer/propose" method="POST" class="trust-transfer-propose-form">
+            <div class="trust-transfer-field">
+                <label class="trust-transfer-label">To circle:</label>
+                <input type="text" name="to_circle_hash" placeholder="Circle identifier" class="trust-transfer-input" required>
+            </div>
+            <div class="trust-transfer-field">
+                <label class="trust-transfer-label">Scope:</label>
+                <select name="scope" class="trust-transfer-select">
+                    <option value="human">Human circles</option>
+                    <option value="institution">Institution circles</option>
+                    <option value="all">All (except commerce)</option>
+                </select>
+            </div>
+            <div class="trust-transfer-field">
+                <label class="trust-transfer-label">Duration:</label>
+                <select name="duration" class="trust-transfer-select">
+                    <option value="hour">One hour</option>
+                    <option value="day">One day</option>
+                    <option value="trip">Until trip ends</option>
+                </select>
+            </div>
+            <div class="trust-transfer-field">
+                <label class="trust-transfer-label">Reason:</label>
+                <select name="reason" class="trust-transfer-select">
+                    <option value="travel">Travel</option>
+                    <option value="work">Work focus</option>
+                    <option value="health">Health</option>
+                    <option value="overload">Overload</option>
+                    <option value="family">Family time</option>
+                </select>
+            </div>
+            <button type="submit" class="trust-transfer-propose-btn">Propose sharing</button>
+        </form>
+    </section>
+
+    <footer class="trust-transfer-footer">
+        <a href="/delegate" class="trust-transfer-back-link">Back</a>
+    </footer>
+    {{else}}
+    <section class="trust-transfer-blocked">
+        <p class="trust-transfer-blocked-reason">{{.TrustTransferStatusPage.BlockedReason}}</p>
+    </section>
+    <footer class="trust-transfer-footer">
+        <a href="/delegate" class="trust-transfer-back-link">Back</a>
+    </footer>
+    {{end}}
+</div>
+{{else}}
+<div class="trust-transfer-page">
+    <h1 class="trust-transfer-title">Shared holding</h1>
+    <p class="trust-transfer-line">Allow another circle to hold for you.</p>
+    <a href="/delegate" class="trust-transfer-back-link">Back</a>
+</div>
+{{end}}
+{{end}}
+
+{{define "trust-transfer-proof"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "trust-transfer-proof-content"}}
+{{if .TrustTransferProofPage}}
+<div class="trust-transfer-proof-page">
+    <header class="trust-transfer-proof-header">
+        <h1 class="trust-transfer-proof-title">{{.TrustTransferProofPage.Title}}</h1>
+        {{range .TrustTransferProofPage.Lines}}
+        <p class="trust-transfer-proof-line">{{.}}</p>
+        {{end}}
+    </header>
+
+    {{if .TrustTransferProofPage.Chips}}
+    <section class="trust-transfer-proof-chips">
+        {{range .TrustTransferProofPage.Chips}}
+        <span class="trust-transfer-proof-chip">{{.}}</span>
+        {{end}}
+    </section>
+    {{end}}
+
+    <section class="trust-transfer-proof-summary">
+        <div class="trust-transfer-proof-item">
+            <span class="trust-transfer-proof-label">State:</span>
+            <span class="trust-transfer-proof-value">{{.TrustTransferProofPage.StateLabel}}</span>
+        </div>
+        {{if .TrustTransferProofPage.StatusHash}}
+        <div class="trust-transfer-proof-item">
+            <span class="trust-transfer-proof-label">Proof:</span>
+            <span class="trust-transfer-proof-value trust-transfer-proof-hash">{{slice .TrustTransferProofPage.StatusHash 0 16}}...</span>
+        </div>
+        {{end}}
+    </section>
+
+    <footer class="trust-transfer-proof-footer">
+        <a href="/delegate/transfer" class="trust-transfer-proof-back-link">Back</a>
+    </footer>
+</div>
+{{else}}
+<div class="trust-transfer-proof-page">
+    <h1 class="trust-transfer-proof-title">Shared holding</h1>
+    <p class="trust-transfer-proof-line">No transfer active.</p>
+    <a href="/delegate/transfer" class="trust-transfer-proof-back-link">Back</a>
 </div>
 {{end}}
 {{end}}

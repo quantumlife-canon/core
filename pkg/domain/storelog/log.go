@@ -224,6 +224,15 @@ const (
 	// CRITICAL: Bounded retention: 30 days OR 500/200 records max.
 	RecordTypeHeldProofSignal = "HELD_PROOF_SIGNAL"
 	RecordTypeHeldProofAck    = "HELD_PROOF_ACK"
+
+	// Phase 44: Cross-Circle Trust Transfer (HOLD-only) record types
+	// CRITICAL: Contains ONLY abstract buckets and hashes - never identifiers.
+	// CRITICAL: HOLD-only outcomes. NEVER SURFACE, INTERRUPT_CANDIDATE, DELIVER, EXECUTE.
+	// CRITICAL: Commerce excluded - never escalated, even under scope_all.
+	// CRITICAL: One active contract per FromCircle per period.
+	// CRITICAL: Bounded retention: 30 days OR 200 records max.
+	RecordTypeTrustTransferContract   = "TRUST_TRANSFER_CONTRACT"
+	RecordTypeTrustTransferRevocation = "TRUST_TRANSFER_REVOCATION"
 )
 
 // Common errors

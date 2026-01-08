@@ -7,7 +7,7 @@
 #
 # Guardrails enforce Canon invariants at build time.
 
-.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 demo-phase9 demo-phase10 demo-phase11 demo-phase12 demo-phase13 demo-phase13-1 demo-phase14 demo-phase15 demo-phase16 demo-phase18 demo-phase18-2 demo-phase18-3 demo-phase18-4 demo-phase18-5 demo-phase18-6 demo-phase18-9 demo-phase19-shadow demo-phase19-1 demo-phase19-4 demo-phase19-real-keys-smoke demo-phase20 demo-phase26A demo-phase26B demo-phase26C demo-phase29 demo-phase31-4 demo-phase42 demo-phase43 web web-mock web-demo web-app web-stop web-status run-real-shadow check-real-shadow-config check-today-quietly check-held check-quiet-shift check-proof check-connection-onboarding check-shadow-mode check-shadow-diff check-real-gmail-quiet check-trust-accrual check-journey check-first-minutes check-reality-check check-truelayer-finance-mirror check-external-pressure check-delegated-holding check-held-proof ios-open ios-build ios-test ios-clean
+.PHONY: all build test fmt lint vet guardrails ci clean help ingest-once demo-phase2 demo-phase3 demo-phase4 demo-phase5 demo-phase6 demo-phase7 demo-phase8 demo-phase9 demo-phase10 demo-phase11 demo-phase12 demo-phase13 demo-phase13-1 demo-phase14 demo-phase15 demo-phase16 demo-phase18 demo-phase18-2 demo-phase18-3 demo-phase18-4 demo-phase18-5 demo-phase18-6 demo-phase18-9 demo-phase19-shadow demo-phase19-1 demo-phase19-4 demo-phase19-real-keys-smoke demo-phase20 demo-phase26A demo-phase26B demo-phase26C demo-phase29 demo-phase31-4 demo-phase42 demo-phase43 demo-phase44 web web-mock web-demo web-app web-stop web-status run-real-shadow check-real-shadow-config check-today-quietly check-held check-quiet-shift check-proof check-connection-onboarding check-shadow-mode check-shadow-diff check-real-gmail-quiet check-trust-accrual check-journey check-first-minutes check-reality-check check-truelayer-finance-mirror check-external-pressure check-delegated-holding check-held-proof check-trust-transfer ios-open ios-build ios-test ios-clean
 
 # Default target
 all: ci
@@ -82,6 +82,7 @@ help:
 	@echo "  make demo-phase31-4 - Run Phase 31.4 external pressure circles demo"
 	@echo "  make demo-phase42 - Run Phase 42 delegated holding contracts demo"
 	@echo "  make demo-phase43 - Run Phase 43 held under agreement proof ledger demo"
+	@echo "  make demo-phase44 - Run Phase 44 cross-circle trust transfer (HOLD-only) demo"
 	@echo ""
 	@echo "Web Server:"
 	@echo "  make web          - Run web server on :8080 (real mode)"
@@ -140,6 +141,7 @@ help:
 	@echo "  make check-external-pressure - Check external pressure constraints (Phase 31.4)"
 	@echo "  make check-delegated-holding - Check delegated holding constraints (Phase 42)"
 	@echo "  make check-held-proof - Check held proof constraints (Phase 43)"
+	@echo "  make check-trust-transfer - Check trust transfer constraints (Phase 44)"
 	@echo ""
 	@echo "iOS (Phase 19):"
 	@echo "  make ios-open   - Open iOS project in Xcode (macOS only)"
@@ -934,6 +936,17 @@ demo-phase43:
 check-held-proof:
 	@echo "Checking Phase 43 constraints..."
 	@./scripts/guardrails/held_proof_enforced.sh
+
+# Run Phase 44 Demo: Cross-Circle Trust Transfer (HOLD-only)
+# Reference: docs/ADR/ADR-0081-phase44-cross-circle-trust-transfer-hold-only.md
+demo-phase44:
+	@echo "Running Phase 44 Demo: Cross-Circle Trust Transfer (HOLD-only)..."
+	go test -v ./internal/demo_phase44_trust_transfer/...
+
+# Check Phase 44 Trust Transfer constraints
+check-trust-transfer:
+	@echo "Checking Phase 44 constraints..."
+	@./scripts/guardrails/trust_transfer_enforced.sh
 
 # =============================================================================
 # Web Server Targets

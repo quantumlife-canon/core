@@ -2007,6 +2007,16 @@ const (
 	Phase43HeldProofCueComputed     EventType = "phase43.held_proof.cue.computed"
 	Phase43HeldProofAckViewed       EventType = "phase43.held_proof.ack.viewed"
 	Phase43HeldProofAckDismissed    EventType = "phase43.held_proof.ack.dismissed"
+
+	// Phase 44: Cross-Circle Trust Transfer (HOLD-only) events
+	// CRITICAL: Payloads are bucket-only: scope, duration, active bool, status_hash.
+	// CRITICAL: No identifiers in payloads.
+	// CRITICAL: HOLD-only outcomes. Never SURFACE, INTERRUPT_CANDIDATE, DELIVER, EXECUTE.
+	Phase44TransferProposed     EventType = "phase44.transfer.proposed"
+	Phase44TransferAccepted     EventType = "phase44.transfer.accepted"
+	Phase44TransferRevoked      EventType = "phase44.transfer.revoked"
+	Phase44TransferEffectApplied EventType = "phase44.transfer.effect_applied"
+	Phase44TransferProofRendered EventType = "phase44.transfer.proof.rendered"
 )
 
 // Event represents a system event for audit and observability.
