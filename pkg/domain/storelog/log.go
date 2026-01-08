@@ -199,6 +199,15 @@ const (
 	// CRITICAL: Observation ONLY - cannot deliver, cannot interrupt.
 	RecordTypeTimeWindowSignal = "TIME_WINDOW_SIGNAL"
 	RecordTypeTimeWindowResult = "TIME_WINDOW_RESULT"
+
+	// Phase 41: Live Interrupt Loop (APNs) record types
+	// CRITICAL: Contains ONLY abstract buckets and hashes - never identifiers.
+	// CRITICAL: POST-triggered only. No background execution.
+	// CRITICAL: Abstract payload only. No names, merchants, amounts.
+	// CRITICAL: Device token secrecy: raw token only in sealed boundary.
+	// CRITICAL: Delivery cap: max 2/day per circle.
+	RecordTypeInterruptRehearsalReceipt = "INTERRUPT_REHEARSAL_RECEIPT"
+	RecordTypeInterruptRehearsalAck     = "INTERRUPT_REHEARSAL_ACK"
 )
 
 // Common errors

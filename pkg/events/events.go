@@ -1969,8 +1969,25 @@ const (
 	Phase40WindowsPersisted      EventType = "phase40.windows.persisted"
 
 	// Proof and UI events
-	Phase40WindowsViewed      EventType = "phase40.windows.viewed"
+	Phase40WindowsViewed       EventType = "phase40.windows.viewed"
 	Phase40WindowsCueDismissed EventType = "phase40.windows.cue_dismissed"
+
+	// Phase 41: Live Interrupt Loop (APNs)
+	// CRITICAL: POST-triggered only. No background execution.
+	// CRITICAL: Abstract payload only. No identifiers.
+	// CRITICAL: Delivery cap: max 2/day per circle.
+	// CRITICAL: Device token secrecy: raw token only in sealed boundary.
+	// Reference: docs/ADR/ADR-0078-phase41-live-interrupt-loop-apns.md
+
+	// Rehearsal lifecycle events
+	Phase41RehearsalRequested           EventType = "phase41.rehearsal.requested"
+	Phase41RehearsalEligibilityComputed EventType = "phase41.rehearsal.eligibility_computed"
+	Phase41RehearsalRejected            EventType = "phase41.rehearsal.rejected"
+	Phase41RehearsalPlanBuilt           EventType = "phase41.rehearsal.plan_built"
+	Phase41RehearsalDeliveryAttempted   EventType = "phase41.rehearsal.delivery_attempted"
+	Phase41RehearsalDeliveryCompleted   EventType = "phase41.rehearsal.delivery_completed"
+	Phase41RehearsalReceiptPersisted    EventType = "phase41.rehearsal.receipt_persisted"
+	Phase41RehearsalProofViewed         EventType = "phase41.rehearsal.proof_viewed"
 )
 
 // Event represents a system event for audit and observability.

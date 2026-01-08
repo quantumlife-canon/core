@@ -28,7 +28,6 @@ import (
 	"time"
 
 	internalenvelope "quantumlife/internal/attentionenvelope"
-	internaltimewindow "quantumlife/internal/timewindow"
 	calexec "quantumlife/internal/calendar/execution"
 	"quantumlife/internal/commerceingest"
 	internalcommerceobserver "quantumlife/internal/commerceobserver"
@@ -59,6 +58,7 @@ import (
 	"quantumlife/internal/interruptions"
 	internalinterruptpolicy "quantumlife/internal/interruptpolicy"
 	internalinterruptpreview "quantumlife/internal/interruptpreview"
+	internalrehearsal "quantumlife/internal/interruptrehearsal"
 	internalinvitation "quantumlife/internal/invitation"
 	"quantumlife/internal/journey"
 	"quantumlife/internal/loop"
@@ -81,6 +81,7 @@ import (
 	"quantumlife/internal/shadowllm/stub"
 	"quantumlife/internal/shadowview"
 	"quantumlife/internal/surface"
+	internaltimewindow "quantumlife/internal/timewindow"
 	"quantumlife/internal/todayquietly"
 	trustengine "quantumlife/internal/trust"
 	trustactionengine "quantumlife/internal/trustaction"
@@ -103,6 +104,7 @@ import (
 	"quantumlife/pkg/domain/identity"
 	interruptpolicy "quantumlife/pkg/domain/interruptpolicy"
 	interruptpreview "quantumlife/pkg/domain/interruptpreview"
+	domainrehearsal "quantumlife/pkg/domain/interruptrehearsal"
 	domaininvitation "quantumlife/pkg/domain/invitation"
 	domainmirror "quantumlife/pkg/domain/mirror"
 	"quantumlife/pkg/domain/obligation"
@@ -212,6 +214,8 @@ type Server struct {
 	envelopeEngine         *internalenvelope.Engine             // Phase 39: Attention envelope engine
 	timeWindowStore        *persist.TimeWindowStore             // Phase 40: Time window store
 	timeWindowEngine       *internaltimewindow.Engine           // Phase 40: Time window engine
+	rehearsalStore         *persist.InterruptRehearsalStore     // Phase 41: Interrupt rehearsal store
+	rehearsalEngine        *internalrehearsal.Engine            // Phase 41: Interrupt rehearsal engine
 	// Phase 18 Web Control Center
 	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
 	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
@@ -335,6 +339,9 @@ type templateData struct {
 	// Phase 37: Device Registration + Deep-Link
 	DeviceRegistration          *deviceRegistrationPageData
 	DeviceRegistrationProofPage *devicereg.DeviceRegistrationProofPage
+	// Phase 41: Live Interrupt Loop (APNs)
+	RehearsePage      *domainrehearsal.RehearsePage
+	RehearseProofPage *domainrehearsal.RehearsalProofPage
 	// Phase 18 Web Control Center
 	RunSnapshots     []*runlog.RunSnapshot      // List of run snapshots for /runs
 	RunSnapshot      *runlog.RunSnapshot        // Single run snapshot for /runs/:id
@@ -728,6 +735,11 @@ func main() {
 	timeWindowStore := persist.NewTimeWindowStore(persist.DefaultTimeWindowStoreConfig())
 	timeWindowEngine := internaltimewindow.NewEngine()
 
+	// Phase 41: Create interrupt rehearsal store and engine
+	// NOTE: Engine dependencies are provided via adapters in handlers
+	rehearsalStore := persist.NewInterruptRehearsalStore(nil)
+	rehearsalEngine := internalrehearsal.NewEngine(nil, nil, nil, rehearsalStore, nil, nil)
+
 	// Phase 18 Web Control Center: Create stores
 	runStore := runlog.NewInMemoryRunStore()
 	suppressionSet := suppress.NewSuppressionSet()
@@ -815,6 +827,8 @@ func main() {
 		envelopeEngine:         envelopeEngine,                                // Phase 39
 		timeWindowStore:        timeWindowStore,                               // Phase 40
 		timeWindowEngine:       timeWindowEngine,                              // Phase 40
+		rehearsalStore:         rehearsalStore,                                // Phase 41
+		rehearsalEngine:        rehearsalEngine,                               // Phase 41
 		// Phase 18 Web Control Center
 		runStore:       runStore,
 		suppressionSet: suppressionSet,
@@ -829,102 +843,106 @@ func main() {
 
 	// Phase 18: Public routes
 	mux.HandleFunc("/", server.handleLanding)
-	mux.HandleFunc("/interest", server.handleInterest)                                  // Phase 18.1: Interest capture
-	mux.HandleFunc("/today", server.handleToday)                                        // Phase 18.2: Today, quietly
-	mux.HandleFunc("/today/preference", server.handlePreference)                        // Phase 18.2: Preference capture
-	mux.HandleFunc("/held", server.handleHeld)                                          // Phase 18.3: Held, not shown
-	mux.HandleFunc("/surface", server.handleSurface)                                    // Phase 18.4: Quiet Shift
-	mux.HandleFunc("/surface/hold", server.handleSurfaceHold)                           // Phase 18.4: Hold action
-	mux.HandleFunc("/surface/why", server.handleSurfaceWhy)                             // Phase 18.4: Why action
-	mux.HandleFunc("/surface/prefer", server.handleSurfacePrefer)                       // Phase 18.4: Prefer show_all
-	mux.HandleFunc("/proof", server.handleProof)                                        // Phase 18.5: Quiet Proof
-	mux.HandleFunc("/proof/dismiss", server.handleProofDismiss)                         // Phase 18.5: Dismiss proof
-	mux.HandleFunc("/start", server.handleStart)                                        // Phase 18.6: First Connect
-	mux.HandleFunc("/connections", server.handleConnections)                            // Phase 18.6: Connections
-	mux.HandleFunc("/connect/", server.handleConnect)                                   // Phase 18.6: Connect action
-	mux.HandleFunc("/disconnect/", server.handleDisconnect)                             // Phase 18.6: Disconnect action
-	mux.HandleFunc("/mirror", server.handleMirror)                                      // Phase 18.7: Mirror Proof
-	mux.HandleFunc("/connect/gmail", server.handleGmailConsent)                         // Phase 18.9: Gmail consent page
-	mux.HandleFunc("/connect/gmail/start", server.handleGmailOAuthStart)                // Phase 18.8: Gmail OAuth start
-	mux.HandleFunc("/connect/gmail/callback", server.handleGmailOAuthCallback)          // Phase 18.8: Gmail OAuth callback
-	mux.HandleFunc("/disconnect/gmail", server.handleGmailDisconnect)                   // Phase 18.8: Gmail disconnect
-	mux.HandleFunc("/run/gmail-sync", server.handleGmailSync)                           // Phase 18.8: Gmail sync
-	mux.HandleFunc("/quiet-check", server.handleQuietCheck)                             // Phase 19.1: Quiet baseline verification
-	mux.HandleFunc("/run/shadow", server.handleShadowRun)                               // Phase 19.2: Shadow mode run
-	mux.HandleFunc("/run/shadow-diff", server.handleShadowDiff)                         // Phase 19.4: Compute shadow diffs
-	mux.HandleFunc("/shadow/report", server.handleShadowReport)                         // Phase 19.4: Shadow calibration report
-	mux.HandleFunc("/shadow/vote", server.handleShadowVote)                             // Phase 19.4: Shadow calibration vote
-	mux.HandleFunc("/shadow/candidates", server.handleShadowCandidates)                 // Phase 19.5: Shadow candidates
-	mux.HandleFunc("/shadow/candidates/refresh", server.handleShadowCandidatesRefresh)  // Phase 19.5: Refresh candidates
-	mux.HandleFunc("/shadow/candidates/propose", server.handleShadowCandidatesPropose)  // Phase 19.5: Propose promotion
-	mux.HandleFunc("/shadow/packs", server.handleRulePackList)                          // Phase 19.6: List packs
-	mux.HandleFunc("/shadow/packs/", server.handleRulePackDetail)                       // Phase 19.6: Pack detail
-	mux.HandleFunc("/shadow/packs/build", server.handleRulePackBuild)                   // Phase 19.6: Build pack
-	mux.HandleFunc("/shadow/health", server.handleShadowHealth)                         // Phase 19.3b: Shadow health
-	mux.HandleFunc("/shadow/health/run", server.handleShadowHealthRun)                  // Phase 19.3b: Shadow health run
-	mux.HandleFunc("/trust", server.handleTrust)                                        // Phase 20: Trust accrual
-	mux.HandleFunc("/trust/dismiss", server.handleTrustDismiss)                         // Phase 20: Dismiss trust cue
-	mux.HandleFunc("/onboarding", server.handleOnboarding)                              // Phase 21: Unified onboarding
-	mux.HandleFunc("/shadow/receipt", server.handleShadowReceipt)                       // Phase 21/27: Shadow receipt viewer
-	mux.HandleFunc("/shadow/receipt/dismiss", server.handleShadowReceiptDismiss)        // Phase 21/27: Dismiss receipt cue
-	mux.HandleFunc("/shadow/receipt/vote", server.handleShadowReceiptVote)              // Phase 27: Vote on restraint
-	mux.HandleFunc("/mirror/inbox", server.handleQuietInboxMirror)                      // Phase 22: Quiet Inbox Mirror
-	mux.HandleFunc("/mirror/inbox/dismiss", server.handleQuietMirrorDismiss)            // Phase 22: Dismiss whisper cue
-	mux.HandleFunc("/invite", server.handleInvitation)                                  // Phase 23: Gentle Action Invitation
-	mux.HandleFunc("/invite/accept", server.handleInvitationAccept)                     // Phase 23: Accept invitation
-	mux.HandleFunc("/invite/dismiss", server.handleInvitationDismiss)                   // Phase 23: Dismiss invitation
-	mux.HandleFunc("/action/once", server.handleFirstAction)                            // Phase 24: First Reversible Action
-	mux.HandleFunc("/action/once/run", server.handleFirstActionRun)                     // Phase 24: Execute preview
-	mux.HandleFunc("/action/once/dismiss", server.handleFirstActionDismiss)             // Phase 24: Dismiss invitation
-	mux.HandleFunc("/action/undoable", server.handleUndoable)                           // Phase 25: Undoable execution
-	mux.HandleFunc("/action/undoable/run", server.handleUndoableRun)                    // Phase 25: Run undoable
-	mux.HandleFunc("/action/undoable/done", server.handleUndoableDone)                  // Phase 25: Done page
-	mux.HandleFunc("/action/undoable/undo", server.handleUndoableUndo)                  // Phase 25: Undo page
-	mux.HandleFunc("/action/undoable/undo/run", server.handleUndoableUndoRun)           // Phase 25: Execute undo
-	mux.HandleFunc("/action/undoable/dismiss", server.handleUndoableDismiss)            // Phase 25: Dismiss
-	mux.HandleFunc("/journey", server.handleJourney)                                    // Phase 26A: Guided Journey
-	mux.HandleFunc("/journey/next", server.handleJourneyNext)                           // Phase 26A: Journey next step
-	mux.HandleFunc("/journey/dismiss", server.handleJourneyDismiss)                     // Phase 26A: Dismiss journey
-	mux.HandleFunc("/first-minutes", server.handleFirstMinutes)                         // Phase 26B: First Minutes receipt
-	mux.HandleFunc("/first-minutes/dismiss", server.handleFirstMinutesDismiss)          // Phase 26B: Dismiss receipt
-	mux.HandleFunc("/reality", server.handleReality)                                    // Phase 26C: Reality check
-	mux.HandleFunc("/reality/ack", server.handleRealityAck)                             // Phase 26C: Acknowledge reality
-	mux.HandleFunc("/trust/action", server.handleTrustAction)                           // Phase 28: Trust action preview
-	mux.HandleFunc("/trust/action/execute", server.handleTrustActionExecute)            // Phase 28: Execute trust action
-	mux.HandleFunc("/trust/action/undo", server.handleTrustActionUndo)                  // Phase 28: Undo trust action
-	mux.HandleFunc("/trust/action/receipt", server.handleTrustActionReceipt)            // Phase 28: Trust action receipt
-	mux.HandleFunc("/trust/action/dismiss", server.handleTrustActionDismiss)            // Phase 28: Dismiss trust action
-	mux.HandleFunc("/connect/truelayer/start", server.handleTrueLayerOAuthStart)        // Phase 29: TrueLayer OAuth start
-	mux.HandleFunc("/connect/truelayer/callback", server.handleTrueLayerOAuthCallback)  // Phase 29: TrueLayer OAuth callback
-	mux.HandleFunc("/disconnect/truelayer", server.handleTrueLayerDisconnect)           // Phase 29: TrueLayer disconnect
-	mux.HandleFunc("/run/truelayer-sync", server.handleTrueLayerSync)                   // Phase 29: TrueLayer sync
-	mux.HandleFunc("/mirror/finance", server.handleFinanceMirror)                       // Phase 29: Finance mirror page
-	mux.HandleFunc("/mirror/finance/ack", server.handleFinanceMirrorAck)                // Phase 29: Finance mirror ack
-	mux.HandleFunc("/identity", server.handleIdentity)                                  // Phase 30A: Device identity page
-	mux.HandleFunc("/identity/bind", server.handleIdentityBind)                         // Phase 30A: Bind device to circle
-	mux.HandleFunc("/replay/export", server.handleReplayExport)                         // Phase 30A: Export replay bundle
-	mux.HandleFunc("/replay/import", server.handleReplayImport)                         // Phase 30A: Import replay bundle
-	mux.HandleFunc("/mirror/commerce", server.handleCommerceMirror)                     // Phase 31: Commerce mirror page
-	mux.HandleFunc("/reality/pressure", server.handlePressureProof)                     // Phase 31.4: Pressure proof page
-	mux.HandleFunc("/settings/interrupts", server.handleInterruptSettings)              // Phase 33: Interrupt policy settings
-	mux.HandleFunc("/settings/interrupts/save", server.handleInterruptSettingsSave)     // Phase 33: Save interrupt policy
-	mux.HandleFunc("/proof/interrupts", server.handleInterruptProof)                    // Phase 33: Interrupt proof page
-	mux.HandleFunc("/proof/interrupts/dismiss", server.handleInterruptProofDismiss)     // Phase 33: Dismiss interrupt proof
-	mux.HandleFunc("/interrupts/preview", server.handleInterruptPreview)                // Phase 34: Interrupt preview page
-	mux.HandleFunc("/interrupts/preview/dismiss", server.handleInterruptPreviewDismiss) // Phase 34: Dismiss preview
-	mux.HandleFunc("/interrupts/preview/hold", server.handleInterruptPreviewHold)       // Phase 34: Hold preview
-	mux.HandleFunc("/proof/interrupts/preview", server.handleInterruptPreviewProof)     // Phase 34: Preview proof page
-	mux.HandleFunc("/devices", server.handleDevices)                                    // Phase 37: Device registration page
-	mux.HandleFunc("/devices/register", server.handleDeviceRegister)                    // Phase 37: Register device (POST)
-	mux.HandleFunc("/proof/device", server.handleDeviceProof)                           // Phase 37: Device proof page
-	mux.HandleFunc("/open", server.handleOpen)                                          // Phase 37: Deep link redirect
-	mux.HandleFunc("/observe/notification", server.handleObserveNotification)           // Phase 38: Notification metadata observer (POST)
-	mux.HandleFunc("/envelope", server.handleEnvelope)                                  // Phase 39: Attention envelope page (GET)
-	mux.HandleFunc("/envelope/start", server.handleEnvelopeStart)                       // Phase 39: Start envelope (POST)
-	mux.HandleFunc("/envelope/stop", server.handleEnvelopeStop)                         // Phase 39: Stop envelope (POST)
-	mux.HandleFunc("/proof/envelope", server.handleEnvelopeProof)                       // Phase 39: Envelope proof page (GET)
-	mux.HandleFunc("/reality/windows", server.handleTimeWindows)                        // Phase 40: Time windows page (GET)
-	mux.HandleFunc("/reality/windows/run", server.handleTimeWindowsRun)                 // Phase 40: Run time windows build (POST)
+	mux.HandleFunc("/interest", server.handleInterest)                                      // Phase 18.1: Interest capture
+	mux.HandleFunc("/today", server.handleToday)                                            // Phase 18.2: Today, quietly
+	mux.HandleFunc("/today/preference", server.handlePreference)                            // Phase 18.2: Preference capture
+	mux.HandleFunc("/held", server.handleHeld)                                              // Phase 18.3: Held, not shown
+	mux.HandleFunc("/surface", server.handleSurface)                                        // Phase 18.4: Quiet Shift
+	mux.HandleFunc("/surface/hold", server.handleSurfaceHold)                               // Phase 18.4: Hold action
+	mux.HandleFunc("/surface/why", server.handleSurfaceWhy)                                 // Phase 18.4: Why action
+	mux.HandleFunc("/surface/prefer", server.handleSurfacePrefer)                           // Phase 18.4: Prefer show_all
+	mux.HandleFunc("/proof", server.handleProof)                                            // Phase 18.5: Quiet Proof
+	mux.HandleFunc("/proof/dismiss", server.handleProofDismiss)                             // Phase 18.5: Dismiss proof
+	mux.HandleFunc("/start", server.handleStart)                                            // Phase 18.6: First Connect
+	mux.HandleFunc("/connections", server.handleConnections)                                // Phase 18.6: Connections
+	mux.HandleFunc("/connect/", server.handleConnect)                                       // Phase 18.6: Connect action
+	mux.HandleFunc("/disconnect/", server.handleDisconnect)                                 // Phase 18.6: Disconnect action
+	mux.HandleFunc("/mirror", server.handleMirror)                                          // Phase 18.7: Mirror Proof
+	mux.HandleFunc("/connect/gmail", server.handleGmailConsent)                             // Phase 18.9: Gmail consent page
+	mux.HandleFunc("/connect/gmail/start", server.handleGmailOAuthStart)                    // Phase 18.8: Gmail OAuth start
+	mux.HandleFunc("/connect/gmail/callback", server.handleGmailOAuthCallback)              // Phase 18.8: Gmail OAuth callback
+	mux.HandleFunc("/disconnect/gmail", server.handleGmailDisconnect)                       // Phase 18.8: Gmail disconnect
+	mux.HandleFunc("/run/gmail-sync", server.handleGmailSync)                               // Phase 18.8: Gmail sync
+	mux.HandleFunc("/quiet-check", server.handleQuietCheck)                                 // Phase 19.1: Quiet baseline verification
+	mux.HandleFunc("/run/shadow", server.handleShadowRun)                                   // Phase 19.2: Shadow mode run
+	mux.HandleFunc("/run/shadow-diff", server.handleShadowDiff)                             // Phase 19.4: Compute shadow diffs
+	mux.HandleFunc("/shadow/report", server.handleShadowReport)                             // Phase 19.4: Shadow calibration report
+	mux.HandleFunc("/shadow/vote", server.handleShadowVote)                                 // Phase 19.4: Shadow calibration vote
+	mux.HandleFunc("/shadow/candidates", server.handleShadowCandidates)                     // Phase 19.5: Shadow candidates
+	mux.HandleFunc("/shadow/candidates/refresh", server.handleShadowCandidatesRefresh)      // Phase 19.5: Refresh candidates
+	mux.HandleFunc("/shadow/candidates/propose", server.handleShadowCandidatesPropose)      // Phase 19.5: Propose promotion
+	mux.HandleFunc("/shadow/packs", server.handleRulePackList)                              // Phase 19.6: List packs
+	mux.HandleFunc("/shadow/packs/", server.handleRulePackDetail)                           // Phase 19.6: Pack detail
+	mux.HandleFunc("/shadow/packs/build", server.handleRulePackBuild)                       // Phase 19.6: Build pack
+	mux.HandleFunc("/shadow/health", server.handleShadowHealth)                             // Phase 19.3b: Shadow health
+	mux.HandleFunc("/shadow/health/run", server.handleShadowHealthRun)                      // Phase 19.3b: Shadow health run
+	mux.HandleFunc("/trust", server.handleTrust)                                            // Phase 20: Trust accrual
+	mux.HandleFunc("/trust/dismiss", server.handleTrustDismiss)                             // Phase 20: Dismiss trust cue
+	mux.HandleFunc("/onboarding", server.handleOnboarding)                                  // Phase 21: Unified onboarding
+	mux.HandleFunc("/shadow/receipt", server.handleShadowReceipt)                           // Phase 21/27: Shadow receipt viewer
+	mux.HandleFunc("/shadow/receipt/dismiss", server.handleShadowReceiptDismiss)            // Phase 21/27: Dismiss receipt cue
+	mux.HandleFunc("/shadow/receipt/vote", server.handleShadowReceiptVote)                  // Phase 27: Vote on restraint
+	mux.HandleFunc("/mirror/inbox", server.handleQuietInboxMirror)                          // Phase 22: Quiet Inbox Mirror
+	mux.HandleFunc("/mirror/inbox/dismiss", server.handleQuietMirrorDismiss)                // Phase 22: Dismiss whisper cue
+	mux.HandleFunc("/invite", server.handleInvitation)                                      // Phase 23: Gentle Action Invitation
+	mux.HandleFunc("/invite/accept", server.handleInvitationAccept)                         // Phase 23: Accept invitation
+	mux.HandleFunc("/invite/dismiss", server.handleInvitationDismiss)                       // Phase 23: Dismiss invitation
+	mux.HandleFunc("/action/once", server.handleFirstAction)                                // Phase 24: First Reversible Action
+	mux.HandleFunc("/action/once/run", server.handleFirstActionRun)                         // Phase 24: Execute preview
+	mux.HandleFunc("/action/once/dismiss", server.handleFirstActionDismiss)                 // Phase 24: Dismiss invitation
+	mux.HandleFunc("/action/undoable", server.handleUndoable)                               // Phase 25: Undoable execution
+	mux.HandleFunc("/action/undoable/run", server.handleUndoableRun)                        // Phase 25: Run undoable
+	mux.HandleFunc("/action/undoable/done", server.handleUndoableDone)                      // Phase 25: Done page
+	mux.HandleFunc("/action/undoable/undo", server.handleUndoableUndo)                      // Phase 25: Undo page
+	mux.HandleFunc("/action/undoable/undo/run", server.handleUndoableUndoRun)               // Phase 25: Execute undo
+	mux.HandleFunc("/action/undoable/dismiss", server.handleUndoableDismiss)                // Phase 25: Dismiss
+	mux.HandleFunc("/journey", server.handleJourney)                                        // Phase 26A: Guided Journey
+	mux.HandleFunc("/journey/next", server.handleJourneyNext)                               // Phase 26A: Journey next step
+	mux.HandleFunc("/journey/dismiss", server.handleJourneyDismiss)                         // Phase 26A: Dismiss journey
+	mux.HandleFunc("/first-minutes", server.handleFirstMinutes)                             // Phase 26B: First Minutes receipt
+	mux.HandleFunc("/first-minutes/dismiss", server.handleFirstMinutesDismiss)              // Phase 26B: Dismiss receipt
+	mux.HandleFunc("/reality", server.handleReality)                                        // Phase 26C: Reality check
+	mux.HandleFunc("/reality/ack", server.handleRealityAck)                                 // Phase 26C: Acknowledge reality
+	mux.HandleFunc("/trust/action", server.handleTrustAction)                               // Phase 28: Trust action preview
+	mux.HandleFunc("/trust/action/execute", server.handleTrustActionExecute)                // Phase 28: Execute trust action
+	mux.HandleFunc("/trust/action/undo", server.handleTrustActionUndo)                      // Phase 28: Undo trust action
+	mux.HandleFunc("/trust/action/receipt", server.handleTrustActionReceipt)                // Phase 28: Trust action receipt
+	mux.HandleFunc("/trust/action/dismiss", server.handleTrustActionDismiss)                // Phase 28: Dismiss trust action
+	mux.HandleFunc("/connect/truelayer/start", server.handleTrueLayerOAuthStart)            // Phase 29: TrueLayer OAuth start
+	mux.HandleFunc("/connect/truelayer/callback", server.handleTrueLayerOAuthCallback)      // Phase 29: TrueLayer OAuth callback
+	mux.HandleFunc("/disconnect/truelayer", server.handleTrueLayerDisconnect)               // Phase 29: TrueLayer disconnect
+	mux.HandleFunc("/run/truelayer-sync", server.handleTrueLayerSync)                       // Phase 29: TrueLayer sync
+	mux.HandleFunc("/mirror/finance", server.handleFinanceMirror)                           // Phase 29: Finance mirror page
+	mux.HandleFunc("/mirror/finance/ack", server.handleFinanceMirrorAck)                    // Phase 29: Finance mirror ack
+	mux.HandleFunc("/identity", server.handleIdentity)                                      // Phase 30A: Device identity page
+	mux.HandleFunc("/identity/bind", server.handleIdentityBind)                             // Phase 30A: Bind device to circle
+	mux.HandleFunc("/replay/export", server.handleReplayExport)                             // Phase 30A: Export replay bundle
+	mux.HandleFunc("/replay/import", server.handleReplayImport)                             // Phase 30A: Import replay bundle
+	mux.HandleFunc("/mirror/commerce", server.handleCommerceMirror)                         // Phase 31: Commerce mirror page
+	mux.HandleFunc("/reality/pressure", server.handlePressureProof)                         // Phase 31.4: Pressure proof page
+	mux.HandleFunc("/settings/interrupts", server.handleInterruptSettings)                  // Phase 33: Interrupt policy settings
+	mux.HandleFunc("/settings/interrupts/save", server.handleInterruptSettingsSave)         // Phase 33: Save interrupt policy
+	mux.HandleFunc("/proof/interrupts", server.handleInterruptProof)                        // Phase 33: Interrupt proof page
+	mux.HandleFunc("/proof/interrupts/dismiss", server.handleInterruptProofDismiss)         // Phase 33: Dismiss interrupt proof
+	mux.HandleFunc("/interrupts/preview", server.handleInterruptPreview)                    // Phase 34: Interrupt preview page
+	mux.HandleFunc("/interrupts/preview/dismiss", server.handleInterruptPreviewDismiss)     // Phase 34: Dismiss preview
+	mux.HandleFunc("/interrupts/preview/hold", server.handleInterruptPreviewHold)           // Phase 34: Hold preview
+	mux.HandleFunc("/proof/interrupts/preview", server.handleInterruptPreviewProof)         // Phase 34: Preview proof page
+	mux.HandleFunc("/devices", server.handleDevices)                                        // Phase 37: Device registration page
+	mux.HandleFunc("/devices/register", server.handleDeviceRegister)                        // Phase 37: Register device (POST)
+	mux.HandleFunc("/proof/device", server.handleDeviceProof)                               // Phase 37: Device proof page
+	mux.HandleFunc("/open", server.handleOpen)                                              // Phase 37: Deep link redirect
+	mux.HandleFunc("/observe/notification", server.handleObserveNotification)               // Phase 38: Notification metadata observer (POST)
+	mux.HandleFunc("/envelope", server.handleEnvelope)                                      // Phase 39: Attention envelope page (GET)
+	mux.HandleFunc("/envelope/start", server.handleEnvelopeStart)                           // Phase 39: Start envelope (POST)
+	mux.HandleFunc("/envelope/stop", server.handleEnvelopeStop)                             // Phase 39: Stop envelope (POST)
+	mux.HandleFunc("/proof/envelope", server.handleEnvelopeProof)                           // Phase 39: Envelope proof page (GET)
+	mux.HandleFunc("/reality/windows", server.handleTimeWindows)                            // Phase 40: Time windows page (GET)
+	mux.HandleFunc("/reality/windows/run", server.handleTimeWindowsRun)                     // Phase 40: Run time windows build (POST)
+	mux.HandleFunc("/interrupts/rehearse", server.handleRehearse)                           // Phase 41: Rehearsal page (GET)
+	mux.HandleFunc("/interrupts/rehearse/send", server.handleRehearseSend)                  // Phase 41: Send rehearsal push (POST)
+	mux.HandleFunc("/proof/interrupts/rehearse", server.handleRehearseProof)                // Phase 41: Rehearsal proof page (GET)
+	mux.HandleFunc("/proof/interrupts/rehearse/dismiss", server.handleRehearseProofDismiss) // Phase 41: Dismiss proof (POST)
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18 Web Control Center: Core routes
@@ -9219,6 +9237,419 @@ func (s *Server) handleTimeWindowsRun(w http.ResponseWriter, r *http.Request) {
 
 	// Redirect back to windows page
 	http.Redirect(w, r, "/reality/windows", http.StatusSeeOther)
+}
+
+// ============================================================================
+// Phase 41: Live Interrupt Loop (APNs) Handlers
+// ============================================================================
+
+// handleRehearse shows the rehearsal page.
+// Phase 41: Shows current eligibility status and send button.
+// CRITICAL: Abstract payload only. No identifiers.
+func (s *Server) handleRehearse(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleIDHash := computeSovereignCircleHash()
+
+	// Build rehearse page with current status
+	var page *domainrehearsal.RehearsePage
+	if s.rehearsalEngine != nil {
+		// Build adapters from existing stores for eligibility check
+		candidateSource := s.buildRehearsalCandidateSource(circleIDHash, now)
+		policySource := s.buildRehearsalPolicySource(circleIDHash, now)
+		deviceSource := s.buildRehearsalDeviceSource(circleIDHash)
+		sealedSource := s.buildRehearsalSealedSource()
+		envelopeSource := s.buildRehearsalEnvelopeSource(circleIDHash, now)
+
+		// Create engine with adapters
+		engine := internalrehearsal.NewEngine(
+			candidateSource,
+			policySource,
+			deviceSource,
+			s.rehearsalStore, // implements RateLimitSource
+			sealedSource,
+			envelopeSource,
+		)
+		page = engine.BuildRehearsePage(circleIDHash, now)
+	}
+
+	if page == nil {
+		page = domainrehearsal.DefaultRehearsePage()
+	}
+
+	data := templateData{
+		Title:        "Rehearsal",
+		CurrentTime:  now.Format("2006-01-02 15:04"),
+		RehearsePage: page,
+	}
+
+	s.render(w, "rehearse", data)
+}
+
+// handleRehearseSend sends a rehearsal push.
+// Phase 41: POST-triggered only. Sends abstract APNs push if eligible.
+// CRITICAL: Abstract payload only. No identifiers. Max 2/day cap.
+func (s *Server) handleRehearseSend(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleIDHash := computeSovereignCircleHash()
+
+	// Emit request event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase41RehearsalRequested,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"circle_hash": circleIDHash[:16],
+		},
+	})
+
+	// Build adapters
+	candidateSource := s.buildRehearsalCandidateSource(circleIDHash, now)
+	policySource := s.buildRehearsalPolicySource(circleIDHash, now)
+	deviceSource := s.buildRehearsalDeviceSource(circleIDHash)
+	sealedSource := s.buildRehearsalSealedSource()
+	envelopeSource := s.buildRehearsalEnvelopeSource(circleIDHash, now)
+
+	// Create engine with adapters
+	engine := internalrehearsal.NewEngine(
+		candidateSource,
+		policySource,
+		deviceSource,
+		s.rehearsalStore,
+		sealedSource,
+		envelopeSource,
+	)
+
+	// Evaluate eligibility
+	receipt := engine.EvaluateEligibility(circleIDHash, now)
+
+	// Emit eligibility computed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase41RehearsalEligibilityComputed,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"circle_hash": circleIDHash[:16],
+			"status":      string(receipt.Status),
+		},
+	})
+
+	// If rejected, persist and redirect to proof
+	if receipt.Status == domainrehearsal.StatusRejected {
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase41RehearsalRejected,
+			Timestamp: now,
+			Metadata: map[string]string{
+				"circle_hash":   circleIDHash[:16],
+				"reject_reason": string(receipt.RejectReason),
+			},
+		})
+
+		if s.rehearsalStore != nil {
+			_ = s.rehearsalStore.AppendReceipt(receipt, now)
+			s.eventEmitter.Emit(events.Event{
+				Type:      events.Phase41RehearsalReceiptPersisted,
+				Timestamp: now,
+				Metadata: map[string]string{
+					"circle_hash": circleIDHash[:16],
+					"status_hash": receipt.StatusHash,
+				},
+			})
+		}
+
+		http.Redirect(w, r, "/proof/interrupts/rehearse", http.StatusSeeOther)
+		return
+	}
+
+	// Build plan
+	plan := engine.BuildPlan(receipt)
+	if plan == nil {
+		// Should not happen if eligibility passed
+		http.Redirect(w, r, "/proof/interrupts/rehearse", http.StatusSeeOther)
+		return
+	}
+
+	// Emit plan built event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase41RehearsalPlanBuilt,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"circle_hash":   circleIDHash[:16],
+			"attempt_hash":  plan.AttemptIDHash,
+			"transport":     string(plan.TransportKind),
+			"deep_link":     plan.DeepLinkTarget,
+			"payload_title": plan.PayloadTitle,
+		},
+	})
+
+	// Execute delivery (time measurement allowed in cmd/ only)
+	startTime := now
+	delivered := false
+	var errClass domainrehearsal.ErrorClassBucket = domainrehearsal.ErrorClassNone
+
+	// In real implementation, call the transport registry here
+	// For now, simulate successful delivery for stub transport
+	// TODO: Integrate with Phase 35 transport registry
+	if plan.TransportKind == domainrehearsal.TransportStub {
+		delivered = true
+	} else if plan.TransportKind == domainrehearsal.TransportAPNs {
+		// Would call APNs transport here
+		// For now, mark as failed if no transport configured
+		errClass = domainrehearsal.ErrorClassTransient
+	}
+
+	// Emit attempt event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase41RehearsalDeliveryAttempted,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"circle_hash":  circleIDHash[:16],
+			"attempt_hash": plan.AttemptIDHash,
+			"transport":    string(plan.TransportKind),
+		},
+	})
+
+	// Compute latency bucket (measurement in cmd/ only)
+	endTime := s.clk.Now()
+	latencyBucket := computeLatencyBucket(startTime, endTime)
+
+	// Finalize receipt
+	finalReceipt := engine.FinalizeAfterAttempt(receipt, delivered, latencyBucket, errClass)
+
+	// Emit completion event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase41RehearsalDeliveryCompleted,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"circle_hash": circleIDHash[:16],
+			"status":      string(finalReceipt.Status),
+			"delivered":   fmt.Sprintf("%t", delivered),
+			"latency":     string(latencyBucket),
+			"status_hash": finalReceipt.StatusHash,
+		},
+	})
+
+	// Persist final receipt
+	if s.rehearsalStore != nil {
+		_ = s.rehearsalStore.AppendReceipt(finalReceipt, now)
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase41RehearsalReceiptPersisted,
+			Timestamp: now,
+			Metadata: map[string]string{
+				"circle_hash": circleIDHash[:16],
+				"status_hash": finalReceipt.StatusHash,
+			},
+		})
+	}
+
+	// Redirect to proof page
+	http.Redirect(w, r, "/proof/interrupts/rehearse", http.StatusSeeOther)
+}
+
+// handleRehearseProof shows the rehearsal proof page.
+// Phase 41: Shows abstract delivery status and hashes.
+// CRITICAL: Only hash prefixes shown. No raw identifiers.
+func (s *Server) handleRehearseProof(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleIDHash := computeSovereignCircleHash()
+	periodKey := now.UTC().Format("2006-01-02")
+
+	// Emit viewed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase41RehearsalProofViewed,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"circle_hash": circleIDHash[:16],
+			"period_key":  periodKey,
+		},
+	})
+
+	// Get latest receipt for this period
+	var proofPage *domainrehearsal.RehearsalProofPage
+	if s.rehearsalStore != nil {
+		receipt := s.rehearsalStore.GetLatestByCircleAndPeriod(circleIDHash, periodKey)
+		if receipt != nil {
+			proofPage = domainrehearsal.BuildProofPageFromReceipt(receipt)
+		}
+	}
+
+	if proofPage == nil {
+		proofPage = domainrehearsal.DefaultRehearsalProofPage(periodKey)
+	}
+
+	data := templateData{
+		Title:             "Rehearsal Proof",
+		CurrentTime:       now.Format("2006-01-02 15:04"),
+		RehearseProofPage: proofPage,
+	}
+
+	s.render(w, "rehearse-proof", data)
+}
+
+// handleRehearseProofDismiss dismisses the rehearsal proof.
+// Phase 41: Records acknowledgment hash-only.
+func (s *Server) handleRehearseProofDismiss(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleIDHash := computeSovereignCircleHash()
+	periodKey := now.UTC().Format("2006-01-02")
+	timeBucket := now.UTC().Truncate(15 * time.Minute).Format("15:04")
+
+	// Get latest receipt to get status hash
+	var statusHash string
+	if s.rehearsalStore != nil {
+		receipt := s.rehearsalStore.GetLatestByCircleAndPeriod(circleIDHash, periodKey)
+		if receipt != nil {
+			statusHash = receipt.StatusHash
+		}
+	}
+
+	// Create ack
+	ack := &domainrehearsal.RehearsalAck{
+		CircleIDHash: circleIDHash,
+		PeriodKey:    periodKey,
+		AckBucket:    timeBucket,
+		StatusHash:   statusHash,
+	}
+
+	// Persist ack
+	if s.rehearsalStore != nil {
+		_ = s.rehearsalStore.AppendAck(ack, now)
+	}
+
+	// Redirect to /today
+	http.Redirect(w, r, "/today", http.StatusSeeOther)
+}
+
+// ============================================================================
+// Phase 41 Helper Functions
+// ============================================================================
+
+// computeLatencyBucket converts duration to latency bucket.
+// CRITICAL: Latency measurement only in cmd/ layer.
+func computeLatencyBucket(start, end time.Time) domainrehearsal.LatencyBucket {
+	duration := end.Sub(start)
+	switch {
+	case duration < 500*time.Millisecond:
+		return domainrehearsal.LatencyFast
+	case duration < 2*time.Second:
+		return domainrehearsal.LatencyOK
+	default:
+		return domainrehearsal.LatencySlow
+	}
+}
+
+// buildRehearsalCandidateSource builds a CandidateSource adapter from Phase 34.
+func (s *Server) buildRehearsalCandidateSource(circleIDHash string, now time.Time) internalrehearsal.CandidateSource {
+	// Check if there's a permitted candidate from Phase 34
+	hasCandidate := false
+	candidateHash := ""
+
+	if s.interruptPreviewEngine != nil {
+		// Check if preview is available (simplified)
+		periodKey := now.UTC().Format("2006-01-02")
+		// For now, check if policy allows and there's something
+		if s.interruptPolicyStore != nil {
+			policy := s.interruptPolicyStore.GetEffectivePolicy(circleIDHash, periodKey)
+			if policy != nil && policy.Allowance != "allow_none" {
+				// Simulate having a candidate
+				hasCandidate = true
+				// Generate deterministic candidate hash
+				candidateHash = fmt.Sprintf("%x", sha256.Sum256([]byte(circleIDHash+periodKey+"candidate")))[:32]
+			}
+		}
+	}
+
+	return &internalrehearsal.StubCandidateSource{
+		CandidateHash: candidateHash,
+		HasCandidate:  hasCandidate,
+	}
+}
+
+// buildRehearsalPolicySource builds a PolicySource adapter from Phase 33.
+func (s *Server) buildRehearsalPolicySource(circleIDHash string, now time.Time) internalrehearsal.PolicySource {
+	allowance := "allow_none"
+	maxPerDay := 0
+	enabled := false
+
+	if s.interruptPolicyStore != nil {
+		periodKey := now.UTC().Format("2006-01-02")
+		policy := s.interruptPolicyStore.GetEffectivePolicy(circleIDHash, periodKey)
+		if policy != nil {
+			allowance = string(policy.Allowance)
+			maxPerDay = policy.MaxPerDay
+			enabled = policy.Allowance != "allow_none"
+		}
+	}
+
+	return &internalrehearsal.StubPolicySource{
+		Allowance: allowance,
+		MaxPerDay: maxPerDay,
+		Enabled:   enabled,
+	}
+}
+
+// buildRehearsalDeviceSource builds a DeviceSource adapter from Phase 37.
+func (s *Server) buildRehearsalDeviceSource(circleIDHash string) internalrehearsal.DeviceSource {
+	hasDevice := false
+	transportKind := domainrehearsal.TransportNone
+
+	if s.deviceRegStore != nil {
+		reg := s.deviceRegStore.LatestByCircle(circleIDHash)
+		if reg != nil && reg.State == devicereg.DeviceRegStateRegistered {
+			hasDevice = true
+			// Map platform to rehearsal transport kind
+			switch reg.Platform {
+			case devicereg.DevicePlatformIOS:
+				transportKind = domainrehearsal.TransportAPNs
+			default:
+				transportKind = domainrehearsal.TransportStub
+			}
+		}
+	}
+
+	return &internalrehearsal.StubDeviceSource{
+		HasDevice:     hasDevice,
+		TransportKind: transportKind,
+	}
+}
+
+// buildRehearsalSealedSource builds a SealedStatusSource adapter.
+func (s *Server) buildRehearsalSealedSource() internalrehearsal.SealedStatusSource {
+	// In real implementation, check if APNs credentials are configured
+	// For now, assume sealed is ready for stub transport
+	return &internalrehearsal.StubSealedStatusSource{
+		Ready: true,
+	}
+}
+
+// buildRehearsalEnvelopeSource builds an EnvelopeSource adapter from Phase 39.
+func (s *Server) buildRehearsalEnvelopeSource(circleIDHash string, now time.Time) internalrehearsal.EnvelopeSource {
+	active := false
+	if s.envelopeStore != nil {
+		envelope := s.envelopeStore.GetActiveEnvelope(circleIDHash, now)
+		active = envelope != nil
+	}
+
+	return &internalrehearsal.StubEnvelopeSource{
+		Active: active,
+	}
 }
 
 // ============================================================================

@@ -900,6 +900,16 @@ check-timewindow-sources:
 	@echo "Checking Phase 40 constraints..."
 	@./scripts/guardrails/timewindow_pressure_sources_enforced.sh
 
+# Run Phase 41 Demo: Live Interrupt Loop (APNs)
+demo-phase41:
+	@echo "Running Phase 41 Demo: Live Interrupt Loop (APNs)..."
+	go test -v ./internal/demo_phase41_interrupt_rehearsal/...
+
+# Check Phase 41 Interrupt Rehearsal constraints
+check-interrupt-rehearsal:
+	@echo "Checking Phase 41 constraints..."
+	@./scripts/guardrails/interrupt_rehearsal_enforced.sh
+
 # =============================================================================
 # Web Server Targets
 # =============================================================================
