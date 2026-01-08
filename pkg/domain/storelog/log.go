@@ -191,6 +191,14 @@ const (
 	RecordTypeEnvelopeStop   = "ENVELOPE_STOP"
 	RecordTypeEnvelopeExpire = "ENVELOPE_EXPIRE"
 	RecordTypeEnvelopeApply  = "ENVELOPE_APPLY"
+
+	// Phase 40: Time-Window Pressure Sources record types
+	// CRITICAL: Contains ONLY abstract buckets and hashes - never raw timestamps.
+	// CRITICAL: No email addresses, subjects, senders.
+	// CRITICAL: No merchant/vendor strings.
+	// CRITICAL: Observation ONLY - cannot deliver, cannot interrupt.
+	RecordTypeTimeWindowSignal = "TIME_WINDOW_SIGNAL"
+	RecordTypeTimeWindowResult = "TIME_WINDOW_RESULT"
 )
 
 // Common errors

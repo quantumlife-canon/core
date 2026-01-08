@@ -890,6 +890,16 @@ check-attention-envelope:
 	@echo "Checking Phase 39 constraints..."
 	@./scripts/guardrails/attention_envelope_enforced.sh
 
+# Run Phase 40 Demo: Time-Window Pressure Sources
+demo-phase40:
+	@echo "Running Phase 40 Demo: Time-Window Pressure Sources..."
+	go test -v ./internal/demo_phase40_timewindow_sources/...
+
+# Check Phase 40 Time Window constraints
+check-timewindow-sources:
+	@echo "Checking Phase 40 constraints..."
+	@./scripts/guardrails/timewindow_pressure_sources_enforced.sh
+
 # =============================================================================
 # Web Server Targets
 # =============================================================================

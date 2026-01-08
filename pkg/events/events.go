@@ -1956,6 +1956,21 @@ const (
 	// Proof and UI events
 	Phase39EnvelopePageRendered EventType = "phase39.envelope.page.rendered"
 	Phase39EnvelopeProofViewed  EventType = "phase39.envelope.proof.viewed"
+
+	// Phase 40: Time-Window Pressure Sources
+	// CRITICAL: OBSERVATION ONLY. No delivery. No execution. No notifications.
+	// CRITICAL: Events contain only circle_id_hash, status, result_hash, magnitude buckets.
+	// CRITICAL: NO raw timestamps, NO identifiers, NO counts.
+	// Reference: docs/ADR/ADR-0077-phase40-time-window-pressure-sources.md
+
+	// Window build lifecycle events
+	Phase40WindowsBuildRequested EventType = "phase40.windows.build_requested"
+	Phase40WindowsBuilt          EventType = "phase40.windows.built"
+	Phase40WindowsPersisted      EventType = "phase40.windows.persisted"
+
+	// Proof and UI events
+	Phase40WindowsViewed      EventType = "phase40.windows.viewed"
+	Phase40WindowsCueDismissed EventType = "phase40.windows.cue_dismissed"
 )
 
 // Event represents a system event for audit and observability.

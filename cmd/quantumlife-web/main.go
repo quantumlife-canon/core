@@ -28,6 +28,7 @@ import (
 	"time"
 
 	internalenvelope "quantumlife/internal/attentionenvelope"
+	internaltimewindow "quantumlife/internal/timewindow"
 	calexec "quantumlife/internal/calendar/execution"
 	"quantumlife/internal/commerceingest"
 	internalcommerceobserver "quantumlife/internal/commerceobserver"
@@ -115,6 +116,7 @@ import (
 	domainshadow "quantumlife/pkg/domain/shadowllm"
 	domainshadowview "quantumlife/pkg/domain/shadowview"
 	"quantumlife/pkg/domain/suppress"
+	domaintimewindow "quantumlife/pkg/domain/timewindow"
 	domaintrust "quantumlife/pkg/domain/trust"
 	domainundoableexec "quantumlife/pkg/domain/undoableexec"
 	"quantumlife/pkg/events"
@@ -208,6 +210,8 @@ type Server struct {
 	notifObserverEngine    *internalnotificationobserver.Engine // Phase 38: Notification observer engine
 	envelopeStore          *persist.AttentionEnvelopeStore      // Phase 39: Attention envelope store
 	envelopeEngine         *internalenvelope.Engine             // Phase 39: Attention envelope engine
+	timeWindowStore        *persist.TimeWindowStore             // Phase 40: Time window store
+	timeWindowEngine       *internaltimewindow.Engine           // Phase 40: Time window engine
 	// Phase 18 Web Control Center
 	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
 	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
@@ -720,6 +724,10 @@ func main() {
 	envelopeStore := persist.NewAttentionEnvelopeStore(persist.DefaultAttentionEnvelopeStoreConfig())
 	envelopeEngine := internalenvelope.NewEngine()
 
+	// Phase 40: Create time window store and engine
+	timeWindowStore := persist.NewTimeWindowStore(persist.DefaultTimeWindowStoreConfig())
+	timeWindowEngine := internaltimewindow.NewEngine()
+
 	// Phase 18 Web Control Center: Create stores
 	runStore := runlog.NewInMemoryRunStore()
 	suppressionSet := suppress.NewSuppressionSet()
@@ -805,6 +813,8 @@ func main() {
 		notifObserverEngine:    notifObserverEngine,                           // Phase 38
 		envelopeStore:          envelopeStore,                                 // Phase 39
 		envelopeEngine:         envelopeEngine,                                // Phase 39
+		timeWindowStore:        timeWindowStore,                               // Phase 40
+		timeWindowEngine:       timeWindowEngine,                              // Phase 40
 		// Phase 18 Web Control Center
 		runStore:       runStore,
 		suppressionSet: suppressionSet,
@@ -913,6 +923,8 @@ func main() {
 	mux.HandleFunc("/envelope/start", server.handleEnvelopeStart)                       // Phase 39: Start envelope (POST)
 	mux.HandleFunc("/envelope/stop", server.handleEnvelopeStop)                         // Phase 39: Stop envelope (POST)
 	mux.HandleFunc("/proof/envelope", server.handleEnvelopeProof)                       // Phase 39: Envelope proof page (GET)
+	mux.HandleFunc("/reality/windows", server.handleTimeWindows)                        // Phase 40: Time windows page (GET)
+	mux.HandleFunc("/reality/windows/run", server.handleTimeWindowsRun)                 // Phase 40: Run time windows build (POST)
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18 Web Control Center: Core routes
@@ -9020,6 +9032,193 @@ func (s *Server) handleEnvelopeProof(w http.ResponseWriter, r *http.Request) {
 </body>
 </html>
 `)
+}
+
+// ============================================================================
+// Phase 40: Time-Window Pressure Sources Handlers
+// ============================================================================
+
+// handleTimeWindows shows the current time window state.
+// Phase 40: OBSERVATION ONLY. No delivery, no execution.
+// CRITICAL: Shows only abstract buckets and hashes. No raw data.
+func (s *Server) handleTimeWindows(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleIDHash := computeSovereignCircleHash()
+
+	// Get latest result for this circle
+	var latestResult *domaintimewindow.TimeWindowBuildResult
+	if s.timeWindowStore != nil {
+		latestResult = s.timeWindowStore.GetLatestResultForCircle(circleIDHash)
+	}
+
+	// Build proof page
+	proofPage := domaintimewindow.BuildWindowsProofPage(circleIDHash, latestResult)
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase40WindowsViewed,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"magnitude":   string(proofPage.MagnitudeBucket),
+			"status":      string(proofPage.Status),
+			"circle_hash": circleIDHash[:16],
+		},
+	})
+
+	// Render HTML - calm, quiet UI
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprint(w, `<!DOCTYPE html>
+<html>
+<head><title>Time Windows</title></head>
+<body style="font-family: system-ui; max-width: 600px; margin: 40px auto; padding: 20px;">
+<h1>Time Windows</h1>
+<p style="color: #666;">Abstract observations of time-sensitive activity. No actions triggered.</p>
+`)
+
+	// Status card
+	fmt.Fprintf(w, `
+<div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+  <p style="margin: 0 0 10px 0;"><strong>Windows noticed:</strong> %s</p>
+`, proofPage.MagnitudeBucket.DisplayText())
+
+	// Source chips
+	if len(proofPage.SourceChips) > 0 {
+		fmt.Fprint(w, `<p style="margin: 0;">`)
+		for _, chip := range proofPage.SourceChips {
+			fmt.Fprintf(w, `<span style="background: #e9ecef; padding: 4px 8px; border-radius: 4px; margin-right: 5px; font-size: 0.9em;">%s</span>`, chip)
+		}
+		fmt.Fprint(w, `</p>`)
+	}
+
+	if proofPage.ResultHash != "" {
+		fmt.Fprintf(w, `<p style="margin: 10px 0 0 0; color: #999; font-size: 0.85em;">Hash: <code>%s</code></p>`, proofPage.ResultHash[:16]+"...")
+	}
+
+	fmt.Fprint(w, `
+  <p style="margin: 15px 0 0 0; color: #888; font-size: 0.85em;">No details were stored.</p>
+</div>
+`)
+
+	// Optional whisper cue
+	if latestResult != nil && len(latestResult.Signals) > 0 {
+		cue := s.timeWindowEngine.GetCalmWhisperCue(latestResult)
+		if cue != "" {
+			fmt.Fprintf(w, `
+<div style="background: #fff3cd; padding: 12px; border-radius: 8px; margin: 20px 0; font-size: 0.9em; color: #856404;">
+  %s
+</div>
+`, cue)
+		}
+	}
+
+	// Run button
+	fmt.Fprint(w, `
+<form method="POST" action="/reality/windows/run" style="margin: 20px 0;">
+  <button type="submit" style="padding: 10px 20px; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer;">Observe Now</button>
+</form>
+`)
+
+	fmt.Fprint(w, `
+<p style="margin-top: 30px;"><a href="/today">Back to Today</a></p>
+</body>
+</html>
+`)
+}
+
+// handleTimeWindowsRun runs a time window observation.
+// Phase 40: OBSERVATION ONLY. Builds signals from current inputs.
+// CRITICAL: No delivery, no execution, no notifications triggered.
+func (s *Server) handleTimeWindowsRun(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleIDHash := computeSovereignCircleHash()
+	periodKey := domaintimewindow.NewPeriodKey(now)
+
+	// Emit build requested event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase40WindowsBuildRequested,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"circle_hash": circleIDHash[:16],
+			"period_key":  periodKey,
+		},
+	})
+
+	// Build inputs (in real implementation, these would come from calendar/inbox/device)
+	// For now, build minimal inputs to demonstrate the flow
+	inputs := &domaintimewindow.TimeWindowInputs{
+		CircleIDHash: circleIDHash,
+		NowBucket:    periodKey,
+		Calendar: domaintimewindow.CalendarWindowInputs{
+			HasUpcoming:         false,
+			UpcomingCountBucket: domaintimewindow.MagnitudeNothing,
+			NextStartsIn:        domaintimewindow.WindowLater,
+		},
+		Inbox: domaintimewindow.InboxWindowInputs{
+			InstitutionalCountBucket: domaintimewindow.MagnitudeNothing,
+			HumanCountBucket:         domaintimewindow.MagnitudeNothing,
+			InstitutionWindowKind:    domaintimewindow.WindowLater,
+			HumanWindowKind:          domaintimewindow.WindowLater,
+		},
+		DeviceHints: domaintimewindow.DeviceHintInputs{
+			TransportSignals:   domaintimewindow.MagnitudeNothing,
+			HealthSignals:      domaintimewindow.MagnitudeNothing,
+			InstitutionSignals: domaintimewindow.MagnitudeNothing,
+		},
+		EnvelopeSummary: domaintimewindow.AttentionEnvelopeSummary{
+			IsActive: false,
+		},
+	}
+
+	// Check for active envelope
+	if s.envelopeStore != nil {
+		activeEnvelope := s.envelopeStore.GetActiveEnvelope(circleIDHash, now)
+		if activeEnvelope != nil {
+			inputs.EnvelopeSummary.IsActive = true
+			inputs.EnvelopeSummary.Kind = activeEnvelope.Kind
+		}
+	}
+
+	// Build signals
+	result := s.timeWindowEngine.BuildSignals(inputs, now)
+
+	// Emit built event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase40WindowsBuilt,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"circle_hash": circleIDHash[:16],
+			"status":      string(result.Status),
+			"result_hash": result.ResultHash,
+			"magnitude":   string(result.GetOverallMagnitude()),
+		},
+	})
+
+	// Persist result
+	if s.timeWindowStore != nil {
+		if err := s.timeWindowStore.PersistResult(result); err == nil {
+			s.eventEmitter.Emit(events.Event{
+				Type:      events.Phase40WindowsPersisted,
+				Timestamp: now,
+				Metadata: map[string]string{
+					"circle_hash": circleIDHash[:16],
+					"result_hash": result.ResultHash,
+				},
+			})
+		}
+	}
+
+	// Redirect back to windows page
+	http.Redirect(w, r, "/reality/windows", http.StatusSeeOther)
 }
 
 // ============================================================================
