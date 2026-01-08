@@ -46,6 +46,10 @@ struct ConnectionsScreen: View {
 
             // Navigation whisper
             VStack(spacing: DesignTokens.Spacing.space4) {
+                WhisperLink("Manage device") {
+                    navigateTo = .devices
+                }
+
                 WhisperLink("See what we've seen") {
                     navigateTo = .mirror
                 }

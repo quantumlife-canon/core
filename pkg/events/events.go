@@ -1888,6 +1888,30 @@ const (
 	// Delivery cue events
 	Phase36CueComputed EventType = "phase36.cue.computed"
 	Phase36CueShown    EventType = "phase36.cue.shown"
+
+	// ═══════════════════════════════════════════════════════════════════════════
+	// Phase 37: iOS Device Registration + Deep-Link Receipt Landing
+	// ═══════════════════════════════════════════════════════════════════════════
+	// Makes QuantumLife real on iOS devices.
+	// CRITICAL: Raw device_token ONLY in sealed secret boundary.
+	// CRITICAL: Hash-only storage for registration records.
+	// CRITICAL: No identifiers in deep links.
+	// ═══════════════════════════════════════════════════════════════════════════
+
+	// Device registration events
+	Phase37DeviceRegisterRequested EventType = "phase37.device.register.requested"
+	Phase37DeviceSealed            EventType = "phase37.device.sealed"
+	Phase37DeviceRegistered        EventType = "phase37.device.registered"
+
+	// Device proof events
+	Phase37DeviceProofViewed EventType = "phase37.device.proof.viewed"
+
+	// Deep link events
+	Phase37OpenRedirected EventType = "phase37.open.redirected"
+
+	// Device cue events
+	Phase37DeviceCueComputed EventType = "phase37.device.cue.computed"
+	Phase37DeviceCueShown    EventType = "phase37.device.cue.shown"
 )
 
 // Event represents a system event for audit and observability.

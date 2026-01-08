@@ -860,6 +860,16 @@ check-interrupt-delivery:
 	@echo "Checking Phase 36 constraints..."
 	@./scripts/guardrails/interrupt_delivery_enforced.sh
 
+# Run Phase 37 Demo: Device Registration + Deep-Link
+demo-phase37:
+	@echo "Running Phase 37 Demo: Device Registration + Deep-Link..."
+	go test -v ./internal/demo_phase37_device_registration/...
+
+# Check Phase 37 Device Registration constraints
+check-device-registration:
+	@echo "Checking Phase 37 constraints..."
+	@./scripts/guardrails/device_registration_enforced.sh
+
 # =============================================================================
 # Web Server Targets
 # =============================================================================

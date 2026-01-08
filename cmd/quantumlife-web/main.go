@@ -36,6 +36,7 @@ import (
 	mockemail "quantumlife/internal/connectors/email/write/providers/mock"
 	truelayer "quantumlife/internal/connectors/finance/read/providers/truelayer"
 	internaldeviceidentity "quantumlife/internal/deviceidentity"
+	internaldevicereg "quantumlife/internal/devicereg"
 	"quantumlife/internal/drafts"
 	"quantumlife/internal/drafts/calendar"
 	"quantumlife/internal/drafts/commerce"
@@ -86,6 +87,7 @@ import (
 	pkgconfig "quantumlife/pkg/domain/config"
 	"quantumlife/pkg/domain/connection"
 	domaindeviceidentity "quantumlife/pkg/domain/deviceidentity"
+	"quantumlife/pkg/domain/devicereg"
 	"quantumlife/pkg/domain/draft"
 	domainevents "quantumlife/pkg/domain/events"
 	domainexternalpressure "quantumlife/pkg/domain/externalpressure"
@@ -196,6 +198,8 @@ type Server struct {
 	interruptPolicyEngine  *internalinterruptpolicy.Engine    // Phase 33: Interrupt policy engine
 	interruptPreviewStore  *persist.InterruptPreviewAckStore  // Phase 34: Interrupt preview ack store
 	interruptPreviewEngine *internalinterruptpreview.Engine   // Phase 34: Interrupt preview engine
+	deviceRegStore         *persist.DeviceRegistrationStore   // Phase 37: Device registration store
+	deviceRegEngine        *internaldevicereg.Engine          // Phase 37: Device registration engine
 	// Phase 18 Web Control Center
 	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
 	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
@@ -316,6 +320,9 @@ type templateData struct {
 	InterruptPreviewPage      *interruptpreview.PreviewPage
 	InterruptPreviewProofPage *interruptpreview.PreviewProofPage
 	InterruptPreviewCue       *interruptpreview.PreviewCue
+	// Phase 37: Device Registration + Deep-Link
+	DeviceRegistration          *deviceRegistrationPageData
+	DeviceRegistrationProofPage *devicereg.DeviceRegistrationProofPage
 	// Phase 18 Web Control Center
 	RunSnapshots     []*runlog.RunSnapshot      // List of run snapshots for /runs
 	RunSnapshot      *runlog.RunSnapshot        // Single run snapshot for /runs/:id
@@ -693,6 +700,10 @@ func main() {
 	interruptPreviewStore := persist.NewInterruptPreviewAckStore(persist.DefaultInterruptPreviewAckStoreConfig())
 	interruptPreviewEngine := internalinterruptpreview.NewEngine()
 
+	// Phase 37: Create device registration store and engine
+	deviceRegStore := persist.NewDeviceRegistrationStore(persist.DefaultDeviceRegistrationStoreConfig())
+	deviceRegEngine := internaldevicereg.NewEngine()
+
 	// Phase 18 Web Control Center: Create stores
 	runStore := runlog.NewInMemoryRunStore()
 	suppressionSet := suppress.NewSuppressionSet()
@@ -772,6 +783,8 @@ func main() {
 		interruptPolicyEngine:  interruptPolicyEngine,                         // Phase 33
 		interruptPreviewStore:  interruptPreviewStore,                         // Phase 34
 		interruptPreviewEngine: interruptPreviewEngine,                        // Phase 34
+		deviceRegStore:         deviceRegStore,                                // Phase 37
+		deviceRegEngine:        deviceRegEngine,                               // Phase 37
 		// Phase 18 Web Control Center
 		runStore:       runStore,
 		suppressionSet: suppressionSet,
@@ -871,6 +884,10 @@ func main() {
 	mux.HandleFunc("/interrupts/preview/dismiss", server.handleInterruptPreviewDismiss) // Phase 34: Dismiss preview
 	mux.HandleFunc("/interrupts/preview/hold", server.handleInterruptPreviewHold)       // Phase 34: Hold preview
 	mux.HandleFunc("/proof/interrupts/preview", server.handleInterruptPreviewProof)     // Phase 34: Preview proof page
+	mux.HandleFunc("/devices", server.handleDevices)                                    // Phase 37: Device registration page
+	mux.HandleFunc("/devices/register", server.handleDeviceRegister)                    // Phase 37: Register device (POST)
+	mux.HandleFunc("/proof/device", server.handleDeviceProof)                           // Phase 37: Device proof page
+	mux.HandleFunc("/open", server.handleOpen)                                          // Phase 37: Deep link redirect
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18 Web Control Center: Core routes
@@ -8312,6 +8329,237 @@ func (s *Server) handleInterruptPreviewProof(w http.ResponseWriter, r *http.Requ
 	}
 
 	s.render(w, "interrupt-preview-proof", data)
+}
+
+// ============================================================================
+// Phase 37: Device Registration + Deep-Link Receipt Landing Handlers
+// ============================================================================
+
+// handleDevices shows the device registration page.
+// Phase 37: Shows registration status and proof link.
+func (s *Server) handleDevices(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := "default"
+	circleIDHash := computeDeviceCircleHash(circleID)
+
+	// Check if device is registered
+	hasRegistration := false
+	var receipt *devicereg.DeviceRegistrationReceipt
+	if s.deviceRegStore != nil {
+		receipt = s.deviceRegStore.LatestByCircle(circleIDHash)
+		hasRegistration = receipt != nil && receipt.State == devicereg.DeviceRegStateRegistered
+	}
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase37DeviceRegisterRequested,
+		Timestamp: now,
+		CircleID:  circleID,
+		Metadata: map[string]string{
+			"has_registration": fmt.Sprintf("%t", hasRegistration),
+		},
+	})
+
+	data := templateData{
+		Title:       "Device Registration",
+		CurrentTime: now.Format("2006-01-02 15:04"),
+		DeviceRegistration: &deviceRegistrationPageData{
+			IsRegistered:    hasRegistration,
+			TokenHashPrefix: "",
+			CircleIDHash:    circleIDHash,
+		},
+	}
+	if receipt != nil {
+		data.DeviceRegistration.TokenHashPrefix = receipt.TokenHash[:8]
+	}
+
+	s.render(w, "devices", data)
+}
+
+// deviceRegistrationPageData holds data for the device registration page.
+type deviceRegistrationPageData struct {
+	IsRegistered    bool
+	TokenHashPrefix string
+	CircleIDHash    string
+}
+
+// handleDeviceRegister handles device registration (POST only).
+// Phase 37: CRITICAL - Accepts raw device token, seals it, stores hash only.
+func (s *Server) handleDeviceRegister(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := "default"
+	circleIDHash := computeDeviceCircleHash(circleID)
+	periodKey := now.Format("2006-01-02")
+
+	// Parse form data
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+
+	platform := r.FormValue("platform")
+	deviceToken := r.FormValue("device_token")
+	_ = r.FormValue("bundle_id") // bundleID available but not stored
+
+	// Validate platform
+	platformType := devicereg.DevicePlatform(platform)
+	if err := platformType.Validate(); err != nil {
+		http.Error(w, "Invalid platform", http.StatusBadRequest)
+		return
+	}
+
+	// Validate device token (required)
+	if deviceToken == "" {
+		http.Error(w, "Device token required", http.StatusBadRequest)
+		return
+	}
+
+	// Hash the token - raw token NEVER stored
+	tokenHash := devicereg.HashString(deviceToken)
+
+	// For sealed ref, compute a reference hash
+	// In production, this would go through sealed secret boundary (Phase 35b)
+	sealedRefHash := devicereg.HashStringShort(fmt.Sprintf("sealed:%s:%s", circleIDHash, tokenHash))
+
+	// Build registration using engine
+	receipt := s.deviceRegEngine.BuildRegistrationReceipt(
+		periodKey,
+		platformType,
+		circleIDHash,
+		tokenHash,
+		sealedRefHash,
+	)
+
+	// Store registration (hash only)
+	if s.deviceRegStore != nil {
+		s.deviceRegStore.AppendRegistration(receipt)
+	}
+
+	// Emit events
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase37DeviceSealed,
+		Timestamp: now,
+		CircleID:  circleID,
+		Metadata: map[string]string{
+			"platform":   platform,
+			"token_hash": receipt.TokenHash[:8] + "...",
+			"sealed_ref": receipt.SealedRefHash[:8] + "...",
+		},
+	})
+
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase37DeviceRegistered,
+		Timestamp: now,
+		CircleID:  circleID,
+		Metadata: map[string]string{
+			"period_key": periodKey,
+			"receipt_id": receipt.ReceiptID,
+		},
+	})
+
+	// Redirect to proof page
+	http.Redirect(w, r, "/proof/device", http.StatusSeeOther)
+}
+
+// handleDeviceProof shows the device registration proof page.
+// Phase 37: Shows hash-only evidence of registration.
+func (s *Server) handleDeviceProof(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := "default"
+	circleIDHash := computeDeviceCircleHash(circleID)
+
+	// Get latest registration
+	var receipt *devicereg.DeviceRegistrationReceipt
+	if s.deviceRegStore != nil {
+		receipt = s.deviceRegStore.LatestByCircle(circleIDHash)
+	}
+
+	// Build proof page using engine
+	var proofPage *devicereg.DeviceRegistrationProofPage
+	if s.deviceRegEngine != nil && receipt != nil {
+		proofPage = s.deviceRegEngine.BuildProofPage(receipt)
+	}
+
+	if proofPage == nil {
+		// Use engine to build default page
+		proofPage = s.deviceRegEngine.BuildProofPage(nil)
+	}
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase37DeviceProofViewed,
+		Timestamp: now,
+		CircleID:  circleID,
+		Metadata: map[string]string{
+			"has_registration": fmt.Sprintf("%t", proofPage.HasRegistration),
+		},
+	})
+
+	data := templateData{
+		Title:                       "Device Proof",
+		CurrentTime:                 now.Format("2006-01-02 15:04"),
+		DeviceRegistrationProofPage: proofPage,
+	}
+
+	s.render(w, "device-proof", data)
+}
+
+// handleOpen handles deep link redirects.
+// Phase 37: CRITICAL - No identifiers in URLs. Validates t parameter.
+func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	circleID := "default"
+
+	// Get and validate t parameter
+	t := r.URL.Query().Get("t")
+	target, err := devicereg.ValidateOpenParam(t)
+	if err != nil {
+		// Invalid t parameter - default to today
+		target = devicereg.DeepLinkTargetToday
+	}
+
+	// Map target to path using domain method
+	redirectPath := target.ToPath()
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase37OpenRedirected,
+		Timestamp: now,
+		CircleID:  circleID,
+		Metadata: map[string]string{
+			"target":        string(target),
+			"redirect_path": redirectPath,
+		},
+	})
+
+	http.Redirect(w, r, redirectPath, http.StatusSeeOther)
+}
+
+// computeDeviceCircleHash computes a hash of the circle ID for device registration.
+// Phase 37: Hash-only storage.
+func computeDeviceCircleHash(circleID string) string {
+	h := sha256.Sum256([]byte("device_reg:" + circleID))
+	return fmt.Sprintf("%x", h[:])
 }
 
 // ============================================================================

@@ -166,6 +166,13 @@ const (
 	RecordTypeDeliveryAttempt = "DELIVERY_ATTEMPT"
 	RecordTypeDeliveryReceipt = "DELIVERY_RECEIPT"
 	RecordTypeDeliveryAck     = "DELIVERY_ACK"
+
+	// Phase 37: iOS Device Registration + Deep-Link record types
+	// CRITICAL: Contains ONLY hashes - never raw device tokens.
+	// CRITICAL: Raw tokens ONLY in sealed secret boundary.
+	// CRITICAL: No identifiers in records.
+	RecordTypeDeviceRegistration = "DEVICE_REGISTRATION"
+	RecordTypeDeviceRegAck       = "DEVICE_REG_ACK"
 )
 
 // Common errors
