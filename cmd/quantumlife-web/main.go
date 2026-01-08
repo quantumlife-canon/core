@@ -60,6 +60,7 @@ import (
 	internalinterruptpreview "quantumlife/internal/interruptpreview"
 	internalrehearsal "quantumlife/internal/interruptrehearsal"
 	internaldelegatedholding "quantumlife/internal/delegatedholding"
+	internalheldproof "quantumlife/internal/heldproof"
 	internalinvitation "quantumlife/internal/invitation"
 	"quantumlife/internal/journey"
 	"quantumlife/internal/loop"
@@ -107,6 +108,7 @@ import (
 	interruptpreview "quantumlife/pkg/domain/interruptpreview"
 	domainrehearsal "quantumlife/pkg/domain/interruptrehearsal"
 	domaindelegatedholding "quantumlife/pkg/domain/delegatedholding"
+	domainheldproof "quantumlife/pkg/domain/heldproof"
 	domaininvitation "quantumlife/pkg/domain/invitation"
 	domainmirror "quantumlife/pkg/domain/mirror"
 	"quantumlife/pkg/domain/obligation"
@@ -220,6 +222,9 @@ type Server struct {
 	rehearsalEngine        *internalrehearsal.Engine            // Phase 41: Interrupt rehearsal engine
 	delegatedHoldingStore  *persist.DelegatedHoldingStore       // Phase 42: Delegated holding store
 	delegatedHoldingEngine *internaldelegatedholding.Engine     // Phase 42: Delegated holding engine
+	heldProofSignalStore   *persist.HeldProofSignalStore        // Phase 43: Held proof signal store
+	heldProofAckStore      *persist.HeldProofAckStore           // Phase 43: Held proof ack store
+	heldProofEngine        *internalheldproof.Engine            // Phase 43: Held proof engine
 	// Phase 18 Web Control Center
 	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
 	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
@@ -348,6 +353,9 @@ type templateData struct {
 	RehearseProofPage *domainrehearsal.RehearsalProofPage
 	DelegatePage      *domaindelegatedholding.DelegatePage
 	DelegateProofPage *domaindelegatedholding.DelegateProofPage
+	// Phase 43: Held Under Agreement Proof Ledger
+	HeldProofPage *domainheldproof.HeldProofPage
+	HeldProofCue  *domainheldproof.HeldProofCue
 	// Phase 18 Web Control Center
 	RunSnapshots     []*runlog.RunSnapshot      // List of run snapshots for /runs
 	RunSnapshot      *runlog.RunSnapshot        // Single run snapshot for /runs/:id
@@ -751,6 +759,15 @@ func main() {
 	delegatedHoldingStore := persist.NewDelegatedHoldingStore(nil)
 	delegatedHoldingEngine := internaldelegatedholding.NewEngine(nil, nil, delegatedHoldingStore, clk)
 
+	// Phase 43: Create held proof stores and engine
+	heldProofSignalStore := persist.NewHeldProofSignalStore(nil)
+	heldProofAckStore := persist.NewHeldProofAckStore(nil)
+	heldProofEngine := internalheldproof.NewEngine(
+		&heldProofSignalStoreAdapter{store: heldProofSignalStore, clk: clk},
+		&heldProofAckStoreAdapter{store: heldProofAckStore, clk: clk},
+		clk,
+	)
+
 	// Phase 18 Web Control Center: Create stores
 	runStore := runlog.NewInMemoryRunStore()
 	suppressionSet := suppress.NewSuppressionSet()
@@ -842,6 +859,9 @@ func main() {
 		rehearsalEngine:        rehearsalEngine,                               // Phase 41
 		delegatedHoldingStore:  delegatedHoldingStore,                         // Phase 42
 		delegatedHoldingEngine: delegatedHoldingEngine,                        // Phase 42
+		heldProofSignalStore:   heldProofSignalStore,                          // Phase 43
+		heldProofAckStore:      heldProofAckStore,                             // Phase 43
+		heldProofEngine:        heldProofEngine,                               // Phase 43
 		// Phase 18 Web Control Center
 		runStore:       runStore,
 		suppressionSet: suppressionSet,
@@ -960,6 +980,8 @@ func main() {
 	mux.HandleFunc("/delegate/create", server.handleDelegateCreate)                         // Phase 42: Create contract (POST)
 	mux.HandleFunc("/delegate/revoke", server.handleDelegateRevoke)                         // Phase 42: Revoke contract (POST)
 	mux.HandleFunc("/proof/delegate", server.handleDelegateProof)                           // Phase 42: Delegation proof page (GET)
+	mux.HandleFunc("/proof/held", server.handleHeldProof)                                  // Phase 43: Held proof page (GET)
+	mux.HandleFunc("/proof/held/dismiss", server.handleHeldProofDismiss)                   // Phase 43: Dismiss held proof (POST)
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18 Web Control Center: Core routes
@@ -9970,6 +9992,182 @@ func (s *stubPreviewSource) HasActivePreview(circleIDHash string) bool {
 }
 
 // ============================================================================
+// Phase 43: Held Under Agreement Proof Ledger Handlers
+// ============================================================================
+
+// heldProofSignalStoreAdapter adapts HeldProofSignalStore to internalheldproof.SignalStore.
+type heldProofSignalStoreAdapter struct {
+	store *persist.HeldProofSignalStore
+	clk   clock.Clock
+}
+
+func (a *heldProofSignalStoreAdapter) AppendSignal(dayKey string, sig domainheldproof.HeldProofSignal) error {
+	return a.store.AppendSignal(dayKey, sig, a.clk.Now())
+}
+
+func (a *heldProofSignalStoreAdapter) ListSignals(dayKey string) []domainheldproof.HeldProofSignal {
+	return a.store.ListSignals(dayKey)
+}
+
+// heldProofAckStoreAdapter adapts HeldProofAckStore to internalheldproof.AckStore.
+type heldProofAckStoreAdapter struct {
+	store *persist.HeldProofAckStore
+	clk   clock.Clock
+}
+
+func (a *heldProofAckStoreAdapter) RecordViewed(dayKey, statusHash string) error {
+	return a.store.RecordViewed(dayKey, statusHash, a.clk.Now())
+}
+
+func (a *heldProofAckStoreAdapter) RecordDismissed(dayKey, statusHash string) error {
+	return a.store.RecordDismissed(dayKey, statusHash, a.clk.Now())
+}
+
+func (a *heldProofAckStoreAdapter) IsDismissed(dayKey, statusHash string) bool {
+	return a.store.IsDismissed(dayKey, statusHash)
+}
+
+func (a *heldProofAckStoreAdapter) HasViewed(dayKey, statusHash string) bool {
+	return a.store.HasViewed(dayKey, statusHash)
+}
+
+// handleHeldProof shows the held proof page.
+// Phase 43: Shows abstract proof of items held under agreement.
+// CRITICAL: Proof-only. No decisions. No behavior changes.
+func (s *Server) handleHeldProof(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	dayKey := now.UTC().Format("2006-01-02")
+
+	// Emit page viewed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase43HeldProofPageRendered,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"day_key": dayKey,
+		},
+	})
+
+	// Build page using engine
+	var page *domainheldproof.HeldProofPage
+	var statusHash string
+	if s.heldProofEngine != nil {
+		signals := s.heldProofSignalStore.ListSignals(dayKey)
+
+		period := domainheldproof.HeldProofPeriod{DayKey: dayKey}
+		var err error
+		page, statusHash, err = s.heldProofEngine.BuildPage(signals, period)
+		if err != nil {
+			log.Printf("Phase 43: Failed to build held proof page: %v", err)
+		}
+
+		// Record view
+		if statusHash != "" {
+			if err := s.heldProofAckStore.RecordViewed(dayKey, statusHash, now); err != nil {
+				log.Printf("Phase 43: Failed to record view: %v", err)
+			}
+		}
+	}
+
+	// Emit ack event if viewed
+	if statusHash != "" {
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase43HeldProofAckViewed,
+			Timestamp: now,
+			Metadata: map[string]string{
+				"day_key":     dayKey,
+				"status_hash": statusHash[:16],
+			},
+		})
+	}
+
+	data := templateData{
+		Title:         "Held Proof",
+		CurrentTime:   now.Format("2006-01-02 15:04"),
+		HeldProofPage: page,
+	}
+
+	s.render(w, "held-proof", data)
+}
+
+// handleHeldProofDismiss dismisses the held proof cue.
+// Phase 43: POST only. Records dismissal and redirects to /today.
+func (s *Server) handleHeldProofDismiss(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	dayKey := now.UTC().Format("2006-01-02")
+
+	// Parse form
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form", http.StatusBadRequest)
+		return
+	}
+
+	statusHash := r.FormValue("status_hash")
+	if statusHash == "" {
+		http.Error(w, "Missing status_hash", http.StatusBadRequest)
+		return
+	}
+
+	// Record dismissal
+	if s.heldProofAckStore != nil {
+		if err := s.heldProofAckStore.RecordDismissed(dayKey, statusHash, now); err != nil {
+			log.Printf("Phase 43: Failed to record dismissal: %v", err)
+		}
+	}
+
+	// Emit dismiss event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase43HeldProofAckDismissed,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"day_key":     dayKey,
+			"status_hash": statusHash[:16],
+		},
+	})
+
+	http.Redirect(w, r, "/today", http.StatusSeeOther)
+}
+
+// buildHeldProofCueForToday builds the held proof cue for /today whisper chain.
+// Returns nil if no held proof page exists or already dismissed.
+func (s *Server) buildHeldProofCueForToday() *domainheldproof.HeldProofCue {
+	if s.heldProofEngine == nil {
+		return nil
+	}
+
+	now := s.clk.Now()
+	dayKey := now.UTC().Format("2006-01-02")
+
+	// Load signals for today
+	signals := s.heldProofSignalStore.ListSignals(dayKey)
+	if len(signals) == 0 {
+		return nil
+	}
+
+	// Build page to get status hash
+	period := domainheldproof.HeldProofPeriod{DayKey: dayKey}
+	page, statusHash, err := s.heldProofEngine.BuildPage(signals, period)
+	if err != nil || page == nil {
+		return nil
+	}
+
+	// Check if dismissed or viewed
+	dismissed := s.heldProofAckStore.IsDismissed(dayKey, statusHash)
+	viewed := s.heldProofAckStore.HasViewed(dayKey, statusHash)
+
+	return s.heldProofEngine.BuildCue(page, dismissed, viewed)
+}
+
+// ============================================================================
 // Phase 30A: Identity + Replay Handlers
 // ============================================================================
 
@@ -11776,6 +11974,8 @@ const templates = `
     {{template "delegate-content" .}}
 {{else if eq .Title "Delegate Proof"}}
     {{template "delegate-proof-content" .}}
+{{else if eq .Title "Held Proof"}}
+    {{template "held-proof-content" .}}
 {{else}}
     {{template "legacy-content" .}}
 {{end}}
@@ -13691,6 +13891,59 @@ const templates = `
     <h1 class="delegate-proof-title">Agreement, kept.</h1>
     <p class="delegate-proof-line">No delegation recorded.</p>
     <a href="/delegate" class="delegate-proof-back-link">Back</a>
+</div>
+{{end}}
+{{end}}
+
+{{/* ================================================================
+     Phase 43: Held Proof Page
+     ================================================================ */}}
+{{define "held-proof"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "held-proof-content"}}
+{{if .HeldProofPage}}
+<div class="held-proof-page">
+    <header class="held-proof-header">
+        <h1 class="held-proof-title">{{.HeldProofPage.Title}}</h1>
+        <p class="held-proof-line">{{.HeldProofPage.Line}}</p>
+    </header>
+
+    {{if .HeldProofPage.Chips}}
+    <section class="held-proof-chips">
+        {{range .HeldProofPage.Chips}}
+        <span class="held-proof-chip">{{.}}</span>
+        {{end}}
+    </section>
+    {{end}}
+
+    <section class="held-proof-summary">
+        <div class="held-proof-item">
+            <span class="held-proof-label">Magnitude:</span>
+            <span class="held-proof-value">{{.HeldProofPage.Magnitude}}</span>
+        </div>
+        {{if .HeldProofPage.StatusHash}}
+        <div class="held-proof-item">
+            <span class="held-proof-label">Status:</span>
+            <span class="held-proof-value held-proof-hash">{{slice .HeldProofPage.StatusHash 0 16}}...</span>
+        </div>
+        {{end}}
+    </section>
+
+    <footer class="held-proof-footer">
+        <form action="/proof/held/dismiss" method="POST" class="held-proof-dismiss-form">
+            <input type="hidden" name="status_hash" value="{{.HeldProofPage.StatusHash}}">
+            <button type="submit" class="held-proof-dismiss-btn">Dismiss</button>
+        </form>
+        <a href="/today" class="held-proof-back-link">Back</a>
+    </footer>
+</div>
+{{else}}
+<div class="held-proof-page">
+    <h1 class="held-proof-title">Held, quietly.</h1>
+    <p class="held-proof-line">Nothing held today.</p>
+    <a href="/today" class="held-proof-back-link">Back</a>
 </div>
 {{end}}
 {{end}}

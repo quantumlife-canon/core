@@ -216,6 +216,14 @@ const (
 	// CRITICAL: Bounded retention: 30 days OR 200 records max.
 	RecordTypeDelegatedHoldingContract   = "DELEGATED_HOLDING_CONTRACT"
 	RecordTypeDelegatedHoldingRevocation = "DELEGATED_HOLDING_REVOCATION"
+
+	// Phase 43: Held Under Agreement Proof Ledger record types
+	// CRITICAL: Contains ONLY abstract buckets and hashes - never identifiers.
+	// CRITICAL: Proof-only. No decisions. No behavior changes.
+	// CRITICAL: Commerce excluded. Max 3 signals per day.
+	// CRITICAL: Bounded retention: 30 days OR 500/200 records max.
+	RecordTypeHeldProofSignal = "HELD_PROOF_SIGNAL"
+	RecordTypeHeldProofAck    = "HELD_PROOF_ACK"
 )
 
 // Common errors

@@ -1992,11 +1992,21 @@ const (
 	// Phase 42: Delegated Holding Contracts
 	// CRITICAL: Hash/bucket only payloads. No identifiers.
 	// CRITICAL: Pre-consent to HOLD only. Cannot execute or interrupt.
-	Phase42DelegationCreated   EventType = "phase42.delegation.created"
-	Phase42DelegationRevoked   EventType = "phase42.delegation.revoked"
-	Phase42DelegationExpired   EventType = "phase42.delegation.expired"
-	Phase42DelegationApplied   EventType = "phase42.delegation.applied"
+	Phase42DelegationCreated     EventType = "phase42.delegation.created"
+	Phase42DelegationRevoked     EventType = "phase42.delegation.revoked"
+	Phase42DelegationExpired     EventType = "phase42.delegation.expired"
+	Phase42DelegationApplied     EventType = "phase42.delegation.applied"
 	Phase42DelegationProofViewed EventType = "phase42.delegation.proof.viewed"
+
+	// Phase 43: Held Under Agreement Proof Ledger events
+	// CRITICAL: Proof-only. No decisions. No behavior changes.
+	// CRITICAL: Payloads contain ONLY day_key, status_hash, bucket enums.
+	// CRITICAL: NO raw counts or identifiers.
+	Phase43HeldProofSignalPersisted EventType = "phase43.held_proof.signal.persisted"
+	Phase43HeldProofPageRendered    EventType = "phase43.held_proof.page.rendered"
+	Phase43HeldProofCueComputed     EventType = "phase43.held_proof.cue.computed"
+	Phase43HeldProofAckViewed       EventType = "phase43.held_proof.ack.viewed"
+	Phase43HeldProofAckDismissed    EventType = "phase43.held_proof.ack.dismissed"
 )
 
 // Event represents a system event for audit and observability.
