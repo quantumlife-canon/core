@@ -65,7 +65,7 @@ echo ""
 # ============================================================================
 echo "--- Section 3: Clock Injection ---"
 
-check "No time.Now() in domain types" "! grep -q 'time\.Now()' pkg/domain/timewindow/types.go"
+check "No time.Now() in domain types" "! grep -v '^[[:space:]]*//' pkg/domain/timewindow/types.go | grep -q 'time\.Now()'"
 check "No time.Now() in engine" "! grep -q 'time\.Now()' internal/timewindow/engine.go"
 check "Clock parameter in BuildSignals" "grep -q 'BuildSignals.*clock time.Time' internal/timewindow/engine.go"
 check "Clock parameter in store EvictOldPeriods" "grep -q 'EvictOldPeriods.*now time.Time' internal/persist/timewindow_store.go"
@@ -257,7 +257,7 @@ check "GET /reality/windows route" "grep -q '/reality/windows.*handleTimeWindows
 check "POST /reality/windows/run route" "grep -q '/reality/windows/run.*handleTimeWindowsRun' cmd/quantumlife-web/main.go"
 check "handleTimeWindows handler exists" "grep -q 'func.*handleTimeWindows' cmd/quantumlife-web/main.go"
 check "handleTimeWindowsRun handler exists" "grep -q 'func.*handleTimeWindowsRun' cmd/quantumlife-web/main.go"
-check "Calm UI comment in handler" "grep -q 'calm\|Calm\|OBSERVATION ONLY' cmd/quantumlife-web/main.go | grep -q 'Phase 40'"
+check "Calm UI comment in handler" "grep -qE 'calm|Calm|OBSERVATION ONLY' cmd/quantumlife-web/main.go && grep -q 'Phase 40' cmd/quantumlife-web/main.go"
 echo ""
 
 # ============================================================================
