@@ -970,6 +970,17 @@ check-circle-semantics:
 	@echo "Checking Phase 45 constraints..."
 	@./scripts/guardrails/circle_semantics_enforced.sh
 
+# Run Phase 46 Demo: Circle Registry + Packs (Marketplace v0)
+# Reference: docs/ADR/ADR-0084-phase46-circle-registry-packs.md
+demo-phase46:
+	@echo "Running Phase 46 Demo: Marketplace..."
+	go test -v ./internal/demo_phase46_marketplace/...
+
+# Check Phase 46 Marketplace constraints
+check-marketplace:
+	@echo "Checking Phase 46 constraints..."
+	@./scripts/guardrails/marketplace_enforced.sh
+
 # =============================================================================
 # Web Server Targets
 # =============================================================================

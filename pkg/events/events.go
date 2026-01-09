@@ -2037,6 +2037,37 @@ const (
 	Phase45SemanticsProofRendered  EventType = "phase45.semantics.proof.rendered"
 	Phase45SemanticsProofDismissed EventType = "phase45.semantics.proof.dismissed"
 	Phase45SemanticsCueComputed    EventType = "phase45.semantics.cue.computed"
+
+	// ==========================================================================
+	// Phase 46: Circle Registry + Packs (Marketplace v0) events
+	// ==========================================================================
+	// CRITICAL: Payloads contain ONLY abstract buckets and hashes - no identifiers.
+	// CRITICAL: Meaning-only + observer-intent-only layer.
+	// CRITICAL: Packs MUST NOT grant permission to SURFACE/INTERRUPT/DELIVER/EXECUTE.
+	// CRITICAL: Observer bindings are intents only - no real wiring occurs.
+	// CRITICAL: Effect MUST be effect_no_power in Phase 46.
+	// Reference: docs/ADR/ADR-0084-phase46-circle-registry-packs.md
+
+	// Phase46MarketplaceHomeViewed - marketplace home page was viewed.
+	Phase46MarketplaceHomeViewed EventType = "phase46.marketplace.home.viewed"
+
+	// Phase46PackDetailViewed - pack detail page was viewed.
+	Phase46PackDetailViewed EventType = "phase46.marketplace.pack.detail.viewed"
+
+	// Phase46PackInstalled - pack was installed (intent recorded).
+	Phase46PackInstalled EventType = "phase46.marketplace.pack.installed"
+
+	// Phase46PackRemoved - pack was removed.
+	Phase46PackRemoved EventType = "phase46.marketplace.pack.removed"
+
+	// Phase46MarketplaceProofRendered - marketplace proof page was rendered.
+	Phase46MarketplaceProofRendered EventType = "phase46.marketplace.proof.rendered"
+
+	// Phase46MarketplaceProofDismissed - marketplace proof page was dismissed.
+	Phase46MarketplaceProofDismissed EventType = "phase46.marketplace.proof.dismissed"
+
+	// Phase46MarketplaceCueComputed - marketplace cue was computed.
+	Phase46MarketplaceCueComputed EventType = "phase46.marketplace.cue.computed"
 )
 
 // Event represents a system event for audit and observability.

@@ -65,6 +65,7 @@ import (
 	internalenforcementaudit "quantumlife/internal/enforcementaudit"
 	internalenforcementclamp "quantumlife/internal/enforcementclamp"
 	internalcirclesemantics "quantumlife/internal/circlesemantics"
+	internalmarketplace "quantumlife/internal/marketplace"
 	internalinvitation "quantumlife/internal/invitation"
 	"quantumlife/internal/journey"
 	"quantumlife/internal/loop"
@@ -116,6 +117,7 @@ import (
 	domaintrusttransfer "quantumlife/pkg/domain/trusttransfer"
 	domainenforcementaudit "quantumlife/pkg/domain/enforcementaudit"
 	domaincirclesemantics "quantumlife/pkg/domain/circlesemantics"
+	domainmarketplace "quantumlife/pkg/domain/marketplace"
 	domaininvitation "quantumlife/pkg/domain/invitation"
 	domainmirror "quantumlife/pkg/domain/mirror"
 	"quantumlife/pkg/domain/obligation"
@@ -244,6 +246,12 @@ type Server struct {
 	circleSemanticsStore    *persist.CircleSemanticsStore    // Phase 45: Semantics record store
 	circleSemanticsAckStore *persist.CircleSemanticsAckStore // Phase 45: Semantics ack store
 	circleSemanticsEngine   *internalcirclesemantics.Engine  // Phase 45: Semantics engine
+	// Phase 46: Circle Registry + Packs (Marketplace)
+	marketplaceRegistry      *internalmarketplace.Registry         // Phase 46: Pack registry
+	marketplaceEngine        *internalmarketplace.Engine           // Phase 46: Marketplace engine
+	marketplaceInstallStore  *persist.MarketplaceInstallStore      // Phase 46: Install record store
+	marketplaceRemovalStore  *persist.MarketplaceRemovalStore      // Phase 46: Removal record store
+	marketplaceAckStore      *persist.MarketplaceAckStore          // Phase 46: Proof ack store
 	// Phase 18 Web Control Center
 	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
 	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
@@ -384,6 +392,11 @@ type templateData struct {
 	// Phase 45: Circle Semantics
 	CircleSemanticsSettingsPage *domaincirclesemantics.SemanticsSettingsPage
 	CircleSemanticsProofPage    *domaincirclesemantics.SemanticsProofPage
+	// Phase 46: Circle Registry + Packs (Marketplace)
+	MarketplaceHomePage  *domainmarketplace.MarketplaceHomePage
+	PackDetailPage       *domainmarketplace.PackDetailPage
+	PackSlug             string
+	MarketplaceProofPage *domainmarketplace.MarketplaceProofPage
 	// Phase 18 Web Control Center
 	RunSnapshots     []*runlog.RunSnapshot      // List of run snapshots for /runs
 	RunSnapshot      *runlog.RunSnapshot        // Single run snapshot for /runs/:id
@@ -822,6 +835,15 @@ func main() {
 	circleSemanticsAckStore := persist.NewCircleSemanticsAckStore(clk.Now)
 	circleSemanticsEngine := internalcirclesemantics.NewEngine(clk)
 
+	// Phase 46: Circle Registry + Packs (Marketplace) stores and engine
+	marketplaceRegistry := internalmarketplace.DefaultRegistry()
+	marketplaceEngine := internalmarketplace.NewEngine(func() string {
+		return clk.Now().Format("2006-01-02")
+	})
+	marketplaceInstallStore := persist.NewMarketplaceInstallStore(clk.Now)
+	marketplaceRemovalStore := persist.NewMarketplaceRemovalStore(clk.Now)
+	marketplaceAckStore := persist.NewMarketplaceAckStore(clk.Now)
+
 	// Phase 18 Web Control Center: Create stores
 	runStore := runlog.NewInMemoryRunStore()
 	suppressionSet := suppress.NewSuppressionSet()
@@ -928,6 +950,12 @@ func main() {
 		circleSemanticsStore:    circleSemanticsStore,
 		circleSemanticsAckStore: circleSemanticsAckStore,
 		circleSemanticsEngine:   circleSemanticsEngine,
+		// Phase 46: Circle Registry + Packs (Marketplace)
+		marketplaceRegistry:     marketplaceRegistry,
+		marketplaceEngine:       marketplaceEngine,
+		marketplaceInstallStore: marketplaceInstallStore,
+		marketplaceRemovalStore: marketplaceRemovalStore,
+		marketplaceAckStore:     marketplaceAckStore,
 		// Phase 18 Web Control Center
 		runStore:       runStore,
 		suppressionSet: suppressionSet,
@@ -1060,6 +1088,12 @@ func main() {
 	mux.HandleFunc("/settings/semantics/save", server.handleCircleSemanticsSave)       // Phase 45: Save semantics (POST)
 	mux.HandleFunc("/proof/semantics", server.handleCircleSemanticsProof)              // Phase 45: Semantics proof (GET)
 	mux.HandleFunc("/proof/semantics/dismiss", server.handleCircleSemanticsProofDismiss) // Phase 45: Dismiss proof (POST)
+	mux.HandleFunc("/marketplace", server.handleMarketplaceHome)                       // Phase 46: Marketplace home (GET)
+	mux.HandleFunc("/marketplace/pack/", server.handleMarketplacePackDetail)           // Phase 46: Pack detail (GET)
+	mux.HandleFunc("/marketplace/install", server.handleMarketplaceInstall)            // Phase 46: Install pack (POST)
+	mux.HandleFunc("/marketplace/remove", server.handleMarketplaceRemove)              // Phase 46: Remove pack (POST)
+	mux.HandleFunc("/proof/marketplace", server.handleMarketplaceProof)                // Phase 46: Marketplace proof (GET)
+	mux.HandleFunc("/proof/marketplace/dismiss", server.handleMarketplaceProofDismiss) // Phase 46: Dismiss proof (POST)
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18 Web Control Center: Core routes
@@ -10936,6 +10970,263 @@ func hashStringForSemantics(s string) string {
 }
 
 // ============================================================================
+// Phase 46: Circle Registry + Packs (Marketplace) Handlers
+// ============================================================================
+// CRITICAL: Meaning-only + observer-intent-only layer.
+// CRITICAL: Packs MUST NOT grant permission to SURFACE/INTERRUPT/DELIVER/EXECUTE.
+// CRITICAL: Observer bindings are intents only - no real wiring occurs.
+// CRITICAL: Effect MUST be effect_no_power in Phase 46.
+
+// handleMarketplaceHome renders the marketplace home page.
+func (s *Server) handleMarketplaceHome(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+
+	// Build inputs
+	inputs := s.buildMarketplaceInputs()
+
+	// Build home page
+	page := s.marketplaceEngine.BuildHomePage(inputs)
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase46MarketplaceHomeViewed,
+		Timestamp: now,
+		Metadata:  map[string]string{},
+	})
+
+	// Render
+	data := templateData{
+		MarketplaceHomePage: &page,
+	}
+	s.render(w, "marketplace-home", data)
+}
+
+// handleMarketplacePackDetail renders the pack detail page.
+func (s *Server) handleMarketplacePackDetail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+
+	// Extract slug from path: /marketplace/pack/{slug}
+	slug := strings.TrimPrefix(r.URL.Path, "/marketplace/pack/")
+	if slug == "" {
+		http.Error(w, "Pack slug required", http.StatusBadRequest)
+		return
+	}
+
+	// Get pack from registry
+	pack, exists := s.marketplaceRegistry.Get(domainmarketplace.PackSlug(slug))
+	if !exists {
+		http.Error(w, "Pack not found", http.StatusNotFound)
+		return
+	}
+
+	// Check if installed
+	slugHash := domainmarketplace.HashString(pack.Slug.CanonicalString())
+	installed := s.marketplaceEngine.IsPackInstalled(slugHash, s.marketplaceInstallStore.ListInstalled())
+
+	// Build detail page
+	page := s.marketplaceEngine.BuildDetailPage(pack, installed)
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase46PackDetailViewed,
+		Timestamp: now,
+		Metadata:  map[string]string{},
+	})
+
+	// Render
+	data := templateData{
+		PackDetailPage: &page,
+		PackSlug:       slug,
+	}
+	s.render(w, "marketplace-pack-detail", data)
+}
+
+// handleMarketplaceInstall handles installing a pack.
+func (s *Server) handleMarketplaceInstall(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+
+	// Parse form
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Failed to parse form", http.StatusBadRequest)
+		return
+	}
+
+	slug := r.FormValue("pack_slug")
+	if slug == "" {
+		http.Error(w, "Pack slug required", http.StatusBadRequest)
+		return
+	}
+
+	// Get pack from registry
+	pack, exists := s.marketplaceRegistry.Get(domainmarketplace.PackSlug(slug))
+	if !exists {
+		http.Error(w, "Pack not found", http.StatusNotFound)
+		return
+	}
+
+	// Build install intent and record
+	intent := s.marketplaceEngine.BuildInstallIntent(pack)
+	record := s.marketplaceEngine.ApplyInstallIntent(intent)
+
+	// Store record
+	if err := s.marketplaceInstallStore.Upsert(record); err != nil {
+		log.Printf("Phase 46: Failed to store install record: %v", err)
+	}
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase46PackInstalled,
+		Timestamp: now,
+		Metadata:  map[string]string{},
+	})
+
+	// Redirect back to pack detail
+	http.Redirect(w, r, "/marketplace/pack/"+slug, http.StatusSeeOther)
+}
+
+// handleMarketplaceRemove handles removing a pack.
+func (s *Server) handleMarketplaceRemove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+
+	// Parse form
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Failed to parse form", http.StatusBadRequest)
+		return
+	}
+
+	slug := r.FormValue("pack_slug")
+	if slug == "" {
+		http.Error(w, "Pack slug required", http.StatusBadRequest)
+		return
+	}
+
+	// Get pack from registry to get version hash
+	pack, exists := s.marketplaceRegistry.Get(domainmarketplace.PackSlug(slug))
+	if !exists {
+		http.Error(w, "Pack not found", http.StatusNotFound)
+		return
+	}
+
+	slugHash := domainmarketplace.HashString(pack.Slug.CanonicalString())
+
+	// Build removal record
+	removalRecord := s.marketplaceEngine.BuildRemovalRecord(slugHash, pack.VersionHash)
+
+	// Store removal record
+	if err := s.marketplaceRemovalStore.Record(removalRecord); err != nil {
+		log.Printf("Phase 46: Failed to store removal record: %v", err)
+	}
+
+	// Mark as removed in install store
+	if err := s.marketplaceInstallStore.MarkRemoved(slugHash); err != nil {
+		log.Printf("Phase 46: Failed to mark as removed: %v", err)
+	}
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase46PackRemoved,
+		Timestamp: now,
+		Metadata:  map[string]string{},
+	})
+
+	// Redirect back to pack detail
+	http.Redirect(w, r, "/marketplace/pack/"+slug, http.StatusSeeOther)
+}
+
+// handleMarketplaceProof renders the marketplace proof page.
+func (s *Server) handleMarketplaceProof(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+
+	// Build inputs
+	inputs := s.buildMarketplaceInputs()
+
+	// Build proof page
+	page := s.marketplaceEngine.BuildProofPage(inputs)
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase46MarketplaceProofRendered,
+		Timestamp: now,
+		Metadata:  map[string]string{},
+	})
+
+	// Render
+	data := templateData{
+		MarketplaceProofPage: &page,
+	}
+	s.render(w, "marketplace-proof", data)
+}
+
+// handleMarketplaceProofDismiss handles dismissing the marketplace proof.
+func (s *Server) handleMarketplaceProofDismiss(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	periodKey := now.Format("2006-01-02")
+
+	// Build inputs and get status hash
+	inputs := s.buildMarketplaceInputs()
+	page := s.marketplaceEngine.BuildProofPage(inputs)
+
+	// Create and store ack
+	ack := domainmarketplace.MarketplaceProofAck{
+		PeriodKey:  periodKey,
+		StatusHash: page.StatusHash,
+		AckKind:    domainmarketplace.AckKindDismissed,
+	}
+	if err := ack.Validate(); err == nil {
+		_ = s.marketplaceAckStore.RecordProofAck(ack)
+	}
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase46MarketplaceProofDismissed,
+		Timestamp: now,
+		Metadata:  map[string]string{},
+	})
+
+	// Redirect to today
+	http.Redirect(w, r, "/today", http.StatusSeeOther)
+}
+
+// buildMarketplaceInputs builds MarketplaceInputs from current server state.
+func (s *Server) buildMarketplaceInputs() internalmarketplace.MarketplaceInputs {
+	return internalmarketplace.MarketplaceInputs{
+		AvailablePacks: s.marketplaceRegistry.ListPublic(),
+		InstalledPacks: s.marketplaceInstallStore.ListInstalled(),
+		RemovedPacks:   s.marketplaceRemovalStore.ListAll(),
+	}
+}
+
+// ============================================================================
 // Phase 30A: Identity + Replay Handlers
 // ============================================================================
 
@@ -15099,6 +15390,286 @@ const templates = `
 {{else}}
 <div class="proof-page">
     <h1 class="proof-title">Semantics Proof</h1>
+    <p class="proof-line">No data available.</p>
+    <a href="/today" class="proof-back-link">Back</a>
+</div>
+{{end}}
+{{end}}
+
+{{/* ================================================================= */}}
+{{/* Phase 46: Circle Registry + Packs (Marketplace) Templates        */}}
+{{/* ================================================================= */}}
+{{/* CRITICAL: Meaning-only + observer-intent-only layer.             */}}
+{{/* CRITICAL: Packs MUST NOT grant permission.                       */}}
+{{/* CRITICAL: Effect MUST be effect_no_power.                        */}}
+
+{{define "marketplace-home"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Marketplace</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; background: #f5f5f5; }
+        .marketplace-page { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .marketplace-title { font-size: 1.5rem; margin-bottom: 1rem; color: #333; }
+        .marketplace-line { color: #666; margin-bottom: 0.5rem; font-size: 0.9rem; }
+        .pack-section { margin-top: 1.5rem; }
+        .pack-section-title { font-size: 1.1rem; color: #444; margin-bottom: 0.75rem; border-bottom: 1px solid #eee; padding-bottom: 0.5rem; }
+        .pack-list { display: flex; flex-direction: column; gap: 0.75rem; }
+        .pack-card { background: #fafafa; padding: 12px; border-radius: 6px; border: 1px solid #e0e0e0; }
+        .pack-card-title { font-weight: 600; color: #333; margin-bottom: 0.25rem; }
+        .pack-card-desc { font-size: 0.85rem; color: #666; margin-bottom: 0.5rem; }
+        .pack-card-meta { font-size: 0.75rem; color: #999; }
+        .pack-card-link { text-decoration: none; color: inherit; display: block; }
+        .pack-card-link:hover { background: #f0f0f0; }
+        .pack-status-installed { color: #059669; font-weight: 500; }
+        .pack-status-available { color: #6b7280; }
+        .marketplace-empty { color: #999; font-style: italic; padding: 1rem 0; }
+        .marketplace-back-link { display: inline-block; margin-top: 1rem; color: #3b82f6; text-decoration: none; }
+        .marketplace-back-link:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+{{template "marketplace-home-content" .}}
+</body>
+</html>
+{{end}}
+
+{{define "marketplace-home-content"}}
+{{if .MarketplaceHomePage}}
+<div class="marketplace-page">
+    <h1 class="marketplace-title">{{.MarketplaceHomePage.Title}}</h1>
+    {{range .MarketplaceHomePage.Lines}}
+    <p class="marketplace-line">{{.}}</p>
+    {{end}}
+
+    <div class="pack-section">
+        <h2 class="pack-section-title">Installed Packs</h2>
+        <div class="pack-list">
+        {{if .MarketplaceHomePage.InstalledPacks}}
+            {{range .MarketplaceHomePage.InstalledPacks}}
+            <a href="/marketplace/pack/{{.SlugHash}}" class="pack-card-link">
+                <div class="pack-card">
+                    <div class="pack-card-title">{{.Title}}</div>
+                    <div class="pack-card-desc">{{.Description}}</div>
+                    <div class="pack-card-meta">
+                        <span class="pack-status-installed">Installed</span> |
+                        {{.Kind}} | {{.Tier}} | {{.Effect}}
+                    </div>
+                </div>
+            </a>
+            {{end}}
+        {{else}}
+            <p class="marketplace-empty">No packs installed.</p>
+        {{end}}
+        </div>
+    </div>
+
+    <div class="pack-section">
+        <h2 class="pack-section-title">Available Packs</h2>
+        <div class="pack-list">
+        {{if .MarketplaceHomePage.AvailablePacks}}
+            {{range .MarketplaceHomePage.AvailablePacks}}
+            <a href="/marketplace/pack/{{.SlugHash}}" class="pack-card-link">
+                <div class="pack-card">
+                    <div class="pack-card-title">{{.Title}}</div>
+                    <div class="pack-card-desc">{{.Description}}</div>
+                    <div class="pack-card-meta">
+                        <span class="pack-status-available">Available</span> |
+                        {{.Kind}} | {{.Tier}} | {{.Effect}}
+                    </div>
+                </div>
+            </a>
+            {{end}}
+        {{else}}
+            <p class="marketplace-empty">No packs available.</p>
+        {{end}}
+        </div>
+    </div>
+
+    <a href="/today" class="marketplace-back-link">Back</a>
+</div>
+{{else}}
+<div class="marketplace-page">
+    <h1 class="marketplace-title">Marketplace</h1>
+    <p class="marketplace-line">No data available.</p>
+    <a href="/today" class="marketplace-back-link">Back</a>
+</div>
+{{end}}
+{{end}}
+
+{{define "marketplace-pack-detail"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pack Detail</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; background: #f5f5f5; }
+        .pack-detail-page { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .pack-detail-title { font-size: 1.5rem; margin-bottom: 1rem; color: #333; }
+        .pack-detail-line { color: #666; margin-bottom: 0.5rem; font-size: 0.9rem; }
+        .pack-detail-section { margin-top: 1.5rem; }
+        .pack-detail-section-title { font-size: 1.1rem; color: #444; margin-bottom: 0.75rem; border-bottom: 1px solid #eee; padding-bottom: 0.5rem; }
+        .pack-detail-item { background: #fafafa; padding: 8px 12px; border-radius: 4px; margin-bottom: 0.5rem; font-size: 0.85rem; }
+        .pack-detail-actions { margin-top: 1.5rem; display: flex; gap: 1rem; }
+        .pack-install-btn { background: #3b82f6; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-size: 1rem; }
+        .pack-install-btn:hover { background: #2563eb; }
+        .pack-remove-btn { background: #ef4444; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-size: 1rem; }
+        .pack-remove-btn:hover { background: #dc2626; }
+        .pack-detail-back-link { display: inline-block; margin-top: 1rem; color: #3b82f6; text-decoration: none; }
+        .pack-detail-back-link:hover { text-decoration: underline; }
+        .pack-detail-empty { color: #999; font-style: italic; }
+    </style>
+</head>
+<body>
+{{template "marketplace-pack-detail-content" .}}
+</body>
+</html>
+{{end}}
+
+{{define "marketplace-pack-detail-content"}}
+{{if .PackDetailPage}}
+<div class="pack-detail-page">
+    <h1 class="pack-detail-title">{{.PackDetailPage.Pack.Title}}</h1>
+    {{range .PackDetailPage.Lines}}
+    <p class="pack-detail-line">{{.}}</p>
+    {{end}}
+
+    <div class="pack-detail-section">
+        <h2 class="pack-detail-section-title">Pack Info</h2>
+        <div class="pack-detail-item">Kind: {{.PackDetailPage.Pack.Kind}}</div>
+        <div class="pack-detail-item">Tier: {{.PackDetailPage.Pack.Tier}}</div>
+        <div class="pack-detail-item">Status: {{.PackDetailPage.Pack.Status}}</div>
+        <div class="pack-detail-item">Effect: {{.PackDetailPage.Pack.Effect}} (meaning only)</div>
+    </div>
+
+    {{if .PackDetailPage.SemanticsPresets}}
+    <div class="pack-detail-section">
+        <h2 class="pack-detail-section-title">Semantics Presets</h2>
+        {{range .PackDetailPage.SemanticsPresets}}
+        <div class="pack-detail-item">
+            Pattern: {{.PatternHash}} → {{.SemanticKind}} / {{.UrgencyModel}} / {{.NecessityLevel}}
+        </div>
+        {{end}}
+    </div>
+    {{end}}
+
+    {{if .PackDetailPage.ObserverBindings}}
+    <div class="pack-detail-section">
+        <h2 class="pack-detail-section-title">Observer Bindings (Intent Only)</h2>
+        {{range .PackDetailPage.ObserverBindings}}
+        <div class="pack-detail-item">
+            Pattern: {{.PatternHash}} → {{.ObserverSlug}} ({{.BindingKind}}) [{{.Effect}}]
+        </div>
+        {{end}}
+    </div>
+    {{end}}
+
+    <div class="pack-detail-actions">
+        {{if .PackDetailPage.CanInstall}}
+        <form method="POST" action="/marketplace/install">
+            <input type="hidden" name="pack_slug" value="{{$.PackSlug}}">
+            <button type="submit" class="pack-install-btn">Install Pack</button>
+        </form>
+        {{end}}
+        {{if .PackDetailPage.CanRemove}}
+        <form method="POST" action="/marketplace/remove">
+            <input type="hidden" name="pack_slug" value="{{$.PackSlug}}">
+            <button type="submit" class="pack-remove-btn">Remove Pack</button>
+        </form>
+        {{end}}
+    </div>
+
+    <a href="/marketplace" class="pack-detail-back-link">Back to Marketplace</a>
+</div>
+{{else}}
+<div class="pack-detail-page">
+    <h1 class="pack-detail-title">Pack Detail</h1>
+    <p class="pack-detail-line">No data available.</p>
+    <a href="/marketplace" class="pack-detail-back-link">Back to Marketplace</a>
+</div>
+{{end}}
+{{end}}
+
+{{define "marketplace-proof"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Marketplace Proof</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; background: #f5f5f5; }
+        .proof-page { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .proof-title { font-size: 1.5rem; margin-bottom: 1rem; color: #333; }
+        .proof-line { color: #666; margin-bottom: 0.5rem; font-size: 0.9rem; }
+        .proof-section { margin-top: 1.5rem; }
+        .proof-section-title { font-size: 1.1rem; color: #444; margin-bottom: 0.75rem; border-bottom: 1px solid #eee; padding-bottom: 0.5rem; }
+        .proof-entry { background: #fafafa; padding: 8px 12px; border-radius: 4px; margin-bottom: 0.5rem; font-size: 0.85rem; }
+        .proof-empty { color: #999; font-style: italic; }
+        .proof-actions { margin-top: 1.5rem; }
+        .proof-dismiss-btn { background: #6b7280; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-size: 1rem; }
+        .proof-dismiss-btn:hover { background: #4b5563; }
+        .proof-back-link { display: inline-block; margin-top: 1rem; color: #3b82f6; text-decoration: none; }
+        .proof-back-link:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+{{template "marketplace-proof-content" .}}
+</body>
+</html>
+{{end}}
+
+{{define "marketplace-proof-content"}}
+{{if .MarketplaceProofPage}}
+<div class="proof-page">
+    <h1 class="proof-title">{{.MarketplaceProofPage.Title}}</h1>
+    {{range .MarketplaceProofPage.Lines}}
+    <p class="proof-line">{{.}}</p>
+    {{end}}
+
+    <div class="proof-section">
+        <h2 class="proof-section-title">Installed Packs</h2>
+        {{if .MarketplaceProofPage.InstalledPacks}}
+            {{range .MarketplaceProofPage.InstalledPacks}}
+            <div class="proof-entry">
+                Pack: {{.PackSlugHash}} | Version: {{.VersionHash}} | Installed: {{.InstalledDate}} |
+                Presets: {{.PresetsCount}} | Bindings: {{.BindingsCount}} | Effect: {{.Effect}}
+            </div>
+            {{end}}
+        {{else}}
+            <p class="proof-empty">No packs installed.</p>
+        {{end}}
+    </div>
+
+    <div class="proof-section">
+        <h2 class="proof-section-title">Removed Packs</h2>
+        {{if .MarketplaceProofPage.RemovedPacks}}
+            {{range .MarketplaceProofPage.RemovedPacks}}
+            <div class="proof-entry">
+                Pack: {{.PackSlugHash}} | Version: {{.VersionHash}} | Removed: {{.RemovedDate}}
+            </div>
+            {{end}}
+        {{else}}
+            <p class="proof-empty">No packs removed.</p>
+        {{end}}
+    </div>
+
+    <div class="proof-actions">
+        <form method="POST" action="/proof/marketplace/dismiss">
+            <button type="submit" class="proof-dismiss-btn">Dismiss</button>
+        </form>
+    </div>
+
+    <a href="/today" class="proof-back-link">Back</a>
+</div>
+{{else}}
+<div class="proof-page">
+    <h1 class="proof-title">Marketplace Proof</h1>
     <p class="proof-line">No data available.</p>
     <a href="/today" class="proof-back-link">Back</a>
 </div>

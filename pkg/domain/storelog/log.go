@@ -249,6 +249,17 @@ const (
 	// CRITICAL: Bounded retention: 30 days OR 200 records max.
 	RecordTypeCircleSemanticsRecord   = "CIRCLE_SEMANTICS_RECORD"
 	RecordTypeCircleSemanticsProofAck = "CIRCLE_SEMANTICS_PROOF_ACK"
+
+	// Phase 46: Circle Registry + Packs (Marketplace v0) record types
+	// CRITICAL: Contains ONLY abstract buckets and hashes - never identifiers.
+	// CRITICAL: Meaning-only + observer-intent-only layer.
+	// CRITICAL: Packs MUST NOT grant permission to SURFACE/INTERRUPT/DELIVER/EXECUTE.
+	// CRITICAL: Observer bindings are intents only - no real wiring occurs.
+	// CRITICAL: Effect MUST be effect_no_power in Phase 46.
+	// CRITICAL: Bounded retention: 30 days OR 200 records max.
+	RecordTypePackInstall     = "PACK_INSTALL"
+	RecordTypePackRemoval     = "PACK_REMOVAL"
+	RecordTypeMarketplaceAck  = "MARKETPLACE_ACK"
 )
 
 // Common errors
