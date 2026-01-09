@@ -2186,6 +2186,25 @@ const (
 	Phase52ProofHubInputsBuilt EventType = "phase52.proofhub.inputs.built"
 	// Phase52ProofHubStatusHashed - proof hub status was hashed.
 	Phase52ProofHubStatusHashed EventType = "phase52.proofhub.status.hashed"
+
+	// =========================================================================
+	// Phase 53: Urgency Resolution Layer events
+	// Reference: docs/ADR/ADR-0091-phase53-urgency-resolution-layer.md
+	// CRITICAL: Cap-only, clamp-only, proof only - NO POWER, NO DELIVERY.
+	// =========================================================================
+
+	// Phase53UrgencyRequested - urgency resolution was requested.
+	Phase53UrgencyRequested EventType = "phase53.urgency.requested"
+	// Phase53UrgencyComputed - urgency resolution was computed.
+	Phase53UrgencyComputed EventType = "phase53.urgency.computed"
+	// Phase53UrgencyPersisted - urgency resolution was persisted.
+	Phase53UrgencyPersisted EventType = "phase53.urgency.persisted"
+	// Phase53UrgencyProofRendered - urgency proof page was rendered.
+	Phase53UrgencyProofRendered EventType = "phase53.urgency.proof.rendered"
+	// Phase53UrgencyDismissed - urgency cue was dismissed.
+	Phase53UrgencyDismissed EventType = "phase53.urgency.dismissed"
+	// Phase53UrgencyRejected - urgency resolution was rejected (invalid inputs).
+	Phase53UrgencyRejected EventType = "phase53.urgency.rejected"
 )
 
 // Event represents a system event for audit and observability.

@@ -309,6 +309,13 @@ const (
 	// CRITICAL: Append-only, hash-only, observation/proof only - NO POWER.
 	// CRITICAL: Bounded retention: 30 days OR 200 entries max.
 	RecordTypeProofHubAck = "PROOF_HUB_ACK"
+
+	// Phase 53: Urgency Resolution Layer record types
+	// Reference: docs/ADR/ADR-0091-phase53-urgency-resolution-layer.md
+	// CRITICAL: Append-only, hash-only, cap-only, clamp-only - NO POWER.
+	// CRITICAL: Bounded retention: 30 days OR 500 entries max.
+	RecordTypeUrgencyResolution = "URGENCY_RESOLUTION"
+	RecordTypeUrgencyAck        = "URGENCY_ACK"
 )
 
 // Common errors

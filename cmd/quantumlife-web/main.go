@@ -71,6 +71,7 @@ import (
 	internalsignedclaims "quantumlife/internal/signedclaims"
 	internaltransparencylog "quantumlife/internal/transparencylog"
 	internalproofhub "quantumlife/internal/proofhub"
+	internalurgencyresolve "quantumlife/internal/urgencyresolve"
 	internalmarketplace "quantumlife/internal/marketplace"
 	internalinvitation "quantumlife/internal/invitation"
 	"quantumlife/internal/journey"
@@ -129,6 +130,7 @@ import (
 	domainsignedclaims "quantumlife/pkg/domain/signedclaims"
 	domaintransparencylog "quantumlife/pkg/domain/transparencylog"
 	domainproofhub "quantumlife/pkg/domain/proofhub"
+	domainurgencyresolve "quantumlife/pkg/domain/urgencyresolve"
 	domainmarketplace "quantumlife/pkg/domain/marketplace"
 	domaininvitation "quantumlife/pkg/domain/invitation"
 	domainmirror "quantumlife/pkg/domain/mirror"
@@ -287,6 +289,10 @@ type Server struct {
 	// Phase 52: Proof Hub + Connected Status
 	proofHubAckStore *persist.ProofHubAckStore                   // Phase 52: Proof hub ack store
 	proofHubEngine   *internalproofhub.Engine                    // Phase 52: Proof hub engine
+	// Phase 53: Urgency Resolution Layer
+	urgencyResolutionStore *persist.UrgencyResolutionStore        // Phase 53: Urgency resolution store
+	urgencyAckStore        *persist.UrgencyAckStore               // Phase 53: Urgency ack store
+	urgencyResolveEngine   *internalurgencyresolve.Engine         // Phase 53: Urgency resolve engine
 	// Phase 18 Web Control Center
 	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
 	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
@@ -916,6 +922,24 @@ func main() {
 	proofHubAckStore := persist.NewProofHubAckStore(clk.Now)
 	proofHubEngine := internalproofhub.New(&proofHubClock{clk: clk})
 
+	// Phase 53: Urgency Resolution Layer
+	urgencyResolutionStore := persist.NewUrgencyResolutionStore(clk.Now)
+	urgencyAckStore := persist.NewUrgencyAckStore(clk.Now)
+	urgencyResolveEngine := internalurgencyresolve.NewEngine(
+		&urgencyResolveClock{clk: clk},
+		nil, // pressureSource
+		nil, // envelopeSource
+		nil, // windowSource
+		nil, // vendorCapSource
+		nil, // semanticsSource
+		nil, // trustSource
+		nil, // policySource
+		nil, // circleTypeSource
+		nil, // horizonSource
+		nil, // magnitudeSource
+		&urgencyAckAdapter{store: urgencyAckStore},
+	)
+
 	// Phase 18 Web Control Center: Create stores
 	runStore := runlog.NewInMemoryRunStore()
 	suppressionSet := suppress.NewSuppressionSet()
@@ -1051,6 +1075,10 @@ func main() {
 		// Phase 52: Proof Hub + Connected Status
 		proofHubAckStore: proofHubAckStore,
 		proofHubEngine:   proofHubEngine,
+		// Phase 53: Urgency Resolution Layer
+		urgencyResolutionStore: urgencyResolutionStore,
+		urgencyAckStore:        urgencyAckStore,
+		urgencyResolveEngine:   urgencyResolveEngine,
 		// Phase 18 Web Control Center
 		runStore:       runStore,
 		suppressionSet: suppressionSet,
@@ -1209,6 +1237,10 @@ func main() {
 	// Phase 52: Proof Hub + Connected Status routes
 	mux.HandleFunc("/proof/hub", server.handleProofHub)                               // Phase 52: View proof hub (GET)
 	mux.HandleFunc("/proof/hub/dismiss", server.handleProofHubDismiss)                // Phase 52: Dismiss proof hub cue (POST)
+	// Phase 53: Urgency Resolution Layer routes
+	mux.HandleFunc("/proof/urgency", server.handleUrgencyProof)                       // Phase 53: View urgency proof (GET)
+	mux.HandleFunc("/proof/urgency/run", server.handleUrgencyRun)                     // Phase 53: Run urgency resolution (POST)
+	mux.HandleFunc("/proof/urgency/dismiss", server.handleUrgencyDismiss)             // Phase 53: Dismiss urgency cue (POST)
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18 Web Control Center: Core routes
@@ -12858,6 +12890,341 @@ h1 { font-size: 1.5rem; font-weight: 500; margin: 0 0 8px 0; color: #333; }
 </body>
 </html>
 `)
+}
+
+// ============================================================================
+// Phase 53: Urgency Resolution Layer Handlers
+// ============================================================================
+
+// urgencyResolveClock adapts clock.Clock to urgencyresolve.Clock.
+type urgencyResolveClock struct {
+	clk clock.Clock
+}
+
+func (c *urgencyResolveClock) Now() time.Time {
+	return c.clk.Now()
+}
+
+// urgencyAckAdapter adapts UrgencyAckStore to urgencyresolve.AckSource.
+type urgencyAckAdapter struct {
+	store *persist.UrgencyAckStore
+}
+
+func (a *urgencyAckAdapter) IsDismissed(circleIDHash, periodKey, resolutionHash string) bool {
+	if a.store == nil {
+		return false
+	}
+	return a.store.IsDismissed(circleIDHash, periodKey, resolutionHash)
+}
+
+// handleUrgencyProof handles GET /proof/urgency.
+// Phase 53: Displays the urgency resolution proof page.
+func (s *Server) handleUrgencyProof(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Reject forbidden params
+	forbiddenParams := []string{"vendor_id", "vendorID", "pack_id", "packID", "merchant", "name", "email", "url", "amount", "period", "sender", "subject"}
+	for _, param := range forbiddenParams {
+		if r.URL.Query().Get(param) != "" {
+			http.Error(w, "Forbidden parameter: "+param, http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Emit request event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase53UrgencyRequested,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"method": "GET",
+		},
+	})
+
+	// Get circle hash (server-derived, not from client)
+	circleIDHash := s.getCircleIDHash()
+
+	// Build inputs from engine (uses injected clock for period)
+	inputs := s.urgencyResolveEngine.BuildInputs(circleIDHash)
+
+	// Compute resolution
+	resolution, err := s.urgencyResolveEngine.ComputeResolution(inputs)
+	if err != nil {
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase53UrgencyRejected,
+			Timestamp: s.clk.Now(),
+			Metadata: map[string]string{
+				"error": "invalid_inputs",
+			},
+		})
+		http.Error(w, "Failed to compute resolution", http.StatusInternalServerError)
+		return
+	}
+
+	// Emit computed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase53UrgencyComputed,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"level":           string(resolution.Level),
+			"cap":             string(resolution.Cap),
+			"status":          string(resolution.Status),
+			"resolution_hash": resolution.ResolutionHash[:16],
+		},
+	})
+
+	// Build proof page
+	page := s.urgencyResolveEngine.BuildProofPage(resolution)
+
+	// Emit rendered event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase53UrgencyProofRendered,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"status_hash": page.StatusHash[:16],
+		},
+	})
+
+	// Render page
+	s.renderUrgencyProofPage(w, page)
+}
+
+// handleUrgencyRun handles POST /proof/urgency/run.
+// Phase 53: Runs urgency resolution and persists the result.
+func (s *Server) handleUrgencyRun(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Reject forbidden params
+	forbiddenParams := []string{"vendor_id", "vendorID", "pack_id", "packID", "merchant", "name", "email", "url", "amount", "period", "sender", "subject"}
+	for _, param := range forbiddenParams {
+		if r.FormValue(param) != "" {
+			http.Error(w, "Forbidden parameter: "+param, http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Emit request event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase53UrgencyRequested,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"method": "POST",
+		},
+	})
+
+	// Get circle hash (server-derived, not from client)
+	circleIDHash := s.getCircleIDHash()
+
+	// Build inputs from engine (uses injected clock for period)
+	inputs := s.urgencyResolveEngine.BuildInputs(circleIDHash)
+
+	// Compute resolution
+	resolution, err := s.urgencyResolveEngine.ComputeResolution(inputs)
+	if err != nil {
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase53UrgencyRejected,
+			Timestamp: s.clk.Now(),
+			Metadata: map[string]string{
+				"error": "invalid_inputs",
+			},
+		})
+		http.Error(w, "Failed to compute resolution", http.StatusInternalServerError)
+		return
+	}
+
+	// Emit computed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase53UrgencyComputed,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"level":           string(resolution.Level),
+			"cap":             string(resolution.Cap),
+			"status":          string(resolution.Status),
+			"resolution_hash": resolution.ResolutionHash[:16],
+		},
+	})
+
+	// Persist resolution
+	recorded, err := s.urgencyResolutionStore.RecordResolution(resolution)
+	if err != nil {
+		http.Error(w, "Failed to persist resolution", http.StatusInternalServerError)
+		return
+	}
+
+	if recorded {
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase53UrgencyPersisted,
+			Timestamp: s.clk.Now(),
+			Metadata: map[string]string{
+				"resolution_hash": resolution.ResolutionHash[:16],
+			},
+		})
+	}
+
+	// Redirect to proof page
+	http.Redirect(w, r, "/proof/urgency", http.StatusSeeOther)
+}
+
+// handleUrgencyDismiss handles POST /proof/urgency/dismiss.
+// Phase 53: Dismisses the urgency cue for the current period+resolution.
+func (s *Server) handleUrgencyDismiss(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Reject forbidden params
+	forbiddenParams := []string{"vendor_id", "vendorID", "pack_id", "packID", "merchant", "name", "email", "url", "amount", "period", "sender", "subject"}
+	for _, param := range forbiddenParams {
+		if r.FormValue(param) != "" {
+			http.Error(w, "Forbidden parameter: "+param, http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Get resolution hash from form
+	resolutionHash := r.FormValue("resolution_hash")
+	if resolutionHash == "" {
+		http.Error(w, "Missing resolution_hash", http.StatusBadRequest)
+		return
+	}
+
+	// Get circle hash and period (server-derived)
+	circleIDHash := s.getCircleIDHash()
+	periodKey := internalurgencyresolve.ComputePeriodKey(s.clk.Now())
+
+	// Record dismissal
+	_, err := s.urgencyAckStore.RecordDismissed(circleIDHash, periodKey, resolutionHash)
+	if err != nil {
+		http.Error(w, "Failed to record dismissal", http.StatusInternalServerError)
+		return
+	}
+
+	// Emit dismissed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase53UrgencyDismissed,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"resolution_hash": resolutionHash[:min(16, len(resolutionHash))],
+		},
+	})
+
+	// Redirect back to proof page
+	http.Redirect(w, r, "/proof/urgency", http.StatusSeeOther)
+}
+
+// renderUrgencyProofPage renders the urgency proof page.
+// It displays level, cap, reasons, lines and the StatusHash for verification.
+func (s *Server) renderUrgencyProofPage(w http.ResponseWriter, page domainurgencyresolve.UrgencyProofPage) {
+	// Render urgency proof page with Title, Level, Cap, ReasonChips, and StatusHash
+	fmt.Fprintf(w, `<!DOCTYPE html>
+<html>
+<head>
+<title>%s</title>
+<style>
+body { font-family: system-ui, sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; background: #fafafa; }
+.card { background: white; border-radius: 8px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 16px; }
+h1 { font-size: 1.5rem; font-weight: 500; margin: 0 0 8px 0; color: #333; }
+.period { color: #888; font-size: 0.85rem; margin-bottom: 16px; }
+.level-cap { display: flex; gap: 16px; margin-bottom: 16px; }
+.level, .cap { padding: 8px 16px; border-radius: 4px; font-size: 0.9rem; }
+.level { background: #e3f2fd; color: #1565c0; }
+.cap { background: #fff3e0; color: #ef6c00; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.chip { background: #f0f0f0; padding: 4px 10px; border-radius: 12px; font-size: 0.8rem; color: #555; }
+.line { color: #777; font-size: 0.9rem; margin: 4px 0; }
+.status-hash { margin-top: 24px; padding-top: 16px; border-top: 1px solid #eee; font-family: monospace; font-size: 0.75rem; color: #999; }
+.actions { display: flex; gap: 8px; margin-top: 16px; }
+.run-btn { padding: 8px 16px; background: #1976d2; color: white; border: none; border-radius: 4px; cursor: pointer; }
+.dismiss-btn { padding: 8px 16px; background: #e0e0e0; border: none; border-radius: 4px; cursor: pointer; }
+.back-link { display: inline-block; margin-top: 16px; color: #666; text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="card">
+<h1>%s</h1>
+<p class="period">Period: %s</p>
+<div class="level-cap">
+<span class="level">Level: %s</span>
+<span class="cap">Cap: %s</span>
+</div>
+`, page.Title, page.Title, page.PeriodKey, levelToDisplayText(page.Level), capToDisplayText(page.Cap))
+
+	// Render reason chips
+	if len(page.ReasonChips) > 0 {
+		fmt.Fprintf(w, `<div class="chips">
+`)
+		for _, chip := range page.ReasonChips {
+			fmt.Fprintf(w, `<span class="chip">%s</span>
+`, chip)
+		}
+		fmt.Fprintf(w, `</div>
+`)
+	}
+
+	// Render lines
+	for _, line := range page.Lines {
+		fmt.Fprintf(w, `<p class="line">%s</p>
+`, line)
+	}
+
+	// Status hash
+	fmt.Fprintf(w, `<div class="status-hash">resolution: %s</div>
+`, page.StatusHash)
+
+	// Action buttons
+	fmt.Fprintf(w, `<div class="actions">
+<form method="POST" action="/proof/urgency/run" style="display: inline;">
+<button type="submit" class="run-btn">Run Resolution</button>
+</form>
+<form method="POST" action="/proof/urgency/dismiss" style="display: inline;">
+<input type="hidden" name="resolution_hash" value="%s">
+<button type="submit" class="dismiss-btn">Dismiss</button>
+</form>
+</div>
+`, page.StatusHash)
+
+	// Back link
+	fmt.Fprintf(w, `<a href="/today" class="back-link">Back to Today</a>
+</div>
+</body>
+</html>
+`)
+}
+
+// levelToDisplayText converts UrgencyLevel to display text.
+func levelToDisplayText(level domainurgencyresolve.UrgencyLevel) string {
+	switch level {
+	case domainurgencyresolve.UrgNone:
+		return "None"
+	case domainurgencyresolve.UrgLow:
+		return "Low"
+	case domainurgencyresolve.UrgMedium:
+		return "Medium"
+	case domainurgencyresolve.UrgHigh:
+		return "High"
+	default:
+		return "Unknown"
+	}
+}
+
+// capToDisplayText converts EscalationCap to display text.
+func capToDisplayText(cap domainurgencyresolve.EscalationCap) string {
+	switch cap {
+	case domainurgencyresolve.CapHoldOnly:
+		return "Hold Only"
+	case domainurgencyresolve.CapSurfaceOnly:
+		return "Surface Only"
+	case domainurgencyresolve.CapInterruptCandidateOnly:
+		return "Interrupt Candidate"
+	default:
+		return "Unknown"
+	}
 }
 
 // ============================================================================

@@ -1064,6 +1064,18 @@ check-proof-hub:
 	@echo "Checking Phase 52 constraints..."
 	@./scripts/guardrails/proof_hub_enforced.sh
 
+# Run Phase 53 Urgency Resolution demo tests
+# Phase 53: Urgency Resolution Layer - cap-only, clamp-only, no execution, no delivery.
+# Reference: docs/ADR/ADR-0091-phase53-urgency-resolution-layer.md
+demo-phase53:
+	@echo "Running Phase 53 Demo: Urgency Resolution..."
+	go test -v ./internal/demo_phase53_urgency_resolution/...
+
+# Check Phase 53 Urgency Resolution constraints
+check-urgency-resolution:
+	@echo "Checking Phase 53 constraints..."
+	@./scripts/guardrails/urgency_resolution_enforced.sh
+
 # =============================================================================
 # Web Server Targets
 # =============================================================================
