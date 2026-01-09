@@ -828,8 +828,54 @@ else
     fail "CLI may not output pubkey/signature correctly"
 fi
 
+# CLI must NOT define its own CanonicalString (must use domain types only)
+if [ -f "$CLI_FILE" ] && grep -q 'func.*CanonicalString' "$CLI_FILE"; then
+    fail "CLI defines its own CanonicalString (must use domain types)"
+else
+    pass "CLI does not define alternate CanonicalString"
+fi
+
+# CLI must NOT manually construct signing message (no "QL|phase50|" literal for signing)
+# The prefix should only appear in domain types, CLI should call MessageBytes()
+if [ -f "$CLI_FILE" ] && grep -q '"QL|phase50|' "$CLI_FILE"; then
+    fail "CLI manually constructs signing prefix (must use domain.MessageBytes())"
+else
+    pass "CLI does not manually construct signing prefix"
+fi
+
 # ===========================================================
-# Section 22: Demo Tests Exist
+# Section 22: No Manual Canonical Strings in Web Handlers
+# ===========================================================
+section "No Manual Canonical Strings in Web Handlers"
+
+# Web handlers must NOT manually construct signing strings
+# They should only use domain types which provide MessageBytes()
+HANDLERS_SECTION=$(grep -A200 "handleClaimSubmit\|handleManifestSubmit" "$MAIN_FILE" 2>/dev/null || echo "")
+
+# Check handlers don't have manual pipe-delimited string construction for signing
+if echo "$HANDLERS_SECTION" | grep -q 'strings.Join.*"|"'; then
+    fail "Web handlers manually construct pipe-delimited strings"
+else
+    pass "Web handlers do not manually construct canonical strings"
+fi
+
+# Check handlers don't have manual "QL|phase50|" prefix construction
+if grep -A100 "handleClaimSubmit\|handleManifestSubmit" "$MAIN_FILE" 2>/dev/null | grep -q '"QL|phase50|'; then
+    fail "Web handlers manually construct signing prefix"
+else
+    pass "Web handlers do not manually construct signing prefix"
+fi
+
+# Verify that only domain package defines the message prefix
+DOMAIN_PREFIX_COUNT=$(grep -c '"QL|phase50|' "$DOMAIN_FILE" 2>/dev/null || echo "0")
+if [ "$DOMAIN_PREFIX_COUNT" -ge 2 ]; then
+    pass "Message prefix defined only in domain package ($DOMAIN_PREFIX_COUNT occurrences)"
+else
+    fail "Message prefix not properly defined in domain package"
+fi
+
+# ===========================================================
+# Section 23: Demo Tests Exist
 # ===========================================================
 section "Demo Tests"
 
