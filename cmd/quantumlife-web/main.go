@@ -67,6 +67,7 @@ import (
 	internalcirclesemantics "quantumlife/internal/circlesemantics"
 	internalcoverageplan "quantumlife/internal/coverageplan"
 	internalmarketsignal "quantumlife/internal/marketsignal"
+	internalvendorcontract "quantumlife/internal/vendorcontract"
 	internalmarketplace "quantumlife/internal/marketplace"
 	internalinvitation "quantumlife/internal/invitation"
 	"quantumlife/internal/journey"
@@ -121,6 +122,7 @@ import (
 	domaincirclesemantics "quantumlife/pkg/domain/circlesemantics"
 	domaincoverageplan "quantumlife/pkg/domain/coverageplan"
 	domainmarketsignal "quantumlife/pkg/domain/marketsignal"
+	domainvendorcontract "quantumlife/pkg/domain/vendorcontract"
 	domainmarketplace "quantumlife/pkg/domain/marketplace"
 	domaininvitation "quantumlife/pkg/domain/invitation"
 	domainmirror "quantumlife/pkg/domain/mirror"
@@ -264,6 +266,10 @@ type Server struct {
 	marketSignalStore        *persist.MarketSignalStore            // Phase 48: Market signal store
 	marketProofAckStore      *persist.MarketProofAckStore          // Phase 48: Market proof ack store
 	marketSignalEngine       *internalmarketsignal.Engine          // Phase 48: Market signal engine
+	// Phase 49: Vendor Reality Contracts
+	vendorContractStore   *persist.VendorContractStore            // Phase 49: Vendor contract store
+	vendorProofAckStore   *persist.VendorProofAckStore            // Phase 49: Vendor proof ack store
+	vendorContractEngine  *internalvendorcontract.Engine          // Phase 49: Vendor contract engine
 	// Phase 18 Web Control Center
 	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
 	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
@@ -413,6 +419,8 @@ type templateData struct {
 	CoverageProofPage *domaincoverageplan.CoverageProofPage
 	// Phase 48: Market Signal Binding
 	MarketProofPage *domainmarketsignal.MarketProofPage
+	// Phase 49: Vendor Reality Contracts
+	VendorProofPage *domainvendorcontract.VendorProofPage
 	// Phase 18 Web Control Center
 	RunSnapshots     []*runlog.RunSnapshot      // List of run snapshots for /runs
 	RunSnapshot      *runlog.RunSnapshot        // Single run snapshot for /runs/:id
@@ -872,6 +880,11 @@ func main() {
 	marketProofAckStore := persist.NewMarketProofAckStore(clk.Now)
 	marketSignalEngine := internalmarketsignal.NewEngine(clk.Now)
 
+	// Phase 49: Vendor Reality Contracts stores and engine
+	vendorContractStore := persist.NewVendorContractStore(clk.Now)
+	vendorProofAckStore := persist.NewVendorProofAckStore(clk.Now)
+	vendorContractEngine := internalvendorcontract.NewEngine(clk.Now)
+
 	// Phase 18 Web Control Center: Create stores
 	runStore := runlog.NewInMemoryRunStore()
 	suppressionSet := suppress.NewSuppressionSet()
@@ -992,6 +1005,10 @@ func main() {
 		marketSignalStore:   marketSignalStore,
 		marketProofAckStore: marketProofAckStore,
 		marketSignalEngine:  marketSignalEngine,
+		// Phase 49: Vendor Reality Contracts
+		vendorContractStore:  vendorContractStore,
+		vendorProofAckStore:  vendorProofAckStore,
+		vendorContractEngine: vendorContractEngine,
 		// Phase 18 Web Control Center
 		runStore:       runStore,
 		suppressionSet: suppressionSet,
@@ -1134,6 +1151,11 @@ func main() {
 	mux.HandleFunc("/proof/coverage/dismiss", server.handleCoverageProofDismiss)       // Phase 47: Dismiss coverage proof (POST)
 	mux.HandleFunc("/proof/market", server.handleMarketProof)                          // Phase 48: Market proof (GET)
 	mux.HandleFunc("/proof/market/dismiss", server.handleMarketProofDismiss)           // Phase 48: Dismiss market proof (POST)
+	mux.HandleFunc("/vendor/contract", server.handleVendorContract)                    // Phase 49: Vendor contract status (GET)
+	mux.HandleFunc("/vendor/contract/declare", server.handleVendorContractDeclare)     // Phase 49: Declare contract (POST)
+	mux.HandleFunc("/vendor/contract/revoke", server.handleVendorContractRevoke)       // Phase 49: Revoke contract (POST)
+	mux.HandleFunc("/proof/vendor", server.handleVendorProof)                          // Phase 49: Vendor proof (GET)
+	mux.HandleFunc("/proof/vendor/dismiss", server.handleVendorProofDismiss)           // Phase 49: Dismiss vendor proof (POST)
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18 Web Control Center: Core routes
@@ -11559,6 +11581,321 @@ func (s *Server) getMarketCue() domainmarketsignal.MarketProofCue {
 }
 
 // ============================================================================
+// Phase 49: Vendor Reality Contracts Handlers
+// ============================================================================
+
+// handleVendorContract handles the /vendor/contract page.
+// Phase 49: Shows vendor contract status.
+func (s *Server) handleVendorContract(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	periodKey := now.Format("2006-01-02")
+
+	// Get active contracts
+	contracts := s.vendorContractStore.ListActiveByPeriod(periodKey)
+
+	// Build proof lines
+	var proofLines []domainvendorcontract.VendorContractProofLine
+	for _, c := range contracts {
+		line := s.vendorContractEngine.BuildProofLine(c.VendorCircleHash, c.Scope, c.EffectiveCap, periodKey)
+		proofLines = append(proofLines, line)
+	}
+
+	// Build proof page
+	proofPage := s.vendorContractEngine.BuildProofPage(proofLines)
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase49VendorProofRendered,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"period_key":     periodKey,
+			"contract_count": strconv.Itoa(len(contracts)),
+		},
+	})
+
+	// Render
+	s.render(w, "vendor-contract", templateData{
+		Title:           "Vendor Contracts",
+		VendorProofPage: &proofPage,
+	})
+}
+
+// handleVendorContractDeclare handles POST /vendor/contract/declare.
+// Phase 49: Declares a vendor contract.
+func (s *Server) handleVendorContractDeclare(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	periodKey := now.Format("2006-01-02")
+
+	// Parse form
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+
+	vendorCircleID := r.FormValue("vendor_circle_id")
+	scopeStr := r.FormValue("scope")
+	allowanceStr := r.FormValue("allowance")
+	frequencyStr := r.FormValue("frequency")
+	emergencyStr := r.FormValue("emergency")
+	declaredByStr := r.FormValue("declared_by")
+
+	if vendorCircleID == "" {
+		http.Error(w, "vendor_circle_id required", http.StatusBadRequest)
+		return
+	}
+
+	// Hash the vendor circle ID
+	vendorCircleHash := domainvendorcontract.HashContractString(vendorCircleID)
+
+	// Parse enums with defaults
+	scope := domainvendorcontract.ScopeUnknown
+	if scopeStr != "" {
+		scope = domainvendorcontract.ContractScope(scopeStr)
+	}
+
+	allowance := domainvendorcontract.AllowHoldOnly
+	if allowanceStr != "" {
+		allowance = domainvendorcontract.PressureAllowance(allowanceStr)
+	}
+
+	frequency := domainvendorcontract.FreqPerDay
+	if frequencyStr != "" {
+		frequency = domainvendorcontract.FrequencyBucket(frequencyStr)
+	}
+
+	emergency := domainvendorcontract.EmergencyNone
+	if emergencyStr != "" {
+		emergency = domainvendorcontract.EmergencyBucket(emergencyStr)
+	}
+
+	declaredBy := domainvendorcontract.DeclaredVendorSelf
+	if declaredByStr != "" {
+		declaredBy = domainvendorcontract.DeclaredByKind(declaredByStr)
+	}
+
+	// Build contract
+	contract := domainvendorcontract.VendorContract{
+		VendorCircleHash:   vendorCircleHash,
+		Scope:              scope,
+		AllowedPressure:    allowance,
+		MaxFrequency:       frequency,
+		EmergencyException: emergency,
+		DeclaredBy:         declaredBy,
+		PeriodKey:          periodKey,
+	}
+
+	// Determine if commerce (scope_commerce is commerce)
+	isCommerce := scope == domainvendorcontract.ScopeCommerce
+
+	// Process contract
+	outcome := s.vendorContractEngine.DecideOutcome(contract, isCommerce)
+
+	if !outcome.Accepted {
+		http.Error(w, "Contract rejected: "+string(outcome.Reason), http.StatusBadRequest)
+		return
+	}
+
+	// Store contract
+	contractHash := contract.ComputeContractHash()
+	if err := s.vendorContractStore.UpsertActiveContract(
+		vendorCircleHash,
+		periodKey,
+		contractHash,
+		outcome.EffectiveCap,
+		scope,
+	); err != nil {
+		http.Error(w, "Failed to store contract", http.StatusInternalServerError)
+		return
+	}
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase49VendorContractDeclared,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"contract_hash":    contractHash,
+			"scope":            string(scope),
+			"effective_cap":    string(outcome.EffectiveCap),
+			"reason":           string(outcome.Reason),
+			"period_key":       periodKey,
+		},
+	})
+
+	// Redirect back to contract page
+	http.Redirect(w, r, "/vendor/contract", http.StatusSeeOther)
+}
+
+// handleVendorContractRevoke handles POST /vendor/contract/revoke.
+// Phase 49: Revokes a vendor contract.
+func (s *Server) handleVendorContractRevoke(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	periodKey := now.Format("2006-01-02")
+
+	// Parse form
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+
+	vendorCircleID := r.FormValue("vendor_circle_id")
+	contractHash := r.FormValue("contract_hash")
+
+	if vendorCircleID == "" || contractHash == "" {
+		http.Error(w, "vendor_circle_id and contract_hash required", http.StatusBadRequest)
+		return
+	}
+
+	// Hash the vendor circle ID
+	vendorCircleHash := domainvendorcontract.HashContractString(vendorCircleID)
+
+	// Revoke contract
+	if err := s.vendorContractStore.RevokeContract(vendorCircleHash, periodKey, contractHash); err != nil {
+		http.Error(w, "Failed to revoke contract", http.StatusInternalServerError)
+		return
+	}
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase49VendorContractRevoked,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"contract_hash": contractHash,
+			"period_key":    periodKey,
+		},
+	})
+
+	// Redirect back to contract page
+	http.Redirect(w, r, "/vendor/contract", http.StatusSeeOther)
+}
+
+// handleVendorProof handles the /proof/vendor page.
+// Phase 49: Shows vendor contract proof.
+func (s *Server) handleVendorProof(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	periodKey := now.Format("2006-01-02")
+
+	// Get active contracts
+	contracts := s.vendorContractStore.ListActiveByPeriod(periodKey)
+
+	// Build proof lines
+	var proofLines []domainvendorcontract.VendorContractProofLine
+	for _, c := range contracts {
+		line := s.vendorContractEngine.BuildProofLine(c.VendorCircleHash, c.Scope, c.EffectiveCap, periodKey)
+		proofLines = append(proofLines, line)
+	}
+
+	// Build proof page
+	proofPage := s.vendorContractEngine.BuildProofPage(proofLines)
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase49VendorProofRendered,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"period_key":     periodKey,
+			"contract_count": strconv.Itoa(len(contracts)),
+		},
+	})
+
+	// Render
+	s.render(w, "vendor-proof", templateData{
+		Title:           "Vendor Contract Proof",
+		VendorProofPage: &proofPage,
+	})
+}
+
+// handleVendorProofDismiss handles POST /proof/vendor/dismiss.
+// Phase 49: Dismisses vendor proof cue.
+func (s *Server) handleVendorProofDismiss(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	periodKey := now.Format("2006-01-02")
+
+	// Use a default vendor circle hash for the dismissal
+	vendorCircleHash := domainvendorcontract.HashContractString("default-vendor")
+
+	// Create ack
+	ack := domainvendorcontract.VendorProofAck{
+		VendorCircleHash: vendorCircleHash,
+		PeriodKey:        periodKey,
+		AckKind:          domainvendorcontract.VendorAckDismissed,
+	}
+	ack.StatusHash = ack.ComputeStatusHash()
+
+	// Store ack
+	_ = s.vendorProofAckStore.AppendAck(ack)
+
+	// Emit event (no sensitive data in metadata)
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase49VendorProofRendered,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"period_key": periodKey,
+			"ack_kind":   string(domainvendorcontract.VendorAckDismissed),
+		},
+	})
+
+	// Redirect back to home
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// getVendorContracts returns active vendor contracts for today.
+func (s *Server) getVendorContracts() []domainvendorcontract.VendorContractRecord {
+	now := s.clk.Now()
+	periodKey := now.Format("2006-01-02")
+
+	return s.vendorContractStore.ListActiveByPeriod(periodKey)
+}
+
+// isVendorProofDismissed checks if vendor proof was dismissed for today.
+func (s *Server) isVendorProofDismissed() bool {
+	now := s.clk.Now()
+	periodKey := now.Format("2006-01-02")
+
+	return s.vendorProofAckStore.IsProofDismissedForPeriod(periodKey)
+}
+
+// getVendorCue returns the vendor proof cue for the whisper.
+func (s *Server) getVendorCue() domainvendorcontract.VendorProofCue {
+	contracts := s.getVendorContracts()
+	dismissed := s.isVendorProofDismissed()
+
+	// Build proof lines
+	periodKey := s.clk.Now().Format("2006-01-02")
+	var proofLines []domainvendorcontract.VendorContractProofLine
+	for _, c := range contracts {
+		line := s.vendorContractEngine.BuildProofLine(c.VendorCircleHash, c.Scope, c.EffectiveCap, periodKey)
+		proofLines = append(proofLines, line)
+	}
+
+	return s.vendorContractEngine.BuildCue(proofLines, dismissed)
+}
+
+// ============================================================================
 // Phase 30A: Identity + Replay Handlers
 // ============================================================================
 
@@ -16173,6 +16510,183 @@ const templates = `
 <div class="proof-page">
     <h1 class="proof-title">Market Signals</h1>
     <p class="proof-line">No market signal data available.</p>
+    <a href="/today" class="proof-back-link">Back</a>
+</div>
+{{end}}
+{{end}}
+
+{{define "vendor-contract"}}
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{.Title}}</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 600px; margin: 0 auto; padding: 1rem; background: #f5f5f5; }
+        .proof-page { background: white; padding: 1.5rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .proof-title { font-size: 1.5rem; margin-bottom: 1rem; color: #333; }
+        .proof-line { color: #666; margin-bottom: 0.5rem; }
+        .proof-section { margin-top: 1.5rem; }
+        .proof-section-title { font-size: 1.1rem; color: #555; margin-bottom: 0.5rem; }
+        .proof-entry { padding: 0.75rem; background: #f9f9f9; border-radius: 4px; margin-bottom: 0.5rem; }
+        .proof-empty { color: #999; font-style: italic; }
+        .proof-actions { margin-top: 1.5rem; }
+        .proof-dismiss-btn { padding: 0.5rem 1rem; background: #ddd; border: none; border-radius: 4px; cursor: pointer; }
+        .proof-back-link { display: inline-block; margin-top: 1rem; color: #666; }
+        .contract-scope { font-weight: bold; color: #333; }
+        .contract-cap { color: #666; margin-left: 0.5rem; }
+        .declare-form { margin-top: 1.5rem; padding: 1rem; background: #f0f0f0; border-radius: 4px; }
+        .declare-form label { display: block; margin-bottom: 0.25rem; font-size: 0.9rem; color: #555; }
+        .declare-form input, .declare-form select { width: 100%; padding: 0.5rem; margin-bottom: 0.75rem; border: 1px solid #ddd; border-radius: 4px; }
+        .declare-form button { padding: 0.5rem 1rem; background: #4a90a4; color: white; border: none; border-radius: 4px; cursor: pointer; }
+    </style>
+</head>
+<body>
+{{template "vendor-contract-content" .}}
+</body>
+</html>
+{{end}}
+
+{{define "vendor-contract-content"}}
+{{if .VendorProofPage}}
+<div class="proof-page">
+    <h1 class="proof-title">{{.VendorProofPage.Title}}</h1>
+    {{range .VendorProofPage.Lines}}
+    <p class="proof-line">{{.}}</p>
+    {{end}}
+
+    {{if .VendorProofPage.ProofLines}}
+    <div class="proof-section">
+        <h2 class="proof-section-title">Active Contracts</h2>
+        {{range .VendorProofPage.ProofLines}}
+        <div class="proof-entry">
+            <span class="contract-scope">{{.Scope}}</span>
+            <span class="contract-cap">Cap: {{.EffectiveCap}}</span>
+        </div>
+        {{end}}
+    </div>
+    {{end}}
+
+    {{if not .VendorProofPage.ProofLines}}
+    <div class="proof-section">
+        <p class="proof-empty">No active vendor contracts.</p>
+    </div>
+    {{end}}
+
+    <div class="declare-form">
+        <h3>Declare Contract</h3>
+        <form method="POST" action="/vendor/contract/declare">
+            <label>Vendor Circle ID</label>
+            <input type="text" name="vendor_circle_id" required>
+            <label>Scope</label>
+            <select name="scope">
+                <option value="scope_commerce">Commerce</option>
+                <option value="scope_institution">Institution</option>
+                <option value="scope_health">Health</option>
+                <option value="scope_transport">Transport</option>
+                <option value="scope_unknown" selected>Unknown</option>
+            </select>
+            <label>Pressure Allowance</label>
+            <select name="allowance">
+                <option value="allow_hold_only" selected>Hold Only</option>
+                <option value="allow_surface_only">Surface Only</option>
+                <option value="allow_interrupt_candidate">Interrupt Candidate</option>
+            </select>
+            <label>Frequency</label>
+            <select name="frequency">
+                <option value="freq_per_day" selected>Per Day</option>
+                <option value="freq_per_week">Per Week</option>
+                <option value="freq_per_event">Per Event</option>
+            </select>
+            <label>Emergency Exception</label>
+            <select name="emergency">
+                <option value="emergency_none" selected>None</option>
+                <option value="emergency_human_only">Human Only</option>
+                <option value="emergency_institution_only">Institution Only</option>
+            </select>
+            <button type="submit">Declare Contract</button>
+        </form>
+    </div>
+
+    <a href="/today" class="proof-back-link">Back</a>
+</div>
+{{else}}
+<div class="proof-page">
+    <h1 class="proof-title">Vendor Contracts</h1>
+    <p class="proof-line">No vendor contract data available.</p>
+    <a href="/today" class="proof-back-link">Back</a>
+</div>
+{{end}}
+{{end}}
+
+{{define "vendor-proof"}}
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{.Title}}</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 600px; margin: 0 auto; padding: 1rem; background: #f5f5f5; }
+        .proof-page { background: white; padding: 1.5rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .proof-title { font-size: 1.5rem; margin-bottom: 1rem; color: #333; }
+        .proof-line { color: #666; margin-bottom: 0.5rem; }
+        .proof-section { margin-top: 1.5rem; }
+        .proof-section-title { font-size: 1.1rem; color: #555; margin-bottom: 0.5rem; }
+        .proof-entry { padding: 0.75rem; background: #f9f9f9; border-radius: 4px; margin-bottom: 0.5rem; }
+        .proof-empty { color: #999; font-style: italic; }
+        .proof-actions { margin-top: 1.5rem; }
+        .proof-dismiss-btn { padding: 0.5rem 1rem; background: #ddd; border: none; border-radius: 4px; cursor: pointer; }
+        .proof-back-link { display: inline-block; margin-top: 1rem; color: #666; }
+        .contract-scope { font-weight: bold; color: #333; }
+        .contract-cap { color: #666; margin-left: 0.5rem; }
+    </style>
+</head>
+<body>
+{{template "vendor-proof-content" .}}
+</body>
+</html>
+{{end}}
+
+{{define "vendor-proof-content"}}
+{{if .VendorProofPage}}
+<div class="proof-page">
+    <h1 class="proof-title">{{.VendorProofPage.Title}}</h1>
+    {{range .VendorProofPage.Lines}}
+    <p class="proof-line">{{.}}</p>
+    {{end}}
+
+    {{if .VendorProofPage.ProofLines}}
+    <div class="proof-section">
+        <h2 class="proof-section-title">Contract Proof</h2>
+        {{range .VendorProofPage.ProofLines}}
+        <div class="proof-entry">
+            <span class="contract-scope">{{.Scope}}</span>
+            <span class="contract-cap">Cap: {{.EffectiveCap}}</span>
+        </div>
+        {{end}}
+    </div>
+    {{end}}
+
+    {{if not .VendorProofPage.ProofLines}}
+    <div class="proof-section">
+        <p class="proof-empty">No vendor contract proof.</p>
+    </div>
+    {{end}}
+
+    <div class="proof-actions">
+        <form method="POST" action="/proof/vendor/dismiss">
+            <button type="submit" class="proof-dismiss-btn">Dismiss</button>
+        </form>
+    </div>
+
+    <a href="/today" class="proof-back-link">Back</a>
+</div>
+{{else}}
+<div class="proof-page">
+    <h1 class="proof-title">Vendor Contract Proof</h1>
+    <p class="proof-line">No vendor contract proof available.</p>
     <a href="/today" class="proof-back-link">Back</a>
 </div>
 {{end}}

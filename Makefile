@@ -1003,6 +1003,22 @@ check-market-signal:
 	@./scripts/guardrails/market_signal_enforced.sh
 
 # =============================================================================
+# Phase 49: Vendor Reality Contracts Demo
+# =============================================================================
+# Demonstrates HOLD-first, clamp-only vendor contracts.
+# Commerce vendors are always capped at SURFACE_ONLY.
+# Contracts can only reduce pressure, never increase it.
+# Reference: docs/ADR/ADR-0087-phase49-vendor-reality-contracts.md
+demo-phase49:
+	@echo "Running Phase 49 Demo: Vendor Reality Contracts..."
+	go test -v ./internal/demo_phase49_vendor_contracts/...
+
+# Check Phase 49 Vendor Reality Contracts constraints
+check-vendor-contracts:
+	@echo "Checking Phase 49 constraints..."
+	@./scripts/guardrails/vendor_reality_contracts_enforced.sh
+
+# =============================================================================
 # Web Server Targets
 # =============================================================================
 # These are convenience targets for running the QuantumLife web server.

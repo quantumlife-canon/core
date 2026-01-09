@@ -279,6 +279,15 @@ const (
 	// CRITICAL: Bounded retention: 30 days OR 200 records max.
 	RecordTypeMarketSignal   = "MARKET_SIGNAL"
 	RecordTypeMarketProofAck = "MARKET_PROOF_ACK"
+
+	// Phase 49: Vendor Reality Contracts record types
+	// CRITICAL: Contains ONLY abstract buckets and hashes - never identifiers.
+	// CRITICAL: Contracts can only reduce pressure, never increase it.
+	// CRITICAL: Commerce vendors capped at SURFACE_ONLY regardless of declaration.
+	// CRITICAL: Hash-only storage - no vendor names, emails, URLs.
+	// CRITICAL: Bounded retention: 30 days OR 200 records max.
+	RecordTypeVendorContract           = "VENDOR_CONTRACT"
+	RecordTypeVendorContractRevocation = "VENDOR_CONTRACT_REVOCATION"
 )
 
 // Common errors

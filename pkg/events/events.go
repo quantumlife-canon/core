@@ -2106,6 +2106,32 @@ const (
 
 	// Phase48MarketProofDismissed - user dismissed market proof cue.
 	Phase48MarketProofDismissed EventType = "phase48.market.proof.dismissed"
+
+	// =========================================================================
+	// Phase 49: Vendor Reality Contracts
+	// =========================================================================
+	//
+	// CRITICAL: Contracts can only REDUCE pressure, never increase it.
+	// CRITICAL: Commerce vendors capped at SURFACE_ONLY regardless of declaration.
+	// CRITICAL: Hash-only storage - no vendor names, emails, URLs.
+	// CRITICAL: Single choke-point clamp integration.
+	//
+	// Reference: docs/ADR/ADR-0087-phase49-vendor-reality-contracts.md
+
+	// Phase49VendorContractDeclared - vendor contract was declared or updated.
+	Phase49VendorContractDeclared EventType = "phase49.vendor_contract.declared"
+
+	// Phase49VendorContractRevoked - vendor contract was revoked.
+	Phase49VendorContractRevoked EventType = "phase49.vendor_contract.revoked"
+
+	// Phase49VendorContractApplied - vendor contract was applied during decision.
+	Phase49VendorContractApplied EventType = "phase49.vendor_contract.applied"
+
+	// Phase49VendorContractClamped - vendor contract caused outcome to be clamped.
+	Phase49VendorContractClamped EventType = "phase49.vendor_contract.clamped"
+
+	// Phase49VendorProofRendered - vendor proof page was rendered.
+	Phase49VendorProofRendered EventType = "phase49.vendor_proof.rendered"
 )
 
 // Event represents a system event for audit and observability.
