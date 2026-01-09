@@ -11452,13 +11452,23 @@ func (s *Server) handleCoverageProof(w http.ResponseWriter, r *http.Request) {
 
 	now := s.clk.Now()
 	periodKey := now.Format("2006-01-02")
-	circleIDHash := domaincoverageplan.HashString("default-circle")
+	circleIDHash := domaincoverageplan.HashString("demo-circle")
 
 	// Get installed packs from marketplace store
 	installedPacks := s.marketplaceInstallStore.ListInstalled()
 
+	// Get previous plan from store (if exists) - needed to preserve Phase 55 capabilities
+	prevPlan, hasPrev := s.coveragePlanStore.LastPlan(circleIDHash)
+
 	// Build current coverage plan from installed packs
 	currentPlan := s.coveragePlanEngine.BuildPlan(circleIDHash, installedPacks)
+
+	// Preserve capabilities from stored plan (set by Phase 55 observer consent)
+	// The stored plan may have capabilities enabled via /settings/observers
+	if hasPrev && len(prevPlan.Capabilities) > 0 {
+		currentPlan.Capabilities = domaincoverageplan.NormalizeCapabilities(prevPlan.Capabilities)
+		currentPlan.PlanHash = currentPlan.ComputePlanHash()
+	}
 
 	// Emit plan built event
 	s.eventEmitter.Emit(events.Event{
@@ -11469,9 +11479,6 @@ func (s *Server) handleCoverageProof(w http.ResponseWriter, r *http.Request) {
 			"capabilities": fmt.Sprintf("%d", len(currentPlan.Capabilities)),
 		},
 	})
-
-	// Get previous plan from store (if exists)
-	prevPlan, hasPrev := s.coveragePlanStore.LastPlan(circleIDHash)
 
 	// If no change in plan hash, use previous
 	if hasPrev && prevPlan.PlanHash == currentPlan.PlanHash {
@@ -11558,7 +11565,7 @@ func (s *Server) handleCoverageProofDismiss(w http.ResponseWriter, r *http.Reque
 
 	now := s.clk.Now()
 	periodKey := now.Format("2006-01-02")
-	circleIDHash := domaincoverageplan.HashString("default-circle")
+	circleIDHash := domaincoverageplan.HashString("demo-circle")
 
 	// Create and store ack
 	ack := s.coveragePlanEngine.BuildAck(circleIDHash, periodKey, domaincoverageplan.AckDismissed)
@@ -11580,10 +11587,10 @@ func (s *Server) handleCoverageProofDismiss(w http.ResponseWriter, r *http.Reque
 	http.Redirect(w, r, "/today", http.StatusSeeOther)
 }
 
-// getCoveragePlan returns the current coverage plan for the default circle.
+// getCoveragePlan returns the current coverage plan for the demo circle.
 // Used by wiring code to determine which observers are enabled.
 func (s *Server) getCoveragePlan() domaincoverageplan.CoveragePlan {
-	circleIDHash := domaincoverageplan.HashString("default-circle")
+	circleIDHash := domaincoverageplan.HashString("demo-circle")
 
 	// Get installed packs from marketplace store
 	installedPacks := s.marketplaceInstallStore.ListInstalled()
