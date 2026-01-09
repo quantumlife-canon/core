@@ -69,6 +69,7 @@ import (
 	internalmarketsignal "quantumlife/internal/marketsignal"
 	internalvendorcontract "quantumlife/internal/vendorcontract"
 	internalsignedclaims "quantumlife/internal/signedclaims"
+	internaltransparencylog "quantumlife/internal/transparencylog"
 	internalmarketplace "quantumlife/internal/marketplace"
 	internalinvitation "quantumlife/internal/invitation"
 	"quantumlife/internal/journey"
@@ -125,6 +126,7 @@ import (
 	domainmarketsignal "quantumlife/pkg/domain/marketsignal"
 	domainvendorcontract "quantumlife/pkg/domain/vendorcontract"
 	domainsignedclaims "quantumlife/pkg/domain/signedclaims"
+	domaintransparencylog "quantumlife/pkg/domain/transparencylog"
 	domainmarketplace "quantumlife/pkg/domain/marketplace"
 	domaininvitation "quantumlife/pkg/domain/invitation"
 	domainmirror "quantumlife/pkg/domain/mirror"
@@ -277,6 +279,9 @@ type Server struct {
 	signedManifestStore    *persist.SignedManifestStore           // Phase 50: Signed manifest store
 	signedClaimProofAckStore *persist.SignedClaimProofAckStore    // Phase 50: Signed claim proof ack store
 	signedClaimsEngine     *internalsignedclaims.Engine           // Phase 50: Signed claims engine
+	// Phase 51: Transparency Log / Claim Ledger
+	transparencyLogStore  *persist.TransparencyLogStore          // Phase 51: Transparency log store
+	transparencyLogEngine *internaltransparencylog.Engine        // Phase 51: Transparency log engine
 	// Phase 18 Web Control Center
 	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
 	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
@@ -898,6 +903,10 @@ func main() {
 	signedClaimProofAckStore := persist.NewSignedClaimProofAckStore(clk.Now)
 	signedClaimsEngine := internalsignedclaims.NewEngine(clk.Now)
 
+	// Phase 51: Transparency Log
+	transparencyLogStore := persist.NewTransparencyLogStore(clk.Now)
+	transparencyLogEngine := internaltransparencylog.NewEngine()
+
 	// Phase 18 Web Control Center: Create stores
 	runStore := runlog.NewInMemoryRunStore()
 	suppressionSet := suppress.NewSuppressionSet()
@@ -1027,6 +1036,9 @@ func main() {
 		signedManifestStore:     signedManifestStore,
 		signedClaimProofAckStore: signedClaimProofAckStore,
 		signedClaimsEngine:      signedClaimsEngine,
+		// Phase 51: Transparency Log
+		transparencyLogStore:  transparencyLogStore,
+		transparencyLogEngine: transparencyLogEngine,
 		// Phase 18 Web Control Center
 		runStore:       runStore,
 		suppressionSet: suppressionSet,
@@ -1178,6 +1190,10 @@ func main() {
 	mux.HandleFunc("/claims/submit", server.handleClaimSubmit)                         // Phase 50: Submit signed claim (POST)
 	mux.HandleFunc("/manifests/submit", server.handleManifestSubmit)                   // Phase 50: Submit signed manifest (POST)
 	mux.HandleFunc("/proof/claims/dismiss", server.handleSignedClaimsProofDismiss)     // Phase 50: Dismiss signed claims proof (POST)
+	// Phase 51: Transparency Log / Claim Ledger routes
+	mux.HandleFunc("/proof/transparency", server.handleTransparencyLog)               // Phase 51: View transparency log (GET)
+	mux.HandleFunc("/proof/transparency/export", server.handleTransparencyLogExport)  // Phase 51: Export transparency log (GET)
+	mux.HandleFunc("/proof/transparency/import", server.handleTransparencyLogImport)  // Phase 51: Import transparency log (POST)
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18 Web Control Center: Core routes
@@ -12363,6 +12379,294 @@ func (s *Server) getSignedClaimsCue() (bool, int) {
 
 	count := len(claims) + len(manifests)
 	return count > 0, count
+}
+
+// ============================================================================
+// Phase 51: Transparency Log / Claim Ledger Handlers
+// ============================================================================
+
+// handleTransparencyLog handles GET /proof/transparency.
+// Phase 51: Displays the transparency log page with signed statements.
+func (s *Server) handleTransparencyLog(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	periodKey := domaintransparencylog.PeriodKey(now.Format("2006-W02")) // Weekly period
+
+	// SECURITY: Reject forbidden query parameters
+	forbiddenParams := []string{
+		"vendorID", "vendor_id", "packID", "pack_id",
+		"merchant", "url", "email", "name",
+		"periodKey", "period_key", "period",
+	}
+	for _, param := range forbiddenParams {
+		if r.URL.Query().Get(param) != "" {
+			http.Error(w, "Forbidden parameter: "+param, http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Emit requested event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase51TransparencyRequested,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"period": string(periodKey),
+		},
+	})
+
+	// Build inputs from Phase 50 stores
+	inputs := s.buildTransparencyInputs(string(periodKey))
+
+	// Build entries
+	entries, err := s.transparencyLogEngine.BuildEntries(periodKey, inputs)
+	if err != nil {
+		http.Error(w, "Failed to build entries", http.StatusInternalServerError)
+		return
+	}
+
+	// Append entries to store (for persistence)
+	for _, entry := range entries {
+		wasNew, _ := s.transparencyLogStore.Append(entry)
+		if wasNew {
+			s.eventEmitter.Emit(events.Event{
+				Type:      events.Phase51TransparencyAppended,
+				Timestamp: now,
+			})
+		} else {
+			s.eventEmitter.Emit(events.Event{
+				Type:      events.Phase51TransparencyDeduped,
+				Timestamp: now,
+			})
+		}
+	}
+
+	// Build page
+	page := s.transparencyLogEngine.BuildPage(periodKey, entries)
+
+	// Emit rendered event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase51TransparencyRendered,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"status_hash": page.StatusHash,
+			"total":       fmt.Sprintf("%d", page.TotalCount),
+		},
+	})
+
+	// Render page
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	s.renderTransparencyLogPage(w, page)
+}
+
+// handleTransparencyLogExport handles GET /proof/transparency/export.
+// Phase 51: Exports the transparency log as a canonical text bundle.
+func (s *Server) handleTransparencyLogExport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	periodKey := domaintransparencylog.PeriodKey(now.Format("2006-W02"))
+
+	// Get entries from store
+	entries, err := s.transparencyLogStore.ListByPeriod(periodKey)
+	if err != nil {
+		http.Error(w, "Failed to list entries", http.StatusInternalServerError)
+		return
+	}
+
+	// Build export bundle
+	bundle := s.transparencyLogEngine.BuildExportBundle(periodKey, entries)
+
+	// Emit exported event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase51TransparencyExported,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"bundle_hash": bundle.BundleHash,
+			"lines":       fmt.Sprintf("%d", len(bundle.Lines)),
+		},
+	})
+
+	// Return as text/plain
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Write([]byte(bundle.ToCanonicalFormat()))
+}
+
+// handleTransparencyLogImport handles POST /proof/transparency/import.
+// Phase 51: Imports a transparency log bundle.
+func (s *Server) handleTransparencyLogImport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+
+	// SECURITY: Reject forbidden query parameters
+	forbiddenParams := []string{
+		"vendorID", "vendor_id", "packID", "pack_id",
+		"merchant", "url", "email", "name",
+		"periodKey", "period_key",
+	}
+	for _, param := range forbiddenParams {
+		if r.URL.Query().Get(param) != "" {
+			http.Error(w, "Forbidden parameter: "+param, http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Read body (limit to 1MB)
+	body := make([]byte, 1<<20)
+	n, err := r.Body.Read(body)
+	if err != nil && err.Error() != "EOF" {
+		http.Error(w, "Failed to read body", http.StatusBadRequest)
+		return
+	}
+	body = body[:n]
+
+	// Parse bundle
+	bundle, err := domaintransparencylog.ParseExportBundle(string(body))
+	if err != nil {
+		http.Error(w, "Invalid bundle format: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Validate bundle
+	if err := s.transparencyLogEngine.ValidateExportBundle(bundle); err != nil {
+		http.Error(w, "Invalid bundle: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Import entries
+	entries, err := s.transparencyLogEngine.ImportBundle(bundle)
+	if err != nil {
+		http.Error(w, "Failed to import bundle: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Append entries to store
+	newCount := 0
+	for _, entry := range entries {
+		wasNew, err := s.transparencyLogStore.Append(entry)
+		if err != nil {
+			continue
+		}
+		if wasNew {
+			newCount++
+			s.eventEmitter.Emit(events.Event{
+				Type:      events.Phase51TransparencyAppended,
+				Timestamp: now,
+			})
+		} else {
+			s.eventEmitter.Emit(events.Event{
+				Type:      events.Phase51TransparencyDeduped,
+				Timestamp: now,
+			})
+		}
+	}
+
+	// Emit imported event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase51TransparencyImported,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"period":    string(bundle.Period),
+			"new_count": fmt.Sprintf("%d", newCount),
+			"total":     fmt.Sprintf("%d", len(entries)),
+		},
+	})
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	fmt.Fprintf(w, "imported|new=%d|total=%d\n", newCount, len(entries))
+}
+
+// buildTransparencyInputs builds transparency inputs from Phase 50 stores.
+func (s *Server) buildTransparencyInputs(periodKey string) internaltransparencylog.TransparencyInputs {
+	inputs := internaltransparencylog.TransparencyInputs{}
+
+	// Get verified claims from Phase 50 store
+	claims := s.signedClaimStore.ListVerifiedByPeriod(periodKey)
+	for _, claim := range claims {
+		inputs.SignedClaimRefs = append(inputs.SignedClaimRefs, internaltransparencylog.SignedRef{
+			RefHash:    string(claim.ClaimHash),
+			KeyFP:      string(claim.KeyFingerprint),
+			Provenance: string(claim.Provenance),
+		})
+	}
+
+	// Get verified manifests from Phase 50 store
+	manifests := s.signedManifestStore.ListVerifiedByPeriod(periodKey)
+	for _, manifest := range manifests {
+		inputs.SignedManifestRefs = append(inputs.SignedManifestRefs, internaltransparencylog.SignedRef{
+			RefHash:    string(manifest.ManifestHash),
+			KeyFP:      string(manifest.KeyFingerprint),
+			Provenance: string(manifest.Provenance),
+		})
+	}
+
+	return inputs
+}
+
+// renderTransparencyLogPage renders the transparency log page.
+func (s *Server) renderTransparencyLogPage(w http.ResponseWriter, page domaintransparencylog.TransparencyLogPage) {
+	// Determine summary text
+	summaryText := "Nothing recorded."
+	if page.TotalCount > 0 {
+		summaryText = "Signed statements were recorded."
+	}
+
+	fmt.Fprintf(w, `<!DOCTYPE html>
+<html>
+<head>
+<title>Transparency</title>
+<style>
+body { font-family: system-ui, sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; background: #fafafa; }
+.card { background: white; border-radius: 8px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+h1 { font-size: 1.5rem; font-weight: 500; margin: 0 0 8px 0; color: #333; }
+.summary { color: #666; margin-bottom: 24px; }
+.entries { border-top: 1px solid #eee; padding-top: 16px; }
+.entry { font-family: monospace; font-size: 0.85rem; color: #555; padding: 8px 0; border-bottom: 1px solid #f0f0f0; }
+.entry:last-child { border-bottom: none; }
+.label { color: #888; font-size: 0.75rem; }
+.hash { color: #666; }
+.status-hash { margin-top: 24px; padding-top: 16px; border-top: 1px solid #eee; font-family: monospace; font-size: 0.75rem; color: #999; }
+.more { color: #888; font-style: italic; padding: 8px 0; }
+</style>
+</head>
+<body>
+<div class="card">
+<h1>%s</h1>
+<p class="summary">%s</p>
+`, page.Title, summaryText)
+
+	if len(page.Lines) > 0 {
+		fmt.Fprintf(w, `<div class="entries">`)
+		for _, line := range page.Lines {
+			fmt.Fprintf(w, `<div class="entry">
+<span class="label">%s</span> &middot;
+<span class="label">%s</span> &middot;
+<span class="hash">key:%s</span> &middot;
+<span class="hash">ref:%s</span>
+</div>
+`, line.Kind, line.Provenance, line.KeyFP.Short(), line.RefHash.Short())
+		}
+		if page.TotalCount > len(page.Lines) {
+			fmt.Fprintf(w, `<div class="more">+ %d more entries (see export)</div>`, page.TotalCount-len(page.Lines))
+		}
+		fmt.Fprintf(w, `</div>`)
+	}
+
+	fmt.Fprintf(w, `<div class="status-hash">status: %s</div>
+</div>
+</body>
+</html>
+`, page.StatusHash)
 }
 
 // ============================================================================

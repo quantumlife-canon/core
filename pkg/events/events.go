@@ -2150,6 +2150,23 @@ const (
 	Phase50ManifestVerified EventType = "phase50.manifest.verified"
 	// Phase50ManifestPersisted - a signed pack manifest record was persisted.
 	Phase50ManifestPersisted EventType = "phase50.manifest.persisted"
+
+	// Phase 51: Transparency Log / Claim Ledger events
+	// Reference: docs/ADR/ADR-0089-phase51-transparency-log-claim-ledger.md
+	// CRITICAL: Observation/proof only - NO POWER to change decisions.
+
+	// Phase51TransparencyRequested - transparency log page was requested.
+	Phase51TransparencyRequested EventType = "phase51.transparency.requested"
+	// Phase51TransparencyRendered - transparency log page was rendered.
+	Phase51TransparencyRendered EventType = "phase51.transparency.rendered"
+	// Phase51TransparencyExported - transparency log was exported as bundle.
+	Phase51TransparencyExported EventType = "phase51.transparency.exported"
+	// Phase51TransparencyImported - transparency log bundle was imported.
+	Phase51TransparencyImported EventType = "phase51.transparency.imported"
+	// Phase51TransparencyAppended - a new entry was appended to transparency log.
+	Phase51TransparencyAppended EventType = "phase51.transparency.appended"
+	// Phase51TransparencyDeduped - a duplicate entry was detected and skipped.
+	Phase51TransparencyDeduped EventType = "phase51.transparency.deduped"
 )
 
 // Event represents a system event for audit and observability.

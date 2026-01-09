@@ -1035,6 +1035,21 @@ check-signed-claims:
 	@./scripts/guardrails/signed_claims_enforced.sh
 
 # =============================================================================
+# Phase 51: Transparency Log / Claim Ledger
+# =============================================================================
+# Append-only, hash-only, observation/proof-only ledger for signed claims/manifests.
+# NO POWER: Does not affect decisions, outcomes, or delivery.
+# Reference: docs/ADR/ADR-0089-phase51-transparency-log-claim-ledger.md
+demo-phase51:
+	@echo "Running Phase 51 Demo: Transparency Log..."
+	go test -v ./internal/demo_phase51_transparency_log/...
+
+# Check Phase 51 Transparency Log constraints
+check-transparency-log:
+	@echo "Checking Phase 51 constraints..."
+	@./scripts/guardrails/transparency_log_enforced.sh
+
+# =============================================================================
 # Web Server Targets
 # =============================================================================
 # These are convenience targets for running the QuantumLife web server.

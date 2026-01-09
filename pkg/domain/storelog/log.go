@@ -296,6 +296,13 @@ const (
 	// CRITICAL: Bounded retention: 30 days OR 200 records max.
 	RecordTypeSignedClaim    = "SIGNED_CLAIM"
 	RecordTypeSignedManifest = "SIGNED_MANIFEST"
+
+	// Phase 51: Transparency Log / Claim Ledger record types
+	// Reference: docs/ADR/ADR-0089-phase51-transparency-log-claim-ledger.md
+	// CRITICAL: Append-only, hash-only, observation/proof only - NO POWER.
+	// CRITICAL: Bounded retention: 30 days OR 5000 entries max.
+	RecordTypeTransparencyLogEntry  = "TRANSPARENCY_LOG_ENTRY"
+	RecordTypeTransparencyLogImport = "TRANSPARENCY_LOG_IMPORT"
 )
 
 // Common errors
