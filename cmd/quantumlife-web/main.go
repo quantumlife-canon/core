@@ -99,6 +99,7 @@ import (
 	internaltrusttransfer "quantumlife/internal/trusttransfer"
 	"quantumlife/internal/undoableexec"
 	internalurgencydelivery "quantumlife/internal/urgencydelivery"
+	internalobserverconsent "quantumlife/internal/observerconsent"
 	internalurgencyresolve "quantumlife/internal/urgencyresolve"
 	internalvendorcontract "quantumlife/internal/vendorcontract"
 	"quantumlife/pkg/clock"
@@ -148,6 +149,7 @@ import (
 	domaintrusttransfer "quantumlife/pkg/domain/trusttransfer"
 	domainundoableexec "quantumlife/pkg/domain/undoableexec"
 	domainurgencydelivery "quantumlife/pkg/domain/urgencydelivery"
+	domainobserverconsent "quantumlife/pkg/domain/observerconsent"
 	domainurgencyresolve "quantumlife/pkg/domain/urgencyresolve"
 	domainvendorcontract "quantumlife/pkg/domain/vendorcontract"
 	"quantumlife/pkg/events"
@@ -298,6 +300,10 @@ type Server struct {
 	// Phase 54: Urgency → Delivery Binding
 	urgencyDeliveryStore  *persist.UrgencyDeliveryStore   // Phase 54: Urgency delivery store
 	urgencyDeliveryEngine *internalurgencydelivery.Engine // Phase 54: Urgency delivery engine
+	// Phase 55: Observer Consent Activation UI
+	observerConsentStore    *persist.ObserverConsentStore    // Phase 55: Observer consent store
+	observerConsentAckStore *persist.ObserverConsentAckStore // Phase 55: Observer consent ack store
+	observerConsentEngine   *internalobserverconsent.Engine  // Phase 55: Observer consent engine
 	// Phase 18 Web Control Center
 	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
 	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
@@ -449,6 +455,9 @@ type templateData struct {
 	MarketProofPage *domainmarketsignal.MarketProofPage
 	// Phase 49: Vendor Reality Contracts
 	VendorProofPage *domainvendorcontract.VendorProofPage
+	// Phase 55: Observer Consent Activation UI
+	ObserverSettingsPage *domainobserverconsent.ObserverSettingsPage
+	ObserverProofPage    *domainobserverconsent.ObserverProofPage
 	// Phase 18 Web Control Center
 	RunSnapshots     []*runlog.RunSnapshot      // List of run snapshots for /runs
 	RunSnapshot      *runlog.RunSnapshot        // Single run snapshot for /runs/:id
@@ -949,6 +958,13 @@ func main() {
 	urgencyDeliveryStore := persist.NewUrgencyDeliveryStore(clk.Now)
 	urgencyDeliveryEngine := internalurgencydelivery.NewEngine()
 
+	// Phase 55: Observer Consent Activation UI stores and engine
+	observerConsentStore := persist.NewObserverConsentStore(clk.Now)
+	observerConsentAckStore := persist.NewObserverConsentAckStore(clk.Now)
+	observerConsentEngine := internalobserverconsent.NewEngine(func() string {
+		return clk.Now().Format("2006-01-02")
+	})
+
 	// Phase 18 Web Control Center: Create stores
 	runStore := runlog.NewInMemoryRunStore()
 	suppressionSet := suppress.NewSuppressionSet()
@@ -1091,6 +1107,10 @@ func main() {
 		// Phase 54: Urgency → Delivery Binding
 		urgencyDeliveryStore:  urgencyDeliveryStore,
 		urgencyDeliveryEngine: urgencyDeliveryEngine,
+		// Phase 55: Observer Consent Activation UI
+		observerConsentStore:    observerConsentStore,
+		observerConsentAckStore: observerConsentAckStore,
+		observerConsentEngine:   observerConsentEngine,
 		// Phase 18 Web Control Center
 		runStore:       runStore,
 		suppressionSet: suppressionSet,
@@ -1256,6 +1276,11 @@ func main() {
 	// Phase 54: Urgency → Delivery Binding routes
 	mux.HandleFunc("/proof/urgency-delivery", server.handleUrgencyDeliveryProof) // Phase 54: View delivery proof (GET)
 	mux.HandleFunc("/run/urgency-delivery", server.handleUrgencyDeliveryRun)     // Phase 54: Run delivery binding (POST)
+	mux.HandleFunc("/settings/observers", server.handleObserverSettings)         // Phase 55: Observer consent settings (GET)
+	mux.HandleFunc("/settings/observers/enable", server.handleObserverEnable)    // Phase 55: Enable observer (POST)
+	mux.HandleFunc("/settings/observers/disable", server.handleObserverDisable)  // Phase 55: Disable observer (POST)
+	mux.HandleFunc("/proof/observers", server.handleObserverProof)               // Phase 55: Observer consent proof (GET)
+	mux.HandleFunc("/proof/observers/dismiss", server.handleObserverProofDismiss) // Phase 55: Dismiss proof (POST)
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18 Web Control Center: Core routes
@@ -13558,6 +13583,289 @@ func (s *Server) attemptDeliveryViaPhase36(circleIDHash, candidateHash, periodKe
 }
 
 // ============================================================================
+// Phase 55: Observer Consent Activation UI Handlers
+// Reference: docs/ADR/ADR-0092-phase55-observer-consent-activation-ui.md
+// CRITICAL: POST-only for mutations. Hash-only storage. No forbidden fields.
+// ============================================================================
+
+// handleObserverSettings handles GET /settings/observers.
+// Phase 55: Displays observer consent settings page.
+func (s *Server) handleObserverSettings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get circle ID from query param
+	circleID := r.URL.Query().Get("circle_id")
+	if circleID == "" {
+		circleID = "demo-circle"
+	}
+	circleIDHash := domainobserverconsent.HashCircleID(circleID)
+
+	// Get current capabilities from coverage plan
+	currentCaps := s.getCurrentCapabilities(circleIDHash)
+
+	// Build settings page
+	page := s.observerConsentEngine.BuildSettingsPage(currentCaps)
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:     events.Phase55ObserverConsentPageRendered,
+		CircleID: circleID,
+		Metadata: map[string]string{
+			"circleIDHash": circleIDHash[:16],
+			"statusHash":   page.StatusHash[:16],
+		},
+	})
+
+	s.templates.ExecuteTemplate(w, "observer_settings", templateData{
+		Title:                "Observer Settings",
+		CircleID:             circleID,
+		ObserverSettingsPage: &page,
+	})
+}
+
+// handleObserverEnable handles POST /settings/observers/enable.
+// Phase 55: Enables an observer capability.
+func (s *Server) handleObserverEnable(w http.ResponseWriter, r *http.Request) {
+	s.handleObserverConsentChange(w, r, domainobserverconsent.ActionEnable)
+}
+
+// handleObserverDisable handles POST /settings/observers/disable.
+// Phase 55: Disables an observer capability.
+func (s *Server) handleObserverDisable(w http.ResponseWriter, r *http.Request) {
+	s.handleObserverConsentChange(w, r, domainobserverconsent.ActionDisable)
+}
+
+// handleObserverConsentChange processes enable/disable requests.
+// CRITICAL: POST-only. Rejects forbidden client fields.
+func (s *Server) handleObserverConsentChange(w http.ResponseWriter, r *http.Request, action domainobserverconsent.ConsentAction) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse form
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+
+	// Check for forbidden fields
+	fields := make(map[string]string)
+	for key := range r.Form {
+		fields[key] = r.Form.Get(key)
+	}
+	if err := internalobserverconsent.ValidateNoForbiddenFields(fields); err != nil {
+		log.Printf("Phase 55: Rejected request with forbidden field: %v", err)
+		http.Error(w, "Forbidden field in request", http.StatusBadRequest)
+		return
+	}
+
+	// Get circle ID
+	circleID := r.Form.Get("circle_id")
+	if circleID == "" {
+		http.Error(w, "circle_id is required", http.StatusBadRequest)
+		return
+	}
+	circleIDHash := domainobserverconsent.HashCircleID(circleID)
+
+	// Get capability
+	capStr := r.Form.Get("capability")
+	cap := domaincoverageplan.CoverageCapability(capStr)
+
+	// Emit request event
+	s.eventEmitter.Emit(events.Event{
+		Type:     events.Phase55ObserverConsentRequested,
+		CircleID: circleID,
+		Metadata: map[string]string{
+			"circleIDHash": circleIDHash[:16],
+			"capability":   capStr,
+			"action":       string(action),
+		},
+	})
+
+	// Get current capabilities
+	currentCaps := s.getCurrentCapabilities(circleIDHash)
+
+	// Build request
+	req := domainobserverconsent.ObserverConsentRequest{
+		CircleIDHash: circleIDHash,
+		Action:       action,
+		Capability:   cap,
+	}
+
+	// Apply consent
+	output := s.observerConsentEngine.ApplyConsent(internalobserverconsent.ApplyConsentInput{
+		Request:     req,
+		CurrentCaps: currentCaps,
+	})
+
+	// Emit result event
+	if output.Receipt.Result == domainobserverconsent.ResultApplied {
+		s.eventEmitter.Emit(events.Event{
+			Type:     events.Phase55ObserverConsentApplied,
+			CircleID: circleID,
+			Metadata: map[string]string{
+				"circleIDHash": circleIDHash[:16],
+				"capability":   capStr,
+				"action":       string(action),
+				"receiptHash":  output.Receipt.ReceiptHash[:16],
+			},
+		})
+
+		// Update coverage plan with new capabilities
+		s.updateCoverageCapabilities(circleIDHash, output.NewCaps)
+	} else if output.Receipt.Result == domainobserverconsent.ResultRejected {
+		s.eventEmitter.Emit(events.Event{
+			Type:     events.Phase55ObserverConsentRejected,
+			CircleID: circleID,
+			Metadata: map[string]string{
+				"circleIDHash":  circleIDHash[:16],
+				"capability":    capStr,
+				"action":        string(action),
+				"rejectReason":  string(output.Receipt.RejectReason),
+			},
+		})
+	}
+
+	// Persist receipt
+	if s.observerConsentStore.AppendReceipt(output.Receipt) {
+		s.eventEmitter.Emit(events.Event{
+			Type:     events.Phase55ObserverConsentPersisted,
+			CircleID: circleID,
+			Metadata: map[string]string{
+				"receiptHash": output.Receipt.ReceiptHash[:16],
+			},
+		})
+	}
+
+	// Redirect back to settings
+	http.Redirect(w, r, "/settings/observers?circle_id="+circleID, http.StatusSeeOther)
+}
+
+// handleObserverProof handles GET /proof/observers.
+// Phase 55: Displays observer consent proof page.
+func (s *Server) handleObserverProof(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get circle ID from query param
+	circleID := r.URL.Query().Get("circle_id")
+	if circleID == "" {
+		circleID = "demo-circle"
+	}
+	circleIDHash := domainobserverconsent.HashCircleID(circleID)
+
+	// Get receipts for this circle
+	receipts := s.observerConsentStore.ListByCircle(circleIDHash)
+
+	// Build proof page
+	page := s.observerConsentEngine.BuildProofPage(receipts)
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:     events.Phase55ObserverConsentProofRendered,
+		CircleID: circleID,
+		Metadata: map[string]string{
+			"circleIDHash": circleIDHash[:16],
+			"statusHash":   page.StatusHash[:16],
+			"receiptCount": fmt.Sprintf("%d", len(receipts)),
+		},
+	})
+
+	s.templates.ExecuteTemplate(w, "observer_proof", templateData{
+		Title:             "Observer Consent Proof",
+		CircleID:          circleID,
+		ObserverProofPage: &page,
+	})
+}
+
+// handleObserverProofDismiss handles POST /proof/observers/dismiss.
+// Phase 55: Dismisses observer consent proof cue.
+func (s *Server) handleObserverProofDismiss(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Parse form
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+
+	// Get circle ID
+	circleID := r.Form.Get("circle_id")
+	if circleID == "" {
+		http.Error(w, "circle_id is required", http.StatusBadRequest)
+		return
+	}
+	circleIDHash := domainobserverconsent.HashCircleID(circleID)
+
+	// Create ack
+	periodKey := s.clk.Now().Format("2006-01-02")
+	ack := domainobserverconsent.ObserverConsentAck{
+		PeriodKey:    periodKey,
+		CircleIDHash: circleIDHash,
+		AckKind:      domainobserverconsent.AckDismissed,
+	}
+	ack.StatusHash = ack.ComputeStatusHash()
+
+	// Persist ack
+	if s.observerConsentAckStore.AppendAck(ack) {
+		s.eventEmitter.Emit(events.Event{
+			Type:     events.Phase55ObserverConsentAckDismissed,
+			CircleID: circleID,
+			Metadata: map[string]string{
+				"circleIDHash": circleIDHash[:16],
+				"statusHash":   ack.StatusHash[:16],
+			},
+		})
+	}
+
+	// Redirect back to proof page
+	http.Redirect(w, r, "/proof/observers?circle_id="+circleID, http.StatusSeeOther)
+}
+
+// getCurrentCapabilities gets the current capabilities for a circle from coverage plan.
+func (s *Server) getCurrentCapabilities(circleIDHash string) []domaincoverageplan.CoverageCapability {
+	plan, exists := s.coveragePlanStore.LastPlan(circleIDHash)
+	if !exists {
+		return []domaincoverageplan.CoverageCapability{}
+	}
+	return plan.Capabilities
+}
+
+// updateCoverageCapabilities updates the coverage plan with new capabilities.
+// This integrates Phase 55 consent changes with the Phase 47 coverage plan.
+func (s *Server) updateCoverageCapabilities(circleIDHash string, newCaps []domaincoverageplan.CoverageCapability) {
+	periodKey := s.clk.Now().Format("2006-01-02")
+
+	// Get current plan
+	existingPlan, exists := s.coveragePlanStore.LastPlan(circleIDHash)
+	if !exists {
+		// Create new plan with just the capabilities
+		existingPlan = domaincoverageplan.CoveragePlan{
+			CircleIDHash: circleIDHash,
+			PeriodKey:    periodKey,
+			Sources:      []domaincoverageplan.CoverageSourcePlan{},
+		}
+	}
+
+	// Update capabilities
+	existingPlan.Capabilities = domaincoverageplan.NormalizeCapabilities(newCaps)
+	existingPlan.PeriodKey = periodKey
+	existingPlan.PlanHash = existingPlan.ComputePlanHash()
+
+	// Persist updated plan
+	_ = s.coveragePlanStore.AppendPlan(existingPlan)
+}
+
+// ============================================================================
 // Phase 30A: Identity + Replay Handlers
 // ============================================================================
 
@@ -18352,5 +18660,160 @@ const templates = `
     <a href="/today" class="proof-back-link">Back</a>
 </div>
 {{end}}
+{{end}}
+
+{{define "observer_settings"}}
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{.Title}}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: system-ui, -apple-system, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background: #fafafa; }
+        .settings-page { background: white; padding: 24px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .settings-title { margin: 0 0 8px 0; font-size: 24px; color: #1a1a1a; }
+        .settings-description { color: #666; margin-bottom: 24px; font-size: 14px; line-height: 1.5; }
+        .capability-list { list-style: none; padding: 0; margin: 0; }
+        .capability-item { padding: 16px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
+        .capability-item:last-child { border-bottom: none; }
+        .capability-info { flex: 1; }
+        .capability-label { font-weight: 500; color: #1a1a1a; }
+        .capability-desc { font-size: 13px; color: #666; margin-top: 4px; }
+        .capability-toggle { display: flex; gap: 8px; }
+        .toggle-btn { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+        .toggle-enable { background: #10b981; color: white; }
+        .toggle-enable:hover { background: #059669; }
+        .toggle-disable { background: #ef4444; color: white; }
+        .toggle-disable:hover { background: #dc2626; }
+        .toggle-enabled { background: #d1fae5; color: #065f46; cursor: default; }
+        .toggle-disabled { background: #fee2e2; color: #991b1b; cursor: default; }
+        .status-badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; margin-left: 8px; }
+        .status-enabled { background: #d1fae5; color: #065f46; }
+        .status-disabled { background: #f3f4f6; color: #6b7280; }
+        .proof-link { margin-top: 24px; text-align: center; }
+        .proof-link a { color: #6366f1; text-decoration: none; }
+        .proof-link a:hover { text-decoration: underline; }
+        .back-link { display: block; margin-top: 16px; text-align: center; color: #6b7280; text-decoration: none; }
+        .back-link:hover { color: #1a1a1a; }
+    </style>
+</head>
+<body>
+{{if .ObserverSettingsPage}}
+<div class="settings-page">
+    <h1 class="settings-title">{{.ObserverSettingsPage.Title}}</h1>
+    <p class="settings-description">{{.ObserverSettingsPage.Description}}</p>
+
+    <ul class="capability-list">
+    {{range .ObserverSettingsPage.Capabilities}}
+        <li class="capability-item">
+            <div class="capability-info">
+                <div class="capability-label">
+                    {{.Label}}
+                    {{if .Enabled}}
+                    <span class="status-badge status-enabled">Enabled</span>
+                    {{else}}
+                    <span class="status-badge status-disabled">Disabled</span>
+                    {{end}}
+                </div>
+                <div class="capability-desc">{{.Description}}</div>
+            </div>
+            <div class="capability-toggle">
+                {{if .Enabled}}
+                <form method="POST" action="/settings/observers/disable" style="margin:0;">
+                    <input type="hidden" name="circle_id" value="{{$.CircleID}}">
+                    <input type="hidden" name="capability" value="{{.Capability}}">
+                    <button type="submit" class="toggle-btn toggle-disable">Disable</button>
+                </form>
+                {{else}}
+                <form method="POST" action="/settings/observers/enable" style="margin:0;">
+                    <input type="hidden" name="circle_id" value="{{$.CircleID}}">
+                    <input type="hidden" name="capability" value="{{.Capability}}">
+                    <button type="submit" class="toggle-btn toggle-enable">Enable</button>
+                </form>
+                {{end}}
+            </div>
+        </li>
+    {{end}}
+    </ul>
+
+    <div class="proof-link">
+        <a href="/proof/observers?circle_id={{.CircleID}}">View consent proof</a>
+    </div>
+</div>
+<a href="/today" class="back-link">Back to Today</a>
+{{end}}
+</body>
+</html>
+{{end}}
+
+{{define "observer_proof"}}
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{.Title}}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: system-ui, -apple-system, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background: #fafafa; }
+        .proof-page { background: white; padding: 24px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .proof-title { margin: 0 0 8px 0; font-size: 24px; color: #1a1a1a; }
+        .proof-lines { color: #666; margin-bottom: 24px; }
+        .proof-line { margin-bottom: 8px; font-size: 14px; line-height: 1.5; }
+        .receipt-list { list-style: none; padding: 0; margin: 0; }
+        .receipt-item { padding: 12px; border: 1px solid #eee; border-radius: 4px; margin-bottom: 8px; font-family: monospace; font-size: 12px; }
+        .receipt-action { font-weight: 500; }
+        .receipt-action-enable { color: #065f46; }
+        .receipt-action-disable { color: #991b1b; }
+        .receipt-cap { color: #4b5563; }
+        .receipt-result { color: #6b7280; }
+        .receipt-hash { color: #9ca3af; font-size: 11px; word-break: break-all; }
+        .no-receipts { color: #9ca3af; font-style: italic; text-align: center; padding: 24px; }
+        .dismiss-form { margin-top: 24px; text-align: center; }
+        .dismiss-btn { padding: 8px 16px; background: #f3f4f6; border: none; border-radius: 4px; cursor: pointer; color: #4b5563; }
+        .dismiss-btn:hover { background: #e5e7eb; }
+        .settings-link { display: block; margin-top: 16px; text-align: center; }
+        .settings-link a { color: #6366f1; text-decoration: none; }
+        .settings-link a:hover { text-decoration: underline; }
+        .back-link { display: block; margin-top: 16px; text-align: center; color: #6b7280; text-decoration: none; }
+        .back-link:hover { color: #1a1a1a; }
+    </style>
+</head>
+<body>
+{{if .ObserverProofPage}}
+<div class="proof-page">
+    <h1 class="proof-title">{{.ObserverProofPage.Title}}</h1>
+    <div class="proof-lines">
+        {{range .ObserverProofPage.Lines}}
+        <p class="proof-line">{{.}}</p>
+        {{end}}
+    </div>
+
+    {{if .ObserverProofPage.Receipts}}
+    <ul class="receipt-list">
+    {{range .ObserverProofPage.Receipts}}
+        <li class="receipt-item">
+            <span class="receipt-action {{if eq .Action.String "enable"}}receipt-action-enable{{else}}receipt-action-disable{{end}}">{{.Action}}</span>
+            <span class="receipt-cap">{{.Capability}}</span>
+            <span class="receipt-result">({{.Result}})</span>
+            <div class="receipt-hash">{{slice .ReceiptHash 0 16}}...</div>
+        </li>
+    {{end}}
+    </ul>
+    {{else}}
+    <p class="no-receipts">No consent changes recorded.</p>
+    {{end}}
+
+    <form method="POST" action="/proof/observers/dismiss" class="dismiss-form">
+        <input type="hidden" name="circle_id" value="{{.CircleID}}">
+        <button type="submit" class="dismiss-btn">Dismiss</button>
+    </form>
+
+    <div class="settings-link">
+        <a href="/settings/observers?circle_id={{.CircleID}}">Manage observer settings</a>
+    </div>
+</div>
+<a href="/today" class="back-link">Back to Today</a>
+{{end}}
+</body>
+</html>
 {{end}}
 `

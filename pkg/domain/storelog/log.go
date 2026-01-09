@@ -322,6 +322,13 @@ const (
 	// CRITICAL: Append-only, hash-only, POST-triggered only - NO BACKGROUND EXECUTION.
 	// CRITICAL: Bounded retention: 30 days OR 200 entries max.
 	RecordTypeUrgencyDeliveryReceipt = "URGENCY_DELIVERY_RECEIPT"
+
+	// Phase 55: Observer Consent Activation UI record types
+	// Reference: docs/ADR/ADR-0092-phase55-observer-consent-activation-ui.md
+	// CRITICAL: Hash-only, explicit consent only, POST-only mutations.
+	// CRITICAL: Bounded retention: 30 days OR 200 records max.
+	RecordTypeObserverConsentReceipt = "OBSERVER_CONSENT_RECEIPT"
+	RecordTypeObserverConsentAck     = "OBSERVER_CONSENT_ACK"
 )
 
 // Common errors

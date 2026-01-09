@@ -2224,6 +2224,27 @@ const (
 	Phase54UrgencyDeliveryDelivered EventType = "phase54.urgency_delivery.delivered"
 	// Phase54UrgencyDeliveryPersisted - urgency delivery receipt was persisted.
 	Phase54UrgencyDeliveryPersisted EventType = "phase54.urgency_delivery.persisted"
+
+	// =========================================================================
+	// Phase 55: Observer Consent Activation UI events
+	// Reference: docs/ADR/ADR-0092-phase55-observer-consent-activation-ui.md
+	// CRITICAL: Explicit consent only, POST-only mutations, hash-only storage.
+	// =========================================================================
+
+	// Phase55ObserverConsentPageRendered - observer consent settings page was rendered.
+	Phase55ObserverConsentPageRendered EventType = "phase55.observer_consent.page.rendered"
+	// Phase55ObserverConsentRequested - observer consent change was requested.
+	Phase55ObserverConsentRequested EventType = "phase55.observer_consent.requested"
+	// Phase55ObserverConsentApplied - observer consent was applied successfully.
+	Phase55ObserverConsentApplied EventType = "phase55.observer_consent.applied"
+	// Phase55ObserverConsentRejected - observer consent was rejected.
+	Phase55ObserverConsentRejected EventType = "phase55.observer_consent.rejected"
+	// Phase55ObserverConsentPersisted - observer consent receipt was persisted.
+	Phase55ObserverConsentPersisted EventType = "phase55.observer_consent.persisted"
+	// Phase55ObserverConsentProofRendered - observer consent proof page was rendered.
+	Phase55ObserverConsentProofRendered EventType = "phase55.observer_consent.proof.rendered"
+	// Phase55ObserverConsentAckDismissed - observer consent proof was dismissed.
+	Phase55ObserverConsentAckDismissed EventType = "phase55.observer_consent.ack.dismissed"
 )
 
 // Event represents a system event for audit and observability.

@@ -83,6 +83,7 @@ help:
 	@echo "  make demo-phase42 - Run Phase 42 delegated holding contracts demo"
 	@echo "  make demo-phase43 - Run Phase 43 held under agreement proof ledger demo"
 	@echo "  make demo-phase44 - Run Phase 44 cross-circle trust transfer (HOLD-only) demo"
+	@echo "  make demo-phase55 - Run Phase 55 observer consent activation UI demo"
 	@echo ""
 	@echo "Web Server:"
 	@echo "  make web          - Run web server on :8080 (real mode)"
@@ -1087,6 +1088,23 @@ demo-phase54:
 check-urgency-delivery-binding:
 	@echo "Checking Phase 54 constraints..."
 	@./scripts/guardrails/urgency_delivery_binding_enforced.sh
+
+# =============================================================================
+# Phase 55: Observer Consent Activation UI
+# =============================================================================
+# Provides explicit POST-only consent controls for observer capabilities.
+# Uses existing Coverage Plan mechanism - does NOT add new power.
+# Consent controls ONLY what may be observed, never what may be done.
+# Hash-only storage, bounded retention (200 records OR 30 days).
+# Reference: docs/ADR/ADR-0092-phase55-observer-consent-activation-ui.md
+demo-phase55:
+	@echo "Running Phase 55 Demo: Observer Consent Activation UI..."
+	go test -v ./internal/demo_phase55_observer_consent/...
+
+# Check Phase 55 Observer Consent constraints
+check-observer-consent:
+	@echo "Checking Phase 55 constraints..."
+	@./scripts/guardrails/observer_consent_enforced.sh
 
 # =============================================================================
 # Web Server Targets
