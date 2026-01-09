@@ -241,6 +241,14 @@ const (
 	// CRITICAL: Bounded retention: 30 days OR 100 records max.
 	RecordTypeEnforcementAuditRun = "ENFORCEMENT_AUDIT_RUN"
 	RecordTypeEnforcementAuditAck = "ENFORCEMENT_AUDIT_ACK"
+
+	// Phase 45: Circle Semantics & Necessity Declaration record types
+	// CRITICAL: Contains ONLY abstract buckets and hashes - never identifiers.
+	// CRITICAL: Meaning-only layer. Semantics do NOT grant permission.
+	// CRITICAL: Effect MUST be effect_no_power in Phase 45.
+	// CRITICAL: Bounded retention: 30 days OR 200 records max.
+	RecordTypeCircleSemanticsRecord   = "CIRCLE_SEMANTICS_RECORD"
+	RecordTypeCircleSemanticsProofAck = "CIRCLE_SEMANTICS_PROOF_ACK"
 )
 
 // Common errors

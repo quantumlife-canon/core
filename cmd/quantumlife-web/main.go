@@ -64,6 +64,7 @@ import (
 	internaltrusttransfer "quantumlife/internal/trusttransfer"
 	internalenforcementaudit "quantumlife/internal/enforcementaudit"
 	internalenforcementclamp "quantumlife/internal/enforcementclamp"
+	internalcirclesemantics "quantumlife/internal/circlesemantics"
 	internalinvitation "quantumlife/internal/invitation"
 	"quantumlife/internal/journey"
 	"quantumlife/internal/loop"
@@ -114,6 +115,7 @@ import (
 	domainheldproof "quantumlife/pkg/domain/heldproof"
 	domaintrusttransfer "quantumlife/pkg/domain/trusttransfer"
 	domainenforcementaudit "quantumlife/pkg/domain/enforcementaudit"
+	domaincirclesemantics "quantumlife/pkg/domain/circlesemantics"
 	domaininvitation "quantumlife/pkg/domain/invitation"
 	domainmirror "quantumlife/pkg/domain/mirror"
 	"quantumlife/pkg/domain/obligation"
@@ -238,6 +240,10 @@ type Server struct {
 	enforcementAuditEngine       *internalenforcementaudit.Engine      // Phase 44.2: Enforcement audit engine
 	enforcementClampEngine       *internalenforcementclamp.Engine      // Phase 44.2: Enforcement clamp engine
 	enforcementManifest          internalenforcementaudit.EnforcementManifest // Phase 44.2: Enforcement manifest
+	// Phase 45: Circle Semantics
+	circleSemanticsStore    *persist.CircleSemanticsStore    // Phase 45: Semantics record store
+	circleSemanticsAckStore *persist.CircleSemanticsAckStore // Phase 45: Semantics ack store
+	circleSemanticsEngine   *internalcirclesemantics.Engine  // Phase 45: Semantics engine
 	// Phase 18 Web Control Center
 	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
 	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
@@ -375,6 +381,9 @@ type templateData struct {
 	TrustTransferCue        *domaintrusttransfer.TrustTransferCue
 	// Phase 44.2: Enforcement Wiring Audit
 	EnforcementAuditProofPage *domainenforcementaudit.AuditProofPage
+	// Phase 45: Circle Semantics
+	CircleSemanticsSettingsPage *domaincirclesemantics.SemanticsSettingsPage
+	CircleSemanticsProofPage    *domaincirclesemantics.SemanticsProofPage
 	// Phase 18 Web Control Center
 	RunSnapshots     []*runlog.RunSnapshot      // List of run snapshots for /runs
 	RunSnapshot      *runlog.RunSnapshot        // Single run snapshot for /runs/:id
@@ -808,6 +817,11 @@ func main() {
 	// Build complete manifest (all enforcement wrappers are wired)
 	enforcementManifest := internalenforcementaudit.BuildCompleteManifest()
 
+	// Phase 45: Circle Semantics stores and engine
+	circleSemanticsStore := persist.NewCircleSemanticsStore(clk.Now)
+	circleSemanticsAckStore := persist.NewCircleSemanticsAckStore(clk.Now)
+	circleSemanticsEngine := internalcirclesemantics.NewEngine(clk)
+
 	// Phase 18 Web Control Center: Create stores
 	runStore := runlog.NewInMemoryRunStore()
 	suppressionSet := suppress.NewSuppressionSet()
@@ -910,6 +924,10 @@ func main() {
 		enforcementAuditEngine:       enforcementAuditEngine,                  // Phase 44.2
 		enforcementClampEngine:       enforcementClampEngine,                  // Phase 44.2
 		enforcementManifest:          enforcementManifest,                     // Phase 44.2
+		// Phase 45: Circle Semantics
+		circleSemanticsStore:    circleSemanticsStore,
+		circleSemanticsAckStore: circleSemanticsAckStore,
+		circleSemanticsEngine:   circleSemanticsEngine,
 		// Phase 18 Web Control Center
 		runStore:       runStore,
 		suppressionSet: suppressionSet,
@@ -1038,6 +1056,10 @@ func main() {
 	mux.HandleFunc("/proof/enforcement", server.handleEnforcementAuditProof)             // Phase 44.2: Enforcement audit proof (GET)
 	mux.HandleFunc("/proof/enforcement/run", server.handleEnforcementAuditRun)           // Phase 44.2: Run enforcement audit (POST)
 	mux.HandleFunc("/proof/enforcement/dismiss", server.handleEnforcementAuditDismiss)   // Phase 44.2: Dismiss audit (POST)
+	mux.HandleFunc("/settings/semantics", server.handleCircleSemanticsSettings)        // Phase 45: Semantics settings (GET)
+	mux.HandleFunc("/settings/semantics/save", server.handleCircleSemanticsSave)       // Phase 45: Save semantics (POST)
+	mux.HandleFunc("/proof/semantics", server.handleCircleSemanticsProof)              // Phase 45: Semantics proof (GET)
+	mux.HandleFunc("/proof/semantics/dismiss", server.handleCircleSemanticsProofDismiss) // Phase 45: Dismiss proof (POST)
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18 Web Control Center: Core routes
@@ -10679,6 +10701,241 @@ func (s *Server) handleEnforcementAuditDismiss(w http.ResponseWriter, r *http.Re
 }
 
 // ============================================================================
+// Phase 45: Circle Semantics Handlers
+// ============================================================================
+
+// handleCircleSemanticsSettings renders the semantics settings page.
+func (s *Server) handleCircleSemanticsSettings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+
+	// Build inputs from connected circles
+	inputs := s.buildSemanticsInputs()
+
+	// Get existing records
+	existingRecords := s.circleSemanticsStore.ListLatestAll()
+
+	// Build settings page
+	page := s.circleSemanticsEngine.BuildSettingsPage(inputs, existingRecords)
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase45SemanticsSettingsViewed,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"circle_count_bucket": domaincirclesemantics.CircleCountBucket(len(page.Items)),
+		},
+	})
+
+	data := templateData{
+		Title:                       "Circle Semantics",
+		CircleSemanticsSettingsPage: &page,
+	}
+	s.render(w, "circle-semantics-settings", data)
+}
+
+// handleCircleSemanticsSave handles saving a circle's semantics.
+func (s *Server) handleCircleSemanticsSave(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+
+	// Parse form
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form", http.StatusBadRequest)
+		return
+	}
+
+	circleIDHash := r.FormValue("circle_id_hash")
+	kind := r.FormValue("kind")
+	urgency := r.FormValue("urgency")
+	necessity := r.FormValue("necessity")
+
+	// Validate required fields
+	if circleIDHash == "" || kind == "" || urgency == "" || necessity == "" {
+		http.Error(w, "Missing required fields", http.StatusBadRequest)
+		return
+	}
+
+	// Parse semantics from form values
+	desired, err := internalcirclesemantics.ParseSemanticsFromForm(kind, urgency, necessity)
+	if err != nil {
+		http.Error(w, "Invalid semantics values", http.StatusBadRequest)
+		return
+	}
+
+	// Get previous semantics if exists
+	var previous *domaincirclesemantics.CircleSemantics
+	if existingRecord, exists := s.circleSemanticsStore.GetLatest(circleIDHash); exists {
+		previous = &existingRecord.Semantics
+	}
+
+	// Apply user declaration
+	record, change, err := s.circleSemanticsEngine.ApplyUserDeclaration(circleIDHash, desired, previous)
+	if err != nil {
+		http.Error(w, "Failed to apply declaration", http.StatusInternalServerError)
+		return
+	}
+
+	// Store the record
+	if err := s.circleSemanticsStore.Upsert(record); err != nil {
+		http.Error(w, "Failed to store record", http.StatusInternalServerError)
+		return
+	}
+
+	// Emit event
+	changed := "no"
+	if change.ChangeKind != domaincirclesemantics.ChangeKindNoChange {
+		changed = "yes"
+	}
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase45SemanticsSaved,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"changed":    changed,
+			"provenance": string(record.Semantics.Provenance),
+		},
+	})
+
+	// Redirect back to settings
+	http.Redirect(w, r, "/settings/semantics", http.StatusSeeOther)
+}
+
+// handleCircleSemanticsProof renders the semantics proof page.
+func (s *Server) handleCircleSemanticsProof(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	periodKey := now.Format("2006-01-02")
+
+	// Get records for current period
+	records := s.circleSemanticsStore.ListByPeriod(periodKey)
+
+	// If no records for current period, use latest from all periods
+	if len(records) == 0 {
+		records = s.circleSemanticsStore.ListLatestAll()
+	}
+
+	// Build proof page
+	page := s.circleSemanticsEngine.BuildProofPage(records)
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase45SemanticsProofRendered,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"circle_count_bucket": domaincirclesemantics.CircleCountBucket(len(page.Entries)),
+		},
+	})
+
+	data := templateData{
+		Title:                    "Semantics Proof",
+		CircleSemanticsProofPage: &page,
+	}
+	s.render(w, "circle-semantics-proof", data)
+}
+
+// handleCircleSemanticsProofDismiss handles dismissing the semantics proof.
+func (s *Server) handleCircleSemanticsProofDismiss(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	periodKey := now.Format("2006-01-02")
+
+	// Get current records and compute status hash
+	records := s.circleSemanticsStore.ListByPeriod(periodKey)
+	page := s.circleSemanticsEngine.BuildProofPage(records)
+
+	// Create and store ack
+	ack, err := s.circleSemanticsEngine.CreateProofAck(domaincirclesemantics.AckKindDismissed, page.StatusHash)
+	if err == nil {
+		_ = s.circleSemanticsAckStore.RecordProofAck(ack)
+	}
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase45SemanticsProofDismissed,
+		Timestamp: now,
+		Metadata:  map[string]string{},
+	})
+
+	// Redirect to today
+	http.Redirect(w, r, "/today", http.StatusSeeOther)
+}
+
+// buildSemanticsInputs builds SemanticsInputs from current server state.
+func (s *Server) buildSemanticsInputs() internalcirclesemantics.SemanticsInputs {
+	inputs := internalcirclesemantics.SemanticsInputs{
+		CircleIDHashes: make([]string, 0),
+		CircleTypes:    make(map[string]string),
+		HasGmail:       false,
+		HasTrueLayer:   false,
+		HasCommerceObservations: false,
+	}
+
+	// Check for connections via connection store
+	if s.connectionStore != nil {
+		state := s.connectionStore.State()
+		// Check email (Gmail) connection
+		if emailState := state.Get("email"); emailState != nil && emailState.Status == "connected" {
+			inputs.HasGmail = true
+		}
+		// Check finance (TrueLayer) connection
+		if financeState := state.Get("finance"); financeState != nil && financeState.Status == "connected" {
+			inputs.HasTrueLayer = true
+		}
+	}
+
+	// Check for commerce observations
+	if s.commerceObserverStore != nil && s.commerceObserverStore.Count() > 0 {
+		inputs.HasCommerceObservations = true
+	}
+
+	// Get persons from identity repo (map as human circles)
+	if s.identityRepo != nil {
+		persons := s.identityRepo.ListPersons()
+		for _, p := range persons {
+			idHash := hashStringForSemantics(string(p.ID()))
+			if _, exists := inputs.CircleTypes[idHash]; !exists {
+				inputs.CircleIDHashes = append(inputs.CircleIDHashes, idHash)
+				inputs.CircleTypes[idHash] = internalcirclesemantics.CircleTypeHuman
+			}
+		}
+
+		// Get organizations (map as institution circles)
+		orgs := s.identityRepo.ListOrganizations()
+		for _, o := range orgs {
+			idHash := hashStringForSemantics(string(o.ID()))
+			if _, exists := inputs.CircleTypes[idHash]; !exists {
+				inputs.CircleIDHashes = append(inputs.CircleIDHashes, idHash)
+				inputs.CircleTypes[idHash] = internalcirclesemantics.CircleTypeInstitution
+			}
+		}
+	}
+
+	return inputs
+}
+
+// hashStringForSemantics computes SHA256 hash of a string for Phase 45.
+func hashStringForSemantics(s string) string {
+	h := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(h[:])
+}
+
+// ============================================================================
 // Phase 30A: Identity + Replay Handlers
 // ============================================================================
 
@@ -14683,6 +14940,167 @@ const templates = `
         <button type="submit" class="enforcement-audit-run-btn">Run Audit</button>
     </form>
     <a href="/today" class="enforcement-audit-back-link">Back</a>
+</div>
+{{end}}
+{{end}}
+
+{{define "circle-semantics-settings"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}}</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 600px; margin: 2rem auto; padding: 1rem; }
+        .semantics-page { background: #fafafa; border-radius: 8px; padding: 1.5rem; }
+        .semantics-title { margin: 0 0 1rem; font-size: 1.25rem; }
+        .semantics-line { color: #666; margin: 0.5rem 0; font-size: 0.9rem; }
+        .semantics-items { margin-top: 1.5rem; }
+        .semantics-item { background: white; border: 1px solid #e0e0e0; border-radius: 4px; padding: 1rem; margin-bottom: 1rem; }
+        .semantics-hash { font-family: monospace; font-size: 0.8rem; color: #888; margin-bottom: 0.5rem; }
+        .semantics-form { display: grid; gap: 0.75rem; }
+        .semantics-field { display: flex; flex-direction: column; gap: 0.25rem; }
+        .semantics-label { font-size: 0.85rem; color: #555; }
+        .semantics-select { padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; }
+        .semantics-save-btn { background: #4a90d9; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; }
+        .semantics-save-btn:hover { background: #3a7fc8; }
+        .semantics-back-link { display: inline-block; margin-top: 1rem; color: #4a90d9; text-decoration: none; }
+        .semantics-empty { color: #888; font-style: italic; }
+    </style>
+</head>
+<body>
+{{template "circle-semantics-settings-content" .}}
+</body>
+</html>
+{{end}}
+
+{{define "circle-semantics-settings-content"}}
+{{if .CircleSemanticsSettingsPage}}
+<div class="semantics-page">
+    <h1 class="semantics-title">{{.CircleSemanticsSettingsPage.Title}}</h1>
+    {{range .CircleSemanticsSettingsPage.Lines}}
+    <p class="semantics-line">{{.}}</p>
+    {{end}}
+
+    <div class="semantics-items">
+    {{if .CircleSemanticsSettingsPage.Items}}
+        {{range .CircleSemanticsSettingsPage.Items}}
+        <div class="semantics-item">
+            <div class="semantics-hash">{{.CircleIDHash}}</div>
+            <form method="POST" action="/settings/semantics/save" class="semantics-form">
+                <input type="hidden" name="circle_id_hash" value="{{.CircleIDHash}}">
+                <div class="semantics-field">
+                    <label class="semantics-label">Kind</label>
+                    <select name="kind" class="semantics-select">
+                        {{$current := .Current.Kind}}
+                        {{range .AllowedKinds}}
+                        <option value="{{.}}" {{if eq . $current}}selected{{end}}>{{.}}</option>
+                        {{end}}
+                    </select>
+                </div>
+                <div class="semantics-field">
+                    <label class="semantics-label">Urgency Model</label>
+                    <select name="urgency" class="semantics-select">
+                        {{$currentU := .Current.Urgency}}
+                        {{range .AllowedUrgency}}
+                        <option value="{{.}}" {{if eq . $currentU}}selected{{end}}>{{.}}</option>
+                        {{end}}
+                    </select>
+                </div>
+                <div class="semantics-field">
+                    <label class="semantics-label">Necessity</label>
+                    <select name="necessity" class="semantics-select">
+                        {{$currentN := .Current.Necessity}}
+                        {{range .AllowedNecessity}}
+                        <option value="{{.}}" {{if eq . $currentN}}selected{{end}}>{{.}}</option>
+                        {{end}}
+                    </select>
+                </div>
+                <button type="submit" class="semantics-save-btn">Save</button>
+            </form>
+        </div>
+        {{end}}
+    {{else}}
+        <p class="semantics-empty">No circles to configure yet. Connect a source first.</p>
+    {{end}}
+    </div>
+
+    <a href="/today" class="semantics-back-link">Back</a>
+</div>
+{{else}}
+<div class="semantics-page">
+    <h1 class="semantics-title">Circle Semantics</h1>
+    <p class="semantics-line">No data available.</p>
+    <a href="/today" class="semantics-back-link">Back</a>
+</div>
+{{end}}
+{{end}}
+
+{{define "circle-semantics-proof"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}}</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 600px; margin: 2rem auto; padding: 1rem; }
+        .proof-page { background: #fafafa; border-radius: 8px; padding: 1.5rem; }
+        .proof-title { margin: 0 0 1rem; font-size: 1.25rem; }
+        .proof-line { color: #666; margin: 0.5rem 0; font-size: 0.9rem; }
+        .proof-entries { margin-top: 1.5rem; }
+        .proof-entry { background: white; border: 1px solid #e0e0e0; border-radius: 4px; padding: 0.75rem; margin-bottom: 0.5rem; }
+        .proof-hash { font-family: monospace; font-size: 0.75rem; color: #888; }
+        .proof-semantics { font-size: 0.85rem; color: #333; margin-top: 0.25rem; }
+        .proof-effect { font-size: 0.8rem; color: #666; font-style: italic; }
+        .proof-actions { margin-top: 1rem; display: flex; gap: 0.5rem; }
+        .proof-dismiss-btn { background: #888; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; }
+        .proof-back-link { display: inline-block; margin-top: 1rem; color: #4a90d9; text-decoration: none; }
+        .proof-empty { color: #888; font-style: italic; }
+    </style>
+</head>
+<body>
+{{template "circle-semantics-proof-content" .}}
+</body>
+</html>
+{{end}}
+
+{{define "circle-semantics-proof-content"}}
+{{if .CircleSemanticsProofPage}}
+<div class="proof-page">
+    <h1 class="proof-title">{{.CircleSemanticsProofPage.Title}}</h1>
+    {{range .CircleSemanticsProofPage.Lines}}
+    <p class="proof-line">{{.}}</p>
+    {{end}}
+
+    <div class="proof-entries">
+    {{if .CircleSemanticsProofPage.Entries}}
+        {{range .CircleSemanticsProofPage.Entries}}
+        <div class="proof-entry">
+            <div class="proof-hash">{{.CircleIDHash}}</div>
+            <div class="proof-semantics">{{.Kind}} / {{.Urgency}} / {{.Necessity}}</div>
+            <div class="proof-effect">{{.Effect}} ({{.Provenance}})</div>
+        </div>
+        {{end}}
+    {{else}}
+        <p class="proof-empty">No semantics recorded yet.</p>
+    {{end}}
+    </div>
+
+    <div class="proof-actions">
+        <form method="POST" action="/proof/semantics/dismiss">
+            <button type="submit" class="proof-dismiss-btn">Dismiss</button>
+        </form>
+    </div>
+
+    <a href="/today" class="proof-back-link">Back</a>
+</div>
+{{else}}
+<div class="proof-page">
+    <h1 class="proof-title">Semantics Proof</h1>
+    <p class="proof-line">No data available.</p>
+    <a href="/today" class="proof-back-link">Back</a>
 </div>
 {{end}}
 {{end}}

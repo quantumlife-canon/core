@@ -2028,6 +2028,15 @@ const (
 	Phase442AuditViewed    EventType = "phase44_2.audit.viewed"
 	Phase442AuditDismissed EventType = "phase44_2.audit.dismissed"
 	Phase442AuditFailed    EventType = "phase44_2.audit.failed"
+
+	// Phase 45: Circle Semantics & Necessity Declaration events
+	// CRITICAL: Payloads contain ONLY abstract buckets - no identifiers or hashes.
+	// CRITICAL: Meaning-only layer. Semantics do NOT grant permission.
+	Phase45SemanticsSettingsViewed EventType = "phase45.semantics.settings.viewed"
+	Phase45SemanticsSaved          EventType = "phase45.semantics.saved"
+	Phase45SemanticsProofRendered  EventType = "phase45.semantics.proof.rendered"
+	Phase45SemanticsProofDismissed EventType = "phase45.semantics.proof.dismissed"
+	Phase45SemanticsCueComputed    EventType = "phase45.semantics.cue.computed"
 )
 
 // Event represents a system event for audit and observability.

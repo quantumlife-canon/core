@@ -959,6 +959,17 @@ check-enforcement-wiring:
 	@echo "Checking Phase 44.2 constraints..."
 	@./scripts/guardrails/enforcement_wiring_enforced.sh
 
+# Run Phase 45 Demo: Circle Semantics & Necessity Declaration
+# Reference: docs/ADR/ADR-0083-phase45-circle-semantics-necessity.md
+demo-phase45:
+	@echo "Running Phase 45 Demo: Circle Semantics..."
+	go test -v ./internal/demo_phase45_circle_semantics/...
+
+# Check Phase 45 Circle Semantics constraints
+check-circle-semantics:
+	@echo "Checking Phase 45 constraints..."
+	@./scripts/guardrails/circle_semantics_enforced.sh
+
 # =============================================================================
 # Web Server Targets
 # =============================================================================
