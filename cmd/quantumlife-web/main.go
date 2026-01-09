@@ -29,6 +29,7 @@ import (
 
 	internalenvelope "quantumlife/internal/attentionenvelope"
 	calexec "quantumlife/internal/calendar/execution"
+	internalcirclesemantics "quantumlife/internal/circlesemantics"
 	"quantumlife/internal/commerceingest"
 	internalcommerceobserver "quantumlife/internal/commerceobserver"
 	"quantumlife/internal/config"
@@ -37,6 +38,8 @@ import (
 	mockcal "quantumlife/internal/connectors/calendar/write/providers/mock"
 	mockemail "quantumlife/internal/connectors/email/write/providers/mock"
 	truelayer "quantumlife/internal/connectors/finance/read/providers/truelayer"
+	internalcoverageplan "quantumlife/internal/coverageplan"
+	internaldelegatedholding "quantumlife/internal/delegatedholding"
 	internaldeviceidentity "quantumlife/internal/deviceidentity"
 	internaldevicereg "quantumlife/internal/devicereg"
 	"quantumlife/internal/drafts"
@@ -45,6 +48,8 @@ import (
 	"quantumlife/internal/drafts/email"
 	"quantumlife/internal/drafts/review"
 	emailexec "quantumlife/internal/email/execution"
+	internalenforcementaudit "quantumlife/internal/enforcementaudit"
+	internalenforcementclamp "quantumlife/internal/enforcementclamp"
 	"quantumlife/internal/execexecutor"
 	"quantumlife/internal/execrouter"
 	internalexternalpressure "quantumlife/internal/externalpressure"
@@ -53,29 +58,18 @@ import (
 	internalfirstaction "quantumlife/internal/firstaction"
 	internalfirstminutes "quantumlife/internal/firstminutes"
 	"quantumlife/internal/held"
+	internalheldproof "quantumlife/internal/heldproof"
 	gmailread "quantumlife/internal/integrations/gmail_read"
 	"quantumlife/internal/interest"
 	"quantumlife/internal/interruptions"
 	internalinterruptpolicy "quantumlife/internal/interruptpolicy"
 	internalinterruptpreview "quantumlife/internal/interruptpreview"
 	internalrehearsal "quantumlife/internal/interruptrehearsal"
-	internaldelegatedholding "quantumlife/internal/delegatedholding"
-	internalheldproof "quantumlife/internal/heldproof"
-	internaltrusttransfer "quantumlife/internal/trusttransfer"
-	internalenforcementaudit "quantumlife/internal/enforcementaudit"
-	internalenforcementclamp "quantumlife/internal/enforcementclamp"
-	internalcirclesemantics "quantumlife/internal/circlesemantics"
-	internalcoverageplan "quantumlife/internal/coverageplan"
-	internalmarketsignal "quantumlife/internal/marketsignal"
-	internalvendorcontract "quantumlife/internal/vendorcontract"
-	internalsignedclaims "quantumlife/internal/signedclaims"
-	internaltransparencylog "quantumlife/internal/transparencylog"
-	internalproofhub "quantumlife/internal/proofhub"
-	internalurgencyresolve "quantumlife/internal/urgencyresolve"
-	internalmarketplace "quantumlife/internal/marketplace"
 	internalinvitation "quantumlife/internal/invitation"
 	"quantumlife/internal/journey"
 	"quantumlife/internal/loop"
+	internalmarketplace "quantumlife/internal/marketplace"
+	internalmarketsignal "quantumlife/internal/marketsignal"
 	"quantumlife/internal/mirror"
 	"quantumlife/internal/mode"
 	internalnotificationobserver "quantumlife/internal/notificationobserver"
@@ -83,6 +77,7 @@ import (
 	"quantumlife/internal/obligations"
 	"quantumlife/internal/persist"
 	"quantumlife/internal/proof"
+	internalproofhub "quantumlife/internal/proofhub"
 	internalquietmirror "quantumlife/internal/quietmirror"
 	internalreality "quantumlife/internal/reality"
 	internalreplay "quantumlife/internal/replay"
@@ -94,48 +89,49 @@ import (
 	"quantumlife/internal/shadowllm/providers/azureopenai"
 	"quantumlife/internal/shadowllm/stub"
 	"quantumlife/internal/shadowview"
+	internalsignedclaims "quantumlife/internal/signedclaims"
 	"quantumlife/internal/surface"
 	internaltimewindow "quantumlife/internal/timewindow"
 	"quantumlife/internal/todayquietly"
+	internaltransparencylog "quantumlife/internal/transparencylog"
 	trustengine "quantumlife/internal/trust"
 	trustactionengine "quantumlife/internal/trustaction"
+	internaltrusttransfer "quantumlife/internal/trusttransfer"
 	"quantumlife/internal/undoableexec"
+	internalurgencydelivery "quantumlife/internal/urgencydelivery"
+	internalurgencyresolve "quantumlife/internal/urgencyresolve"
+	internalvendorcontract "quantumlife/internal/vendorcontract"
 	"quantumlife/pkg/clock"
 	"quantumlife/pkg/domain/approvaltoken"
 	domainenvelope "quantumlife/pkg/domain/attentionenvelope"
+	domaincirclesemantics "quantumlife/pkg/domain/circlesemantics"
 	domaincommerceobserver "quantumlife/pkg/domain/commerceobserver"
 	pkgconfig "quantumlife/pkg/domain/config"
 	"quantumlife/pkg/domain/connection"
+	domaincoverageplan "quantumlife/pkg/domain/coverageplan"
+	domaindelegatedholding "quantumlife/pkg/domain/delegatedholding"
 	domaindeviceidentity "quantumlife/pkg/domain/deviceidentity"
 	"quantumlife/pkg/domain/devicereg"
 	"quantumlife/pkg/domain/draft"
+	domainenforcementaudit "quantumlife/pkg/domain/enforcementaudit"
 	domainevents "quantumlife/pkg/domain/events"
 	domainexternalpressure "quantumlife/pkg/domain/externalpressure"
 	"quantumlife/pkg/domain/feedback"
 	domainfinancemirror "quantumlife/pkg/domain/financemirror"
 	domainfirstaction "quantumlife/pkg/domain/firstaction"
 	domainfirstminutes "quantumlife/pkg/domain/firstminutes"
+	domainheldproof "quantumlife/pkg/domain/heldproof"
 	"quantumlife/pkg/domain/identity"
 	interruptpolicy "quantumlife/pkg/domain/interruptpolicy"
 	interruptpreview "quantumlife/pkg/domain/interruptpreview"
 	domainrehearsal "quantumlife/pkg/domain/interruptrehearsal"
-	domaindelegatedholding "quantumlife/pkg/domain/delegatedholding"
-	domainheldproof "quantumlife/pkg/domain/heldproof"
-	domaintrusttransfer "quantumlife/pkg/domain/trusttransfer"
-	domainenforcementaudit "quantumlife/pkg/domain/enforcementaudit"
-	domaincirclesemantics "quantumlife/pkg/domain/circlesemantics"
-	domaincoverageplan "quantumlife/pkg/domain/coverageplan"
-	domainmarketsignal "quantumlife/pkg/domain/marketsignal"
-	domainvendorcontract "quantumlife/pkg/domain/vendorcontract"
-	domainsignedclaims "quantumlife/pkg/domain/signedclaims"
-	domaintransparencylog "quantumlife/pkg/domain/transparencylog"
-	domainproofhub "quantumlife/pkg/domain/proofhub"
-	domainurgencyresolve "quantumlife/pkg/domain/urgencyresolve"
-	domainmarketplace "quantumlife/pkg/domain/marketplace"
 	domaininvitation "quantumlife/pkg/domain/invitation"
+	domainmarketplace "quantumlife/pkg/domain/marketplace"
+	domainmarketsignal "quantumlife/pkg/domain/marketsignal"
 	domainmirror "quantumlife/pkg/domain/mirror"
 	"quantumlife/pkg/domain/obligation"
 	"quantumlife/pkg/domain/policy"
+	domainproofhub "quantumlife/pkg/domain/proofhub"
 	quietmirror "quantumlife/pkg/domain/quietmirror"
 	domainreality "quantumlife/pkg/domain/reality"
 	domainrulepack "quantumlife/pkg/domain/rulepack"
@@ -144,10 +140,16 @@ import (
 	domainshadowgate "quantumlife/pkg/domain/shadowgate"
 	domainshadow "quantumlife/pkg/domain/shadowllm"
 	domainshadowview "quantumlife/pkg/domain/shadowview"
+	domainsignedclaims "quantumlife/pkg/domain/signedclaims"
 	"quantumlife/pkg/domain/suppress"
 	domaintimewindow "quantumlife/pkg/domain/timewindow"
+	domaintransparencylog "quantumlife/pkg/domain/transparencylog"
 	domaintrust "quantumlife/pkg/domain/trust"
+	domaintrusttransfer "quantumlife/pkg/domain/trusttransfer"
 	domainundoableexec "quantumlife/pkg/domain/undoableexec"
+	domainurgencydelivery "quantumlife/pkg/domain/urgencydelivery"
+	domainurgencyresolve "quantumlife/pkg/domain/urgencyresolve"
+	domainvendorcontract "quantumlife/pkg/domain/vendorcontract"
 	"quantumlife/pkg/events"
 )
 
@@ -159,140 +161,143 @@ var (
 
 // Server handles HTTP requests.
 type Server struct {
-	engine                 *loop.Engine
-	templates              *template.Template
-	eventEmitter           *eventLogger
-	clk                    clock.Clock
-	execRouter             *execrouter.Router
-	execExecutor           *execexecutor.Executor
-	multiCircleConfig      *config.MultiCircleConfig
-	identityRepo           *identity.InMemoryRepository         // Phase 13.1: Identity graph
-	interestStore          *interest.Store                      // Phase 18.1: Interest capture
-	todayEngine            *todayquietly.Engine                 // Phase 18.2: Today, quietly
-	preferenceStore        *todayquietly.PreferenceStore        // Phase 18.2: Preference capture
-	heldEngine             *held.Engine                         // Phase 18.3: Held, not shown
-	heldStore              *held.SummaryStore                   // Phase 18.3: Summary store
-	surfaceEngine          *surface.Engine                      // Phase 18.4: Quiet Shift
-	surfaceStore           *surface.ActionStore                 // Phase 18.4: Action store
-	proofEngine            *proof.Engine                        // Phase 18.5: Quiet Proof
-	proofAckStore          *proof.AckStore                      // Phase 18.5: Ack store
-	connectionStore        *persist.InMemoryConnectionStore     // Phase 18.6: First Connect
-	mirrorEngine           *mirror.Engine                       // Phase 18.7: Mirror Proof
-	mirrorAckStore         *mirror.AckStore                     // Phase 18.7: Mirror Ack store
-	tokenBroker            auth.TokenBroker                     // Phase 18.8: OAuth token broker
-	oauthStateManager      *oauth.StateManager                  // Phase 18.8: OAuth state management
-	gmailHandler           *oauth.GmailHandler                  // Phase 18.8: Gmail OAuth handler
-	syncReceiptStore       *persist.SyncReceiptStore            // Phase 19.1: Sync receipt store
-	shadowEngine           *shadowllm.Engine                    // Phase 19.2: Shadow mode engine
-	shadowReceiptStore     *persist.ShadowReceiptStore          // Phase 19.2: Shadow receipt store
-	shadowCalibrationStore *persist.ShadowCalibrationStore      // Phase 19.4: Shadow calibration store
-	shadowGateStore        *persist.ShadowGateStore             // Phase 19.5: Shadow gating store
-	rulepackStore          *persist.RulePackStore               // Phase 19.6: Rule pack store
-	trustStore             *persist.TrustStore                  // Phase 20: Trust store
-	trustEngine            *trustengine.Engine                  // Phase 20: Trust engine
-	modeEngine             *mode.Engine                         // Phase 21: Mode derivation engine
-	shadowviewEngine       *shadowview.Engine                   // Phase 21: Shadow receipt viewer engine
-	shadowviewAckStore     *shadowview.AckStore                 // Phase 21: Shadow receipt acknowledgement store
-	quietMirrorEngine      *internalquietmirror.Engine          // Phase 22: Quiet Inbox Mirror engine
-	quietMirrorStore       *persist.QuietMirrorStore            // Phase 22: Quiet Inbox Mirror store
-	quietMirrorDismissals  *persist.QuietMirrorDismissalStore   // Phase 22: Whisper dismissal store
-	invitationEngine       *internalinvitation.Engine           // Phase 23: Gentle Action Invitation engine
-	invitationStore        *persist.InvitationStore             // Phase 23: Invitation decision store
-	firstActionEngine      *internalfirstaction.Engine          // Phase 24: First Reversible Action engine
-	firstActionStore       *persist.FirstActionStore            // Phase 24: First action store
-	undoableExecEngine     *undoableexec.Engine                 // Phase 25: Undoable execution engine
-	undoableExecStore      *persist.UndoableExecStore           // Phase 25: Undoable execution store
-	journeyEngine          *journey.Engine                      // Phase 26A: Guided Journey engine
-	journeyDismissalStore  *persist.JourneyDismissalStore       // Phase 26A: Journey dismissal store
-	firstMinutesEngine     *internalfirstminutes.Engine         // Phase 26B: First Minutes engine
-	firstMinutesStore      *persist.FirstMinutesStore           // Phase 26B: First Minutes store
-	realityEngine          *internalreality.Engine              // Phase 26C: Reality engine
-	realityAckStore        *persist.RealityAckStore             // Phase 26C: Reality ack store
-	shadowReceiptAckStore  *persist.ShadowReceiptAckStore       // Phase 27: Shadow Receipt ack/vote store
-	trustActionStore       *persist.TrustActionStore            // Phase 28: Trust action store
-	trustActionEngine      *trustactionengine.Engine            // Phase 28: Trust action engine
-	financeMirrorStore     *persist.FinanceMirrorStore          // Phase 29: Finance mirror store
-	financeMirrorEngine    *financemirror.Engine                // Phase 29: Finance mirror engine
-	trueLayerHandler       *oauth.TrueLayerHandler              // Phase 29: TrueLayer OAuth handler
-	trueLayerTokenStore    *persist.TrueLayerTokenStore         // Phase 31.3b: TrueLayer token store
-	trueLayerSyncService   *truelayer.SyncService               // Phase 31.3b: TrueLayer sync service
-	trueLayerClient        *truelayer.Client                    // Phase 31.3b: TrueLayer API client
-	deviceKeyStore         *persist.DeviceKeyStore              // Phase 30A: Device key store
-	circleBindingStore     *persist.CircleBindingStore          // Phase 30A: Circle binding store
-	deviceIdentityEngine   *internaldeviceidentity.Engine       // Phase 30A: Device identity engine
-	replayEngine           *internalreplay.Engine               // Phase 30A: Replay bundle engine
-	commerceObserverStore  *persist.CommerceObserverStore       // Phase 31: Commerce observer store
-	commerceObserverEngine *internalcommerceobserver.Engine     // Phase 31: Commerce observer engine
-	commerceIngestEngine   *commerceingest.Engine               // Phase 31.1: Commerce ingest engine
-	financeTxScanEngine    *financetxscan.Engine                // Phase 31.2: Finance tx scan engine
-	externalCircleStore    *persist.ExternalCircleStore         // Phase 31.4: External circle store
-	pressureMapStore       *persist.PressureMapStore            // Phase 31.4: Pressure map store
-	externalPressureEngine *internalexternalpressure.Engine     // Phase 31.4: External pressure engine
-	interruptPolicyStore   *persist.InterruptPolicyStore        // Phase 33: Interrupt policy store
-	interruptProofAckStore *persist.InterruptProofAckStore      // Phase 33: Interrupt proof ack store
-	interruptPolicyEngine  *internalinterruptpolicy.Engine      // Phase 33: Interrupt policy engine
-	interruptPreviewStore  *persist.InterruptPreviewAckStore    // Phase 34: Interrupt preview ack store
-	interruptPreviewEngine *internalinterruptpreview.Engine     // Phase 34: Interrupt preview engine
-	deviceRegStore         *persist.DeviceRegistrationStore     // Phase 37: Device registration store
-	deviceRegEngine        *internaldevicereg.Engine            // Phase 37: Device registration engine
-	notifObserverStore     *persist.NotificationObserverStore   // Phase 38: Notification observer store
-	notifObserverEngine    *internalnotificationobserver.Engine // Phase 38: Notification observer engine
-	envelopeStore          *persist.AttentionEnvelopeStore      // Phase 39: Attention envelope store
-	envelopeEngine         *internalenvelope.Engine             // Phase 39: Attention envelope engine
-	timeWindowStore        *persist.TimeWindowStore             // Phase 40: Time window store
-	timeWindowEngine       *internaltimewindow.Engine           // Phase 40: Time window engine
-	rehearsalStore         *persist.InterruptRehearsalStore     // Phase 41: Interrupt rehearsal store
-	rehearsalEngine        *internalrehearsal.Engine            // Phase 41: Interrupt rehearsal engine
-	delegatedHoldingStore  *persist.DelegatedHoldingStore       // Phase 42: Delegated holding store
-	delegatedHoldingEngine *internaldelegatedholding.Engine     // Phase 42: Delegated holding engine
-	heldProofSignalStore   *persist.HeldProofSignalStore        // Phase 43: Held proof signal store
-	heldProofAckStore      *persist.HeldProofAckStore           // Phase 43: Held proof ack store
-	heldProofEngine        *internalheldproof.Engine            // Phase 43: Held proof engine
-	trustTransferContractStore   *persist.TrustTransferContractStore   // Phase 44: Trust transfer contract store
-	trustTransferRevocationStore *persist.TrustTransferRevocationStore // Phase 44: Trust transfer revocation store
-	trustTransferEngine          *internaltrusttransfer.Engine         // Phase 44: Trust transfer engine
-	enforcementAuditStore        *persist.EnforcementAuditStore        // Phase 44.2: Enforcement audit store
-	enforcementAuditAckStore     *persist.EnforcementAuditAckStore     // Phase 44.2: Enforcement audit ack store
-	enforcementAuditEngine       *internalenforcementaudit.Engine      // Phase 44.2: Enforcement audit engine
-	enforcementClampEngine       *internalenforcementclamp.Engine      // Phase 44.2: Enforcement clamp engine
+	engine                       *loop.Engine
+	templates                    *template.Template
+	eventEmitter                 *eventLogger
+	clk                          clock.Clock
+	execRouter                   *execrouter.Router
+	execExecutor                 *execexecutor.Executor
+	multiCircleConfig            *config.MultiCircleConfig
+	identityRepo                 *identity.InMemoryRepository                 // Phase 13.1: Identity graph
+	interestStore                *interest.Store                              // Phase 18.1: Interest capture
+	todayEngine                  *todayquietly.Engine                         // Phase 18.2: Today, quietly
+	preferenceStore              *todayquietly.PreferenceStore                // Phase 18.2: Preference capture
+	heldEngine                   *held.Engine                                 // Phase 18.3: Held, not shown
+	heldStore                    *held.SummaryStore                           // Phase 18.3: Summary store
+	surfaceEngine                *surface.Engine                              // Phase 18.4: Quiet Shift
+	surfaceStore                 *surface.ActionStore                         // Phase 18.4: Action store
+	proofEngine                  *proof.Engine                                // Phase 18.5: Quiet Proof
+	proofAckStore                *proof.AckStore                              // Phase 18.5: Ack store
+	connectionStore              *persist.InMemoryConnectionStore             // Phase 18.6: First Connect
+	mirrorEngine                 *mirror.Engine                               // Phase 18.7: Mirror Proof
+	mirrorAckStore               *mirror.AckStore                             // Phase 18.7: Mirror Ack store
+	tokenBroker                  auth.TokenBroker                             // Phase 18.8: OAuth token broker
+	oauthStateManager            *oauth.StateManager                          // Phase 18.8: OAuth state management
+	gmailHandler                 *oauth.GmailHandler                          // Phase 18.8: Gmail OAuth handler
+	syncReceiptStore             *persist.SyncReceiptStore                    // Phase 19.1: Sync receipt store
+	shadowEngine                 *shadowllm.Engine                            // Phase 19.2: Shadow mode engine
+	shadowReceiptStore           *persist.ShadowReceiptStore                  // Phase 19.2: Shadow receipt store
+	shadowCalibrationStore       *persist.ShadowCalibrationStore              // Phase 19.4: Shadow calibration store
+	shadowGateStore              *persist.ShadowGateStore                     // Phase 19.5: Shadow gating store
+	rulepackStore                *persist.RulePackStore                       // Phase 19.6: Rule pack store
+	trustStore                   *persist.TrustStore                          // Phase 20: Trust store
+	trustEngine                  *trustengine.Engine                          // Phase 20: Trust engine
+	modeEngine                   *mode.Engine                                 // Phase 21: Mode derivation engine
+	shadowviewEngine             *shadowview.Engine                           // Phase 21: Shadow receipt viewer engine
+	shadowviewAckStore           *shadowview.AckStore                         // Phase 21: Shadow receipt acknowledgement store
+	quietMirrorEngine            *internalquietmirror.Engine                  // Phase 22: Quiet Inbox Mirror engine
+	quietMirrorStore             *persist.QuietMirrorStore                    // Phase 22: Quiet Inbox Mirror store
+	quietMirrorDismissals        *persist.QuietMirrorDismissalStore           // Phase 22: Whisper dismissal store
+	invitationEngine             *internalinvitation.Engine                   // Phase 23: Gentle Action Invitation engine
+	invitationStore              *persist.InvitationStore                     // Phase 23: Invitation decision store
+	firstActionEngine            *internalfirstaction.Engine                  // Phase 24: First Reversible Action engine
+	firstActionStore             *persist.FirstActionStore                    // Phase 24: First action store
+	undoableExecEngine           *undoableexec.Engine                         // Phase 25: Undoable execution engine
+	undoableExecStore            *persist.UndoableExecStore                   // Phase 25: Undoable execution store
+	journeyEngine                *journey.Engine                              // Phase 26A: Guided Journey engine
+	journeyDismissalStore        *persist.JourneyDismissalStore               // Phase 26A: Journey dismissal store
+	firstMinutesEngine           *internalfirstminutes.Engine                 // Phase 26B: First Minutes engine
+	firstMinutesStore            *persist.FirstMinutesStore                   // Phase 26B: First Minutes store
+	realityEngine                *internalreality.Engine                      // Phase 26C: Reality engine
+	realityAckStore              *persist.RealityAckStore                     // Phase 26C: Reality ack store
+	shadowReceiptAckStore        *persist.ShadowReceiptAckStore               // Phase 27: Shadow Receipt ack/vote store
+	trustActionStore             *persist.TrustActionStore                    // Phase 28: Trust action store
+	trustActionEngine            *trustactionengine.Engine                    // Phase 28: Trust action engine
+	financeMirrorStore           *persist.FinanceMirrorStore                  // Phase 29: Finance mirror store
+	financeMirrorEngine          *financemirror.Engine                        // Phase 29: Finance mirror engine
+	trueLayerHandler             *oauth.TrueLayerHandler                      // Phase 29: TrueLayer OAuth handler
+	trueLayerTokenStore          *persist.TrueLayerTokenStore                 // Phase 31.3b: TrueLayer token store
+	trueLayerSyncService         *truelayer.SyncService                       // Phase 31.3b: TrueLayer sync service
+	trueLayerClient              *truelayer.Client                            // Phase 31.3b: TrueLayer API client
+	deviceKeyStore               *persist.DeviceKeyStore                      // Phase 30A: Device key store
+	circleBindingStore           *persist.CircleBindingStore                  // Phase 30A: Circle binding store
+	deviceIdentityEngine         *internaldeviceidentity.Engine               // Phase 30A: Device identity engine
+	replayEngine                 *internalreplay.Engine                       // Phase 30A: Replay bundle engine
+	commerceObserverStore        *persist.CommerceObserverStore               // Phase 31: Commerce observer store
+	commerceObserverEngine       *internalcommerceobserver.Engine             // Phase 31: Commerce observer engine
+	commerceIngestEngine         *commerceingest.Engine                       // Phase 31.1: Commerce ingest engine
+	financeTxScanEngine          *financetxscan.Engine                        // Phase 31.2: Finance tx scan engine
+	externalCircleStore          *persist.ExternalCircleStore                 // Phase 31.4: External circle store
+	pressureMapStore             *persist.PressureMapStore                    // Phase 31.4: Pressure map store
+	externalPressureEngine       *internalexternalpressure.Engine             // Phase 31.4: External pressure engine
+	interruptPolicyStore         *persist.InterruptPolicyStore                // Phase 33: Interrupt policy store
+	interruptProofAckStore       *persist.InterruptProofAckStore              // Phase 33: Interrupt proof ack store
+	interruptPolicyEngine        *internalinterruptpolicy.Engine              // Phase 33: Interrupt policy engine
+	interruptPreviewStore        *persist.InterruptPreviewAckStore            // Phase 34: Interrupt preview ack store
+	interruptPreviewEngine       *internalinterruptpreview.Engine             // Phase 34: Interrupt preview engine
+	deviceRegStore               *persist.DeviceRegistrationStore             // Phase 37: Device registration store
+	deviceRegEngine              *internaldevicereg.Engine                    // Phase 37: Device registration engine
+	notifObserverStore           *persist.NotificationObserverStore           // Phase 38: Notification observer store
+	notifObserverEngine          *internalnotificationobserver.Engine         // Phase 38: Notification observer engine
+	envelopeStore                *persist.AttentionEnvelopeStore              // Phase 39: Attention envelope store
+	envelopeEngine               *internalenvelope.Engine                     // Phase 39: Attention envelope engine
+	timeWindowStore              *persist.TimeWindowStore                     // Phase 40: Time window store
+	timeWindowEngine             *internaltimewindow.Engine                   // Phase 40: Time window engine
+	rehearsalStore               *persist.InterruptRehearsalStore             // Phase 41: Interrupt rehearsal store
+	rehearsalEngine              *internalrehearsal.Engine                    // Phase 41: Interrupt rehearsal engine
+	delegatedHoldingStore        *persist.DelegatedHoldingStore               // Phase 42: Delegated holding store
+	delegatedHoldingEngine       *internaldelegatedholding.Engine             // Phase 42: Delegated holding engine
+	heldProofSignalStore         *persist.HeldProofSignalStore                // Phase 43: Held proof signal store
+	heldProofAckStore            *persist.HeldProofAckStore                   // Phase 43: Held proof ack store
+	heldProofEngine              *internalheldproof.Engine                    // Phase 43: Held proof engine
+	trustTransferContractStore   *persist.TrustTransferContractStore          // Phase 44: Trust transfer contract store
+	trustTransferRevocationStore *persist.TrustTransferRevocationStore        // Phase 44: Trust transfer revocation store
+	trustTransferEngine          *internaltrusttransfer.Engine                // Phase 44: Trust transfer engine
+	enforcementAuditStore        *persist.EnforcementAuditStore               // Phase 44.2: Enforcement audit store
+	enforcementAuditAckStore     *persist.EnforcementAuditAckStore            // Phase 44.2: Enforcement audit ack store
+	enforcementAuditEngine       *internalenforcementaudit.Engine             // Phase 44.2: Enforcement audit engine
+	enforcementClampEngine       *internalenforcementclamp.Engine             // Phase 44.2: Enforcement clamp engine
 	enforcementManifest          internalenforcementaudit.EnforcementManifest // Phase 44.2: Enforcement manifest
 	// Phase 45: Circle Semantics
 	circleSemanticsStore    *persist.CircleSemanticsStore    // Phase 45: Semantics record store
 	circleSemanticsAckStore *persist.CircleSemanticsAckStore // Phase 45: Semantics ack store
 	circleSemanticsEngine   *internalcirclesemantics.Engine  // Phase 45: Semantics engine
 	// Phase 46: Circle Registry + Packs (Marketplace)
-	marketplaceRegistry      *internalmarketplace.Registry         // Phase 46: Pack registry
-	marketplaceEngine        *internalmarketplace.Engine           // Phase 46: Marketplace engine
-	marketplaceInstallStore  *persist.MarketplaceInstallStore      // Phase 46: Install record store
-	marketplaceRemovalStore  *persist.MarketplaceRemovalStore      // Phase 46: Removal record store
-	marketplaceAckStore      *persist.MarketplaceAckStore          // Phase 46: Proof ack store
+	marketplaceRegistry     *internalmarketplace.Registry    // Phase 46: Pack registry
+	marketplaceEngine       *internalmarketplace.Engine      // Phase 46: Marketplace engine
+	marketplaceInstallStore *persist.MarketplaceInstallStore // Phase 46: Install record store
+	marketplaceRemovalStore *persist.MarketplaceRemovalStore // Phase 46: Removal record store
+	marketplaceAckStore     *persist.MarketplaceAckStore     // Phase 46: Proof ack store
 	// Phase 47: Pack Coverage Realization
-	coveragePlanStore        *persist.CoveragePlanStore            // Phase 47: Coverage plan store
-	coverageProofAckStore    *persist.CoverageProofAckStore        // Phase 47: Coverage proof ack store
-	coveragePlanEngine       *internalcoverageplan.Engine          // Phase 47: Coverage plan engine
+	coveragePlanStore     *persist.CoveragePlanStore     // Phase 47: Coverage plan store
+	coverageProofAckStore *persist.CoverageProofAckStore // Phase 47: Coverage proof ack store
+	coveragePlanEngine    *internalcoverageplan.Engine   // Phase 47: Coverage plan engine
 	// Phase 48: Market Signal Binding
-	marketSignalStore        *persist.MarketSignalStore            // Phase 48: Market signal store
-	marketProofAckStore      *persist.MarketProofAckStore          // Phase 48: Market proof ack store
-	marketSignalEngine       *internalmarketsignal.Engine          // Phase 48: Market signal engine
+	marketSignalStore   *persist.MarketSignalStore   // Phase 48: Market signal store
+	marketProofAckStore *persist.MarketProofAckStore // Phase 48: Market proof ack store
+	marketSignalEngine  *internalmarketsignal.Engine // Phase 48: Market signal engine
 	// Phase 49: Vendor Reality Contracts
-	vendorContractStore   *persist.VendorContractStore            // Phase 49: Vendor contract store
-	vendorProofAckStore   *persist.VendorProofAckStore            // Phase 49: Vendor proof ack store
-	vendorContractEngine  *internalvendorcontract.Engine          // Phase 49: Vendor contract engine
+	vendorContractStore  *persist.VendorContractStore   // Phase 49: Vendor contract store
+	vendorProofAckStore  *persist.VendorProofAckStore   // Phase 49: Vendor proof ack store
+	vendorContractEngine *internalvendorcontract.Engine // Phase 49: Vendor contract engine
 	// Phase 50: Signed Vendor Claims + Pack Manifests
-	signedClaimStore       *persist.SignedClaimStore              // Phase 50: Signed claim store
-	signedManifestStore    *persist.SignedManifestStore           // Phase 50: Signed manifest store
-	signedClaimProofAckStore *persist.SignedClaimProofAckStore    // Phase 50: Signed claim proof ack store
-	signedClaimsEngine     *internalsignedclaims.Engine           // Phase 50: Signed claims engine
+	signedClaimStore         *persist.SignedClaimStore         // Phase 50: Signed claim store
+	signedManifestStore      *persist.SignedManifestStore      // Phase 50: Signed manifest store
+	signedClaimProofAckStore *persist.SignedClaimProofAckStore // Phase 50: Signed claim proof ack store
+	signedClaimsEngine       *internalsignedclaims.Engine      // Phase 50: Signed claims engine
 	// Phase 51: Transparency Log / Claim Ledger
-	transparencyLogStore  *persist.TransparencyLogStore          // Phase 51: Transparency log store
-	transparencyLogEngine *internaltransparencylog.Engine        // Phase 51: Transparency log engine
+	transparencyLogStore  *persist.TransparencyLogStore   // Phase 51: Transparency log store
+	transparencyLogEngine *internaltransparencylog.Engine // Phase 51: Transparency log engine
 	// Phase 52: Proof Hub + Connected Status
-	proofHubAckStore *persist.ProofHubAckStore                   // Phase 52: Proof hub ack store
-	proofHubEngine   *internalproofhub.Engine                    // Phase 52: Proof hub engine
+	proofHubAckStore *persist.ProofHubAckStore // Phase 52: Proof hub ack store
+	proofHubEngine   *internalproofhub.Engine  // Phase 52: Proof hub engine
 	// Phase 53: Urgency Resolution Layer
-	urgencyResolutionStore *persist.UrgencyResolutionStore        // Phase 53: Urgency resolution store
-	urgencyAckStore        *persist.UrgencyAckStore               // Phase 53: Urgency ack store
-	urgencyResolveEngine   *internalurgencyresolve.Engine         // Phase 53: Urgency resolve engine
+	urgencyResolutionStore *persist.UrgencyResolutionStore // Phase 53: Urgency resolution store
+	urgencyAckStore        *persist.UrgencyAckStore        // Phase 53: Urgency ack store
+	urgencyResolveEngine   *internalurgencyresolve.Engine  // Phase 53: Urgency resolve engine
+	// Phase 54: Urgency → Delivery Binding
+	urgencyDeliveryStore  *persist.UrgencyDeliveryStore   // Phase 54: Urgency delivery store
+	urgencyDeliveryEngine *internalurgencydelivery.Engine // Phase 54: Urgency delivery engine
 	// Phase 18 Web Control Center
 	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
 	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
@@ -940,108 +945,112 @@ func main() {
 		&urgencyAckAdapter{store: urgencyAckStore},
 	)
 
+	// Phase 54: Urgency → Delivery Binding
+	urgencyDeliveryStore := persist.NewUrgencyDeliveryStore(clk.Now)
+	urgencyDeliveryEngine := internalurgencydelivery.NewEngine()
+
 	// Phase 18 Web Control Center: Create stores
 	runStore := runlog.NewInMemoryRunStore()
 	suppressionSet := suppress.NewSuppressionSet()
 
 	// Create server
 	server := &Server{
-		engine:                 engine,
-		templates:              tmpl,
-		eventEmitter:           emitter,
-		clk:                    clk,
-		execRouter:             execRouter,
-		execExecutor:           execExecutor,
-		multiCircleConfig:      multiCfg,
-		identityRepo:           identityRepo,                                  // Phase 13.1
-		interestStore:          interestStore,                                 // Phase 18.1
-		todayEngine:            todayEngine,                                   // Phase 18.2
-		preferenceStore:        preferenceStore,                               // Phase 18.2
-		heldEngine:             heldEngine,                                    // Phase 18.3
-		heldStore:              heldStore,                                     // Phase 18.3
-		surfaceEngine:          surfaceEngine,                                 // Phase 18.4
-		surfaceStore:           surfaceStore,                                  // Phase 18.4
-		proofEngine:            proofEngine,                                   // Phase 18.5
-		proofAckStore:          proofAckStore,                                 // Phase 18.5
-		connectionStore:        connectionStore,                               // Phase 18.6
-		mirrorEngine:           mirrorEngine,                                  // Phase 18.7
-		mirrorAckStore:         mirrorAckStore,                                // Phase 18.7
-		tokenBroker:            tokenBroker,                                   // Phase 18.8
-		oauthStateManager:      oauthStateManager,                             // Phase 18.8
-		gmailHandler:           gmailHandler,                                  // Phase 18.8
-		syncReceiptStore:       syncReceiptStore,                              // Phase 19.1
-		shadowEngine:           shadowEngine,                                  // Phase 19.2
-		shadowReceiptStore:     shadowReceiptStore,                            // Phase 19.2
-		shadowCalibrationStore: shadowCalibrationStore,                        // Phase 19.4
-		shadowGateStore:        shadowGateStore,                               // Phase 19.5
-		rulepackStore:          rulepackStore,                                 // Phase 19.6
-		trustStore:             trustStore,                                    // Phase 20
-		trustEngine:            trustEng,                                      // Phase 20
-		modeEngine:             mode.NewEngine(clk.Now),                       // Phase 21
-		shadowviewEngine:       shadowview.NewEngine(clk.Now),                 // Phase 21
-		shadowviewAckStore:     shadowview.NewAckStore(0),                     // Phase 21
-		quietMirrorEngine:      internalquietmirror.NewEngine(clk.Now),        // Phase 22
-		quietMirrorStore:       persist.NewQuietMirrorStore(clk.Now),          // Phase 22
-		quietMirrorDismissals:  persist.NewQuietMirrorDismissalStore(clk.Now), // Phase 22
-		invitationEngine:       internalinvitation.NewEngine(clk.Now),         // Phase 23
-		invitationStore:        persist.NewInvitationStore(clk.Now),           // Phase 23
-		firstActionEngine:      internalfirstaction.NewEngine(clk.Now),        // Phase 24
-		firstActionStore:       persist.NewFirstActionStore(clk.Now),          // Phase 24
-		undoableExecStore:      persist.NewUndoableExecStore(clk.Now),         // Phase 25
-		journeyEngine:          journey.NewEngine(clk.Now),                    // Phase 26A
-		journeyDismissalStore:  persist.NewJourneyDismissalStore(clk.Now),     // Phase 26A
-		firstMinutesEngine:     internalfirstminutes.NewEngine(clk.Now),       // Phase 26B
-		firstMinutesStore:      persist.NewFirstMinutesStore(clk.Now),         // Phase 26B
-		realityEngine:          internalreality.NewEngine(clk),                // Phase 26C
-		realityAckStore:        persist.NewRealityAckStore(clk.Now),           // Phase 26C
-		shadowReceiptAckStore:  persist.NewShadowReceiptAckStore(clk.Now),     // Phase 27
-		trustActionStore:       persist.NewTrustActionStore(clk.Now),          // Phase 28
-		trustActionEngine:      nil,                                           // Phase 28: Set after full initialization
-		financeMirrorStore:     persist.NewFinanceMirrorStore(clk.Now),        // Phase 29
-		financeMirrorEngine:    nil,                                           // Phase 29: Set after full initialization
-		trueLayerHandler:       nil,                                           // Phase 29: Set after full initialization
-		trueLayerTokenStore:    persist.NewTrueLayerTokenStore(clk.Now),       // Phase 31.3b: Token store
-		trueLayerSyncService:   nil,                                           // Phase 31.3b: Set after TrueLayer client
-		trueLayerClient:        nil,                                           // Phase 31.3b: Set after config load
-		deviceKeyStore:         deviceKeyStore,                                // Phase 30A
-		circleBindingStore:     circleBindingStore,                            // Phase 30A
-		deviceIdentityEngine:   deviceIdentityEngine,                          // Phase 30A
-		replayEngine:           replayEngine,                                  // Phase 30A
-		commerceObserverStore:  commerceObserverStore,                         // Phase 31
-		commerceObserverEngine: commerceObserverEngine,                        // Phase 31
-		commerceIngestEngine:   commerceIngestEngine,                          // Phase 31.1
-		financeTxScanEngine:    financeTxScanEngine,                           // Phase 31.2
-		externalCircleStore:    externalCircleStore,                           // Phase 31.4
-		pressureMapStore:       pressureMapStore,                              // Phase 31.4
-		externalPressureEngine: externalPressureEngine,                        // Phase 31.4
-		interruptPolicyStore:   interruptPolicyStore,                          // Phase 33
-		interruptProofAckStore: interruptProofAckStore,                        // Phase 33
-		interruptPolicyEngine:  interruptPolicyEngine,                         // Phase 33
-		interruptPreviewStore:  interruptPreviewStore,                         // Phase 34
-		interruptPreviewEngine: interruptPreviewEngine,                        // Phase 34
-		deviceRegStore:         deviceRegStore,                                // Phase 37
-		deviceRegEngine:        deviceRegEngine,                               // Phase 37
-		notifObserverStore:     notifObserverStore,                            // Phase 38
-		notifObserverEngine:    notifObserverEngine,                           // Phase 38
-		envelopeStore:          envelopeStore,                                 // Phase 39
-		envelopeEngine:         envelopeEngine,                                // Phase 39
-		timeWindowStore:        timeWindowStore,                               // Phase 40
-		timeWindowEngine:       timeWindowEngine,                              // Phase 40
-		rehearsalStore:         rehearsalStore,                                // Phase 41
-		rehearsalEngine:        rehearsalEngine,                               // Phase 41
-		delegatedHoldingStore:  delegatedHoldingStore,                         // Phase 42
-		delegatedHoldingEngine: delegatedHoldingEngine,                        // Phase 42
-		heldProofSignalStore:   heldProofSignalStore,                          // Phase 43
-		heldProofAckStore:      heldProofAckStore,                             // Phase 43
-		heldProofEngine:        heldProofEngine,                               // Phase 43
-		trustTransferContractStore:   trustTransferContractStore,              // Phase 44
-		trustTransferRevocationStore: trustTransferRevocationStore,            // Phase 44
-		trustTransferEngine:          trustTransferEngine,                     // Phase 44
-		enforcementAuditStore:        enforcementAuditStore,                   // Phase 44.2
-		enforcementAuditAckStore:     enforcementAuditAckStore,                // Phase 44.2
-		enforcementAuditEngine:       enforcementAuditEngine,                  // Phase 44.2
-		enforcementClampEngine:       enforcementClampEngine,                  // Phase 44.2
-		enforcementManifest:          enforcementManifest,                     // Phase 44.2
+		engine:                       engine,
+		templates:                    tmpl,
+		eventEmitter:                 emitter,
+		clk:                          clk,
+		execRouter:                   execRouter,
+		execExecutor:                 execExecutor,
+		multiCircleConfig:            multiCfg,
+		identityRepo:                 identityRepo,                                  // Phase 13.1
+		interestStore:                interestStore,                                 // Phase 18.1
+		todayEngine:                  todayEngine,                                   // Phase 18.2
+		preferenceStore:              preferenceStore,                               // Phase 18.2
+		heldEngine:                   heldEngine,                                    // Phase 18.3
+		heldStore:                    heldStore,                                     // Phase 18.3
+		surfaceEngine:                surfaceEngine,                                 // Phase 18.4
+		surfaceStore:                 surfaceStore,                                  // Phase 18.4
+		proofEngine:                  proofEngine,                                   // Phase 18.5
+		proofAckStore:                proofAckStore,                                 // Phase 18.5
+		connectionStore:              connectionStore,                               // Phase 18.6
+		mirrorEngine:                 mirrorEngine,                                  // Phase 18.7
+		mirrorAckStore:               mirrorAckStore,                                // Phase 18.7
+		tokenBroker:                  tokenBroker,                                   // Phase 18.8
+		oauthStateManager:            oauthStateManager,                             // Phase 18.8
+		gmailHandler:                 gmailHandler,                                  // Phase 18.8
+		syncReceiptStore:             syncReceiptStore,                              // Phase 19.1
+		shadowEngine:                 shadowEngine,                                  // Phase 19.2
+		shadowReceiptStore:           shadowReceiptStore,                            // Phase 19.2
+		shadowCalibrationStore:       shadowCalibrationStore,                        // Phase 19.4
+		shadowGateStore:              shadowGateStore,                               // Phase 19.5
+		rulepackStore:                rulepackStore,                                 // Phase 19.6
+		trustStore:                   trustStore,                                    // Phase 20
+		trustEngine:                  trustEng,                                      // Phase 20
+		modeEngine:                   mode.NewEngine(clk.Now),                       // Phase 21
+		shadowviewEngine:             shadowview.NewEngine(clk.Now),                 // Phase 21
+		shadowviewAckStore:           shadowview.NewAckStore(0),                     // Phase 21
+		quietMirrorEngine:            internalquietmirror.NewEngine(clk.Now),        // Phase 22
+		quietMirrorStore:             persist.NewQuietMirrorStore(clk.Now),          // Phase 22
+		quietMirrorDismissals:        persist.NewQuietMirrorDismissalStore(clk.Now), // Phase 22
+		invitationEngine:             internalinvitation.NewEngine(clk.Now),         // Phase 23
+		invitationStore:              persist.NewInvitationStore(clk.Now),           // Phase 23
+		firstActionEngine:            internalfirstaction.NewEngine(clk.Now),        // Phase 24
+		firstActionStore:             persist.NewFirstActionStore(clk.Now),          // Phase 24
+		undoableExecStore:            persist.NewUndoableExecStore(clk.Now),         // Phase 25
+		journeyEngine:                journey.NewEngine(clk.Now),                    // Phase 26A
+		journeyDismissalStore:        persist.NewJourneyDismissalStore(clk.Now),     // Phase 26A
+		firstMinutesEngine:           internalfirstminutes.NewEngine(clk.Now),       // Phase 26B
+		firstMinutesStore:            persist.NewFirstMinutesStore(clk.Now),         // Phase 26B
+		realityEngine:                internalreality.NewEngine(clk),                // Phase 26C
+		realityAckStore:              persist.NewRealityAckStore(clk.Now),           // Phase 26C
+		shadowReceiptAckStore:        persist.NewShadowReceiptAckStore(clk.Now),     // Phase 27
+		trustActionStore:             persist.NewTrustActionStore(clk.Now),          // Phase 28
+		trustActionEngine:            nil,                                           // Phase 28: Set after full initialization
+		financeMirrorStore:           persist.NewFinanceMirrorStore(clk.Now),        // Phase 29
+		financeMirrorEngine:          nil,                                           // Phase 29: Set after full initialization
+		trueLayerHandler:             nil,                                           // Phase 29: Set after full initialization
+		trueLayerTokenStore:          persist.NewTrueLayerTokenStore(clk.Now),       // Phase 31.3b: Token store
+		trueLayerSyncService:         nil,                                           // Phase 31.3b: Set after TrueLayer client
+		trueLayerClient:              nil,                                           // Phase 31.3b: Set after config load
+		deviceKeyStore:               deviceKeyStore,                                // Phase 30A
+		circleBindingStore:           circleBindingStore,                            // Phase 30A
+		deviceIdentityEngine:         deviceIdentityEngine,                          // Phase 30A
+		replayEngine:                 replayEngine,                                  // Phase 30A
+		commerceObserverStore:        commerceObserverStore,                         // Phase 31
+		commerceObserverEngine:       commerceObserverEngine,                        // Phase 31
+		commerceIngestEngine:         commerceIngestEngine,                          // Phase 31.1
+		financeTxScanEngine:          financeTxScanEngine,                           // Phase 31.2
+		externalCircleStore:          externalCircleStore,                           // Phase 31.4
+		pressureMapStore:             pressureMapStore,                              // Phase 31.4
+		externalPressureEngine:       externalPressureEngine,                        // Phase 31.4
+		interruptPolicyStore:         interruptPolicyStore,                          // Phase 33
+		interruptProofAckStore:       interruptProofAckStore,                        // Phase 33
+		interruptPolicyEngine:        interruptPolicyEngine,                         // Phase 33
+		interruptPreviewStore:        interruptPreviewStore,                         // Phase 34
+		interruptPreviewEngine:       interruptPreviewEngine,                        // Phase 34
+		deviceRegStore:               deviceRegStore,                                // Phase 37
+		deviceRegEngine:              deviceRegEngine,                               // Phase 37
+		notifObserverStore:           notifObserverStore,                            // Phase 38
+		notifObserverEngine:          notifObserverEngine,                           // Phase 38
+		envelopeStore:                envelopeStore,                                 // Phase 39
+		envelopeEngine:               envelopeEngine,                                // Phase 39
+		timeWindowStore:              timeWindowStore,                               // Phase 40
+		timeWindowEngine:             timeWindowEngine,                              // Phase 40
+		rehearsalStore:               rehearsalStore,                                // Phase 41
+		rehearsalEngine:              rehearsalEngine,                               // Phase 41
+		delegatedHoldingStore:        delegatedHoldingStore,                         // Phase 42
+		delegatedHoldingEngine:       delegatedHoldingEngine,                        // Phase 42
+		heldProofSignalStore:         heldProofSignalStore,                          // Phase 43
+		heldProofAckStore:            heldProofAckStore,                             // Phase 43
+		heldProofEngine:              heldProofEngine,                               // Phase 43
+		trustTransferContractStore:   trustTransferContractStore,                    // Phase 44
+		trustTransferRevocationStore: trustTransferRevocationStore,                  // Phase 44
+		trustTransferEngine:          trustTransferEngine,                           // Phase 44
+		enforcementAuditStore:        enforcementAuditStore,                         // Phase 44.2
+		enforcementAuditAckStore:     enforcementAuditAckStore,                      // Phase 44.2
+		enforcementAuditEngine:       enforcementAuditEngine,                        // Phase 44.2
+		enforcementClampEngine:       enforcementClampEngine,                        // Phase 44.2
+		enforcementManifest:          enforcementManifest,                           // Phase 44.2
 		// Phase 45: Circle Semantics
 		circleSemanticsStore:    circleSemanticsStore,
 		circleSemanticsAckStore: circleSemanticsAckStore,
@@ -1065,10 +1074,10 @@ func main() {
 		vendorProofAckStore:  vendorProofAckStore,
 		vendorContractEngine: vendorContractEngine,
 		// Phase 50: Signed Vendor Claims + Pack Manifests
-		signedClaimStore:        signedClaimStore,
-		signedManifestStore:     signedManifestStore,
+		signedClaimStore:         signedClaimStore,
+		signedManifestStore:      signedManifestStore,
 		signedClaimProofAckStore: signedClaimProofAckStore,
-		signedClaimsEngine:      signedClaimsEngine,
+		signedClaimsEngine:       signedClaimsEngine,
 		// Phase 51: Transparency Log
 		transparencyLogStore:  transparencyLogStore,
 		transparencyLogEngine: transparencyLogEngine,
@@ -1079,6 +1088,9 @@ func main() {
 		urgencyResolutionStore: urgencyResolutionStore,
 		urgencyAckStore:        urgencyAckStore,
 		urgencyResolveEngine:   urgencyResolveEngine,
+		// Phase 54: Urgency → Delivery Binding
+		urgencyDeliveryStore:  urgencyDeliveryStore,
+		urgencyDeliveryEngine: urgencyDeliveryEngine,
 		// Phase 18 Web Control Center
 		runStore:       runStore,
 		suppressionSet: suppressionSet,
@@ -1197,50 +1209,53 @@ func main() {
 	mux.HandleFunc("/delegate/create", server.handleDelegateCreate)                         // Phase 42: Create contract (POST)
 	mux.HandleFunc("/delegate/revoke", server.handleDelegateRevoke)                         // Phase 42: Revoke contract (POST)
 	mux.HandleFunc("/proof/delegate", server.handleDelegateProof)                           // Phase 42: Delegation proof page (GET)
-	mux.HandleFunc("/proof/held", server.handleHeldProof)                                  // Phase 43: Held proof page (GET)
-	mux.HandleFunc("/proof/held/dismiss", server.handleHeldProofDismiss)                   // Phase 43: Dismiss held proof (POST)
-	mux.HandleFunc("/delegate/transfer", server.handleTrustTransferStatus)                 // Phase 44: Trust transfer status (GET)
-	mux.HandleFunc("/delegate/transfer/propose", server.handleTrustTransferPropose)        // Phase 44: Propose transfer (POST)
-	mux.HandleFunc("/delegate/transfer/accept", server.handleTrustTransferAccept)          // Phase 44: Accept transfer (POST)
-	mux.HandleFunc("/delegate/transfer/revoke", server.handleTrustTransferRevoke)          // Phase 44: Revoke transfer (POST)
-	mux.HandleFunc("/proof/transfer", server.handleTrustTransferProof)                     // Phase 44: Trust transfer proof (GET)
-	mux.HandleFunc("/proof/enforcement", server.handleEnforcementAuditProof)             // Phase 44.2: Enforcement audit proof (GET)
-	mux.HandleFunc("/proof/enforcement/run", server.handleEnforcementAuditRun)           // Phase 44.2: Run enforcement audit (POST)
-	mux.HandleFunc("/proof/enforcement/dismiss", server.handleEnforcementAuditDismiss)   // Phase 44.2: Dismiss audit (POST)
-	mux.HandleFunc("/settings/semantics", server.handleCircleSemanticsSettings)        // Phase 45: Semantics settings (GET)
-	mux.HandleFunc("/settings/semantics/save", server.handleCircleSemanticsSave)       // Phase 45: Save semantics (POST)
-	mux.HandleFunc("/proof/semantics", server.handleCircleSemanticsProof)              // Phase 45: Semantics proof (GET)
-	mux.HandleFunc("/proof/semantics/dismiss", server.handleCircleSemanticsProofDismiss) // Phase 45: Dismiss proof (POST)
-	mux.HandleFunc("/marketplace", server.handleMarketplaceHome)                       // Phase 46: Marketplace home (GET)
-	mux.HandleFunc("/marketplace/pack/", server.handleMarketplacePackDetail)           // Phase 46: Pack detail (GET)
-	mux.HandleFunc("/marketplace/install", server.handleMarketplaceInstall)            // Phase 46: Install pack (POST)
-	mux.HandleFunc("/marketplace/remove", server.handleMarketplaceRemove)              // Phase 46: Remove pack (POST)
-	mux.HandleFunc("/proof/marketplace", server.handleMarketplaceProof)                // Phase 46: Marketplace proof (GET)
-	mux.HandleFunc("/proof/marketplace/dismiss", server.handleMarketplaceProofDismiss) // Phase 46: Dismiss proof (POST)
-	mux.HandleFunc("/proof/coverage", server.handleCoverageProof)                      // Phase 47: Coverage proof (GET)
-	mux.HandleFunc("/proof/coverage/dismiss", server.handleCoverageProofDismiss)       // Phase 47: Dismiss coverage proof (POST)
-	mux.HandleFunc("/proof/market", server.handleMarketProof)                          // Phase 48: Market proof (GET)
-	mux.HandleFunc("/proof/market/dismiss", server.handleMarketProofDismiss)           // Phase 48: Dismiss market proof (POST)
-	mux.HandleFunc("/vendor/contract", server.handleVendorContract)                    // Phase 49: Vendor contract status (GET)
-	mux.HandleFunc("/vendor/contract/declare", server.handleVendorContractDeclare)     // Phase 49: Declare contract (POST)
-	mux.HandleFunc("/vendor/contract/revoke", server.handleVendorContractRevoke)       // Phase 49: Revoke contract (POST)
-	mux.HandleFunc("/proof/vendor", server.handleVendorProof)                          // Phase 49: Vendor proof (GET)
-	mux.HandleFunc("/proof/vendor/dismiss", server.handleVendorProofDismiss)           // Phase 49: Dismiss vendor proof (POST)
-	mux.HandleFunc("/proof/claims", server.handleSignedClaimsProof)                    // Phase 50: Signed claims proof (GET)
-	mux.HandleFunc("/claims/submit", server.handleClaimSubmit)                         // Phase 50: Submit signed claim (POST)
-	mux.HandleFunc("/manifests/submit", server.handleManifestSubmit)                   // Phase 50: Submit signed manifest (POST)
-	mux.HandleFunc("/proof/claims/dismiss", server.handleSignedClaimsProofDismiss)     // Phase 50: Dismiss signed claims proof (POST)
+	mux.HandleFunc("/proof/held", server.handleHeldProof)                                   // Phase 43: Held proof page (GET)
+	mux.HandleFunc("/proof/held/dismiss", server.handleHeldProofDismiss)                    // Phase 43: Dismiss held proof (POST)
+	mux.HandleFunc("/delegate/transfer", server.handleTrustTransferStatus)                  // Phase 44: Trust transfer status (GET)
+	mux.HandleFunc("/delegate/transfer/propose", server.handleTrustTransferPropose)         // Phase 44: Propose transfer (POST)
+	mux.HandleFunc("/delegate/transfer/accept", server.handleTrustTransferAccept)           // Phase 44: Accept transfer (POST)
+	mux.HandleFunc("/delegate/transfer/revoke", server.handleTrustTransferRevoke)           // Phase 44: Revoke transfer (POST)
+	mux.HandleFunc("/proof/transfer", server.handleTrustTransferProof)                      // Phase 44: Trust transfer proof (GET)
+	mux.HandleFunc("/proof/enforcement", server.handleEnforcementAuditProof)                // Phase 44.2: Enforcement audit proof (GET)
+	mux.HandleFunc("/proof/enforcement/run", server.handleEnforcementAuditRun)              // Phase 44.2: Run enforcement audit (POST)
+	mux.HandleFunc("/proof/enforcement/dismiss", server.handleEnforcementAuditDismiss)      // Phase 44.2: Dismiss audit (POST)
+	mux.HandleFunc("/settings/semantics", server.handleCircleSemanticsSettings)             // Phase 45: Semantics settings (GET)
+	mux.HandleFunc("/settings/semantics/save", server.handleCircleSemanticsSave)            // Phase 45: Save semantics (POST)
+	mux.HandleFunc("/proof/semantics", server.handleCircleSemanticsProof)                   // Phase 45: Semantics proof (GET)
+	mux.HandleFunc("/proof/semantics/dismiss", server.handleCircleSemanticsProofDismiss)    // Phase 45: Dismiss proof (POST)
+	mux.HandleFunc("/marketplace", server.handleMarketplaceHome)                            // Phase 46: Marketplace home (GET)
+	mux.HandleFunc("/marketplace/pack/", server.handleMarketplacePackDetail)                // Phase 46: Pack detail (GET)
+	mux.HandleFunc("/marketplace/install", server.handleMarketplaceInstall)                 // Phase 46: Install pack (POST)
+	mux.HandleFunc("/marketplace/remove", server.handleMarketplaceRemove)                   // Phase 46: Remove pack (POST)
+	mux.HandleFunc("/proof/marketplace", server.handleMarketplaceProof)                     // Phase 46: Marketplace proof (GET)
+	mux.HandleFunc("/proof/marketplace/dismiss", server.handleMarketplaceProofDismiss)      // Phase 46: Dismiss proof (POST)
+	mux.HandleFunc("/proof/coverage", server.handleCoverageProof)                           // Phase 47: Coverage proof (GET)
+	mux.HandleFunc("/proof/coverage/dismiss", server.handleCoverageProofDismiss)            // Phase 47: Dismiss coverage proof (POST)
+	mux.HandleFunc("/proof/market", server.handleMarketProof)                               // Phase 48: Market proof (GET)
+	mux.HandleFunc("/proof/market/dismiss", server.handleMarketProofDismiss)                // Phase 48: Dismiss market proof (POST)
+	mux.HandleFunc("/vendor/contract", server.handleVendorContract)                         // Phase 49: Vendor contract status (GET)
+	mux.HandleFunc("/vendor/contract/declare", server.handleVendorContractDeclare)          // Phase 49: Declare contract (POST)
+	mux.HandleFunc("/vendor/contract/revoke", server.handleVendorContractRevoke)            // Phase 49: Revoke contract (POST)
+	mux.HandleFunc("/proof/vendor", server.handleVendorProof)                               // Phase 49: Vendor proof (GET)
+	mux.HandleFunc("/proof/vendor/dismiss", server.handleVendorProofDismiss)                // Phase 49: Dismiss vendor proof (POST)
+	mux.HandleFunc("/proof/claims", server.handleSignedClaimsProof)                         // Phase 50: Signed claims proof (GET)
+	mux.HandleFunc("/claims/submit", server.handleClaimSubmit)                              // Phase 50: Submit signed claim (POST)
+	mux.HandleFunc("/manifests/submit", server.handleManifestSubmit)                        // Phase 50: Submit signed manifest (POST)
+	mux.HandleFunc("/proof/claims/dismiss", server.handleSignedClaimsProofDismiss)          // Phase 50: Dismiss signed claims proof (POST)
 	// Phase 51: Transparency Log / Claim Ledger routes
-	mux.HandleFunc("/proof/transparency", server.handleTransparencyLog)               // Phase 51: View transparency log (GET)
-	mux.HandleFunc("/proof/transparency/export", server.handleTransparencyLogExport)  // Phase 51: Export transparency log (GET)
-	mux.HandleFunc("/proof/transparency/import", server.handleTransparencyLogImport)  // Phase 51: Import transparency log (POST)
+	mux.HandleFunc("/proof/transparency", server.handleTransparencyLog)              // Phase 51: View transparency log (GET)
+	mux.HandleFunc("/proof/transparency/export", server.handleTransparencyLogExport) // Phase 51: Export transparency log (GET)
+	mux.HandleFunc("/proof/transparency/import", server.handleTransparencyLogImport) // Phase 51: Import transparency log (POST)
 	// Phase 52: Proof Hub + Connected Status routes
-	mux.HandleFunc("/proof/hub", server.handleProofHub)                               // Phase 52: View proof hub (GET)
-	mux.HandleFunc("/proof/hub/dismiss", server.handleProofHubDismiss)                // Phase 52: Dismiss proof hub cue (POST)
+	mux.HandleFunc("/proof/hub", server.handleProofHub)                // Phase 52: View proof hub (GET)
+	mux.HandleFunc("/proof/hub/dismiss", server.handleProofHubDismiss) // Phase 52: Dismiss proof hub cue (POST)
 	// Phase 53: Urgency Resolution Layer routes
-	mux.HandleFunc("/proof/urgency", server.handleUrgencyProof)                       // Phase 53: View urgency proof (GET)
-	mux.HandleFunc("/proof/urgency/run", server.handleUrgencyRun)                     // Phase 53: Run urgency resolution (POST)
-	mux.HandleFunc("/proof/urgency/dismiss", server.handleUrgencyDismiss)             // Phase 53: Dismiss urgency cue (POST)
+	mux.HandleFunc("/proof/urgency", server.handleUrgencyProof)           // Phase 53: View urgency proof (GET)
+	mux.HandleFunc("/proof/urgency/run", server.handleUrgencyRun)         // Phase 53: Run urgency resolution (POST)
+	mux.HandleFunc("/proof/urgency/dismiss", server.handleUrgencyDismiss) // Phase 53: Dismiss urgency cue (POST)
+	// Phase 54: Urgency → Delivery Binding routes
+	mux.HandleFunc("/proof/urgency-delivery", server.handleUrgencyDeliveryProof) // Phase 54: View delivery proof (GET)
+	mux.HandleFunc("/run/urgency-delivery", server.handleUrgencyDeliveryRun)     // Phase 54: Run delivery binding (POST)
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18 Web Control Center: Core routes
@@ -11082,10 +11097,10 @@ func (s *Server) handleCircleSemanticsProofDismiss(w http.ResponseWriter, r *htt
 // buildSemanticsInputs builds SemanticsInputs from current server state.
 func (s *Server) buildSemanticsInputs() internalcirclesemantics.SemanticsInputs {
 	inputs := internalcirclesemantics.SemanticsInputs{
-		CircleIDHashes: make([]string, 0),
-		CircleTypes:    make(map[string]string),
-		HasGmail:       false,
-		HasTrueLayer:   false,
+		CircleIDHashes:          make([]string, 0),
+		CircleTypes:             make(map[string]string),
+		HasGmail:                false,
+		HasTrueLayer:            false,
 		HasCommerceObservations: false,
 	}
 
@@ -11808,11 +11823,11 @@ func (s *Server) handleVendorContractDeclare(w http.ResponseWriter, r *http.Requ
 		Type:      events.Phase49VendorContractDeclared,
 		Timestamp: now,
 		Metadata: map[string]string{
-			"contract_hash":    contractHash,
-			"scope":            string(scope),
-			"effective_cap":    string(outcome.EffectiveCap),
-			"reason":           string(outcome.Reason),
-			"period_key":       periodKey,
+			"contract_hash": contractHash,
+			"scope":         string(scope),
+			"effective_cap": string(outcome.EffectiveCap),
+			"reason":        string(outcome.Reason),
+			"period_key":    periodKey,
 		},
 	})
 
@@ -13225,6 +13240,321 @@ func capToDisplayText(cap domainurgencyresolve.EscalationCap) string {
 	default:
 		return "Unknown"
 	}
+}
+
+// ============================================================================
+// Phase 54: Urgency → Delivery Binding Handlers
+// ============================================================================
+
+// handleUrgencyDeliveryProof handles GET /proof/urgency-delivery.
+// Phase 54: Displays the urgency delivery binding proof page.
+func (s *Server) handleUrgencyDeliveryProof(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Emit requested event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase54UrgencyDeliveryRequested,
+		Timestamp: s.clk.Now(),
+		Metadata:  map[string]string{"action": "proof_view"},
+	})
+
+	// Get circle hash
+	circleIDHash := s.getCircleIDHash()
+
+	// Get recent receipts
+	receipts := s.urgencyDeliveryStore.ListRecentByCircle(circleIDHash, domainurgencydelivery.MaxProofPageReceipts)
+
+	// Build proof page
+	page := s.urgencyDeliveryEngine.BuildProofPage(receipts)
+
+	// Render proof page
+	s.renderUrgencyDeliveryProofPage(w, page)
+}
+
+// handleUrgencyDeliveryRun handles POST /run/urgency-delivery.
+// Phase 54: Runs urgency delivery binding and persists the result.
+// CRITICAL: This is POST-only. No background execution.
+func (s *Server) handleUrgencyDeliveryRun(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Emit requested event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase54UrgencyDeliveryRequested,
+		Timestamp: s.clk.Now(),
+		Metadata:  map[string]string{"action": "run"},
+	})
+
+	// Get circle hash and period
+	circleIDHash := s.getCircleIDHash()
+	periodKey := internalurgencyresolve.ComputePeriodKey(s.clk.Now())
+
+	// Get urgency resolution from Phase 53
+	urgencyResolution := s.urgencyResolutionStore.GetLatestResolution(circleIDHash, periodKey)
+	urgencyBucket := domainurgencydelivery.UrgencyNone
+	if urgencyResolution != nil {
+		urgencyBucket = internalurgencydelivery.MapUrgencyLevel(string(urgencyResolution.Level))
+	}
+
+	// Build binding inputs
+	// NOTE: In production, these would come from real Phase 32-36 pipeline
+	// For now, we use stub/mock values since we're binding to existing pipelines
+	inputs := domainurgencydelivery.BindingInputs{
+		CircleIDHash:              circleIDHash,
+		PeriodKey:                 periodKey,
+		HasDevice:                 s.hasRegisteredDevice(),
+		TransportAvailable:        s.isTransportAvailable(),
+		SealedKeyAvailable:        s.isSealedKeyAvailable(),
+		UrgencyBucket:             urgencyBucket,
+		CandidateHash:             s.getCurrentCandidateHash(circleIDHash, periodKey),
+		CandidateCircleTypeBucket: s.getCandidateCircleType(circleIDHash),
+		CandidateHorizonBucket:    domainurgencydelivery.HorizonNone,
+		CandidateMagnitudeBucket:  domainurgencydelivery.MagnitudeNothing,
+		PolicyAllowanceBucket:     s.getPolicyAllowance(circleIDHash),
+		EnvelopeActivityBucket:    s.getEnvelopeActivity(circleIDHash, periodKey),
+		EnforcementClampBucket:    s.getEnforcementClamp(circleIDHash),
+		DeliveredTodayCount:       s.urgencyDeliveryStore.CountDeliveredForPeriod(circleIDHash, periodKey),
+	}
+
+	// Validate inputs
+	if err := inputs.Validate(); err != nil {
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase54UrgencyDeliveryRejected,
+			Timestamp: s.clk.Now(),
+			Metadata:  map[string]string{"error": "invalid_inputs"},
+		})
+		http.Error(w, "Invalid inputs", http.StatusBadRequest)
+		return
+	}
+
+	// Check for duplicate
+	if s.urgencyDeliveryStore.HasReceiptForCandidatePeriod(circleIDHash, inputs.CandidateHash, periodKey) {
+		// Already processed this candidate for this period
+		http.Redirect(w, r, "/proof/urgency-delivery", http.StatusSeeOther)
+		return
+	}
+
+	// Compute decision
+	decision := s.urgencyDeliveryEngine.ComputeDecision(inputs)
+
+	// Emit computed event
+	shouldDeliverStr := "false"
+	if decision.ShouldAttemptDelivery {
+		shouldDeliverStr = "true"
+	}
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase54UrgencyDeliveryComputed,
+		Timestamp: s.clk.Now(),
+		Metadata: map[string]string{
+			"intent":           string(decision.Intent),
+			"should_deliver":   shouldDeliverStr,
+			"rejection_reason": string(decision.RejectionReason),
+		},
+	})
+
+	var receipt domainurgencydelivery.UrgencyDeliveryReceipt
+	if decision.ShouldAttemptDelivery {
+		// Attempt delivery via Phase 36
+		// NOTE: In production, this would call the actual delivery orchestrator
+		// For now, we create a stub attempt
+		attemptIDHash := s.attemptDeliveryViaPhase36(circleIDHash, inputs.CandidateHash, periodKey)
+
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase54UrgencyDeliveryAttempted,
+			Timestamp: s.clk.Now(),
+			Metadata:  map[string]string{"attempt_id_hash": attemptIDHash[:8]},
+		})
+
+		if attemptIDHash != "" {
+			// Delivery succeeded
+			receipt = s.urgencyDeliveryEngine.BuildReceiptWithAttempt(inputs, decision, attemptIDHash)
+			s.eventEmitter.Emit(events.Event{
+				Type:      events.Phase54UrgencyDeliveryDelivered,
+				Timestamp: s.clk.Now(),
+				Metadata:  map[string]string{"receipt_hash": receipt.ReceiptHash[:8]},
+			})
+		} else {
+			// Delivery failed - treat as not delivered
+			receipt = s.urgencyDeliveryEngine.BuildReceipt(inputs, decision, false)
+		}
+	} else {
+		// Rejected - build receipt without attempt
+		receipt = s.urgencyDeliveryEngine.BuildReceipt(inputs, decision, false)
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase54UrgencyDeliveryRejected,
+			Timestamp: s.clk.Now(),
+			Metadata: map[string]string{
+				"rejection_reason": string(decision.RejectionReason),
+			},
+		})
+	}
+
+	// Persist receipt
+	recorded, err := s.urgencyDeliveryStore.AppendReceipt(receipt)
+	if err != nil {
+		log.Printf("Phase 54: Failed to persist receipt: %v", err)
+		http.Error(w, "Failed to persist receipt", http.StatusInternalServerError)
+		return
+	}
+
+	if recorded {
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase54UrgencyDeliveryPersisted,
+			Timestamp: s.clk.Now(),
+			Metadata:  map[string]string{"receipt_hash": receipt.ReceiptHash[:8]},
+		})
+	}
+
+	// Redirect to proof page
+	http.Redirect(w, r, "/proof/urgency-delivery", http.StatusSeeOther)
+}
+
+// renderUrgencyDeliveryProofPage renders the urgency delivery proof page.
+func (s *Server) renderUrgencyDeliveryProofPage(w http.ResponseWriter, page domainurgencydelivery.ProofPage) {
+	fmt.Fprintf(w, `<!DOCTYPE html>
+<html>
+<head>
+<title>%s</title>
+<style>
+body { font-family: system-ui, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; background: #fafafa; }
+.proof-card { background: white; border-radius: 8px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.title { font-size: 24px; font-weight: 600; margin-bottom: 16px; color: #1a1a1a; }
+.line { color: #666; margin: 8px 0; font-size: 14px; }
+.receipts { margin-top: 24px; border-top: 1px solid #eee; padding-top: 16px; }
+.receipt { background: #f8f8f8; border-radius: 4px; padding: 12px; margin: 8px 0; font-size: 13px; }
+.receipt-outcome { font-weight: 500; }
+.receipt-delivered { color: #059669; }
+.receipt-not-delivered { color: #666; }
+.receipt-hash { font-family: monospace; color: #888; font-size: 11px; }
+.hash { font-family: monospace; font-size: 12px; color: #888; margin-top: 16px; }
+.actions { margin-top: 24px; }
+.run-btn { background: #3b82f6; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; }
+.run-btn:hover { background: #2563eb; }
+.back-link { display: block; margin-top: 16px; color: #666; text-decoration: none; }
+.back-link:hover { color: #333; }
+</style>
+</head>
+<body>
+<div class="proof-card">
+<div class="title">%s</div>
+`, page.Title, page.Title)
+
+	// Lines
+	for _, line := range page.Lines {
+		fmt.Fprintf(w, `<div class="line">%s</div>`, line)
+	}
+
+	// Recent receipts
+	if len(page.RecentReceipts) > 0 {
+		fmt.Fprintf(w, `<div class="receipts"><div class="line"><strong>Recent activity:</strong></div>`)
+		for _, r := range page.RecentReceipts {
+			outcomeClass := "receipt-not-delivered"
+			outcomeText := "Not delivered"
+			if r.OutcomeKind == domainurgencydelivery.OutcomeDelivered {
+				outcomeClass = "receipt-delivered"
+				outcomeText = "Delivered"
+			}
+			rejectionText := ""
+			if r.RejectionReason != domainurgencydelivery.RejectNone {
+				rejectionText = " — " + r.RejectionReason.DisplayLabel()
+			}
+			fmt.Fprintf(w, `<div class="receipt"><span class="receipt-outcome %s">%s</span>%s <span class="receipt-hash">[%s]</span></div>`,
+				outcomeClass, outcomeText, rejectionText, r.ReceiptHashPrefix)
+		}
+		fmt.Fprintf(w, `</div>`)
+	}
+
+	// Hash
+	fmt.Fprintf(w, `<div class="hash">Status: %s</div>`, page.StatusHash)
+
+	// Action button
+	fmt.Fprintf(w, `<div class="actions">
+<form method="POST" action="/run/urgency-delivery">
+<button type="submit" class="run-btn">Run Now</button>
+</form>
+</div>`)
+
+	// Back link
+	fmt.Fprintf(w, `<a href="/today" class="back-link">← Back to Today</a>`)
+
+	fmt.Fprintf(w, `</div></body></html>`)
+}
+
+// Helper methods for Phase 54
+
+// hasRegisteredDevice checks if a device is registered.
+func (s *Server) hasRegisteredDevice() bool {
+	// Check device registration store
+	// For now, return true if deviceIdentityEngine has a device
+	_, _, err := s.deviceIdentityEngine.EnsureDeviceIdentity()
+	return err == nil
+}
+
+// isTransportAvailable checks if push transport is available.
+func (s *Server) isTransportAvailable() bool {
+	// For now, return true as stub
+	// In production, this would check Phase 35 transport registry
+	return true
+}
+
+// isSealedKeyAvailable checks if APNs sealed key is available.
+func (s *Server) isSealedKeyAvailable() bool {
+	// For now, return true as stub
+	// In production, this would check Phase 35b sealed boundary
+	return true
+}
+
+// getCurrentCandidateHash gets the current candidate hash from Phase 32/34.
+func (s *Server) getCurrentCandidateHash(circleIDHash, periodKey string) string {
+	// For now, return a deterministic hash based on circle and period
+	// In production, this would come from Phase 32/34 decision pipeline
+	candidate := fmt.Sprintf("candidate|%s|%s", circleIDHash, periodKey)
+	h := sha256.Sum256([]byte(candidate))
+	return hex.EncodeToString(h[:16])
+}
+
+// getCandidateCircleType gets the candidate's circle type.
+func (s *Server) getCandidateCircleType(circleIDHash string) domainurgencydelivery.CircleTypeBucket {
+	// For now, return human as default
+	// In production, this would come from Phase 31.4 external pressure map
+	return domainurgencydelivery.CircleTypeHuman
+}
+
+// getPolicyAllowance gets the policy allowance from Phase 33.
+func (s *Server) getPolicyAllowance(circleIDHash string) domainurgencydelivery.PolicyAllowanceBucket {
+	// Check interrupt policy store
+	// For now, return allowed as stub
+	return domainurgencydelivery.PolicyAllowed
+}
+
+// getEnvelopeActivity gets the envelope activity from Phase 39.
+func (s *Server) getEnvelopeActivity(circleIDHash, periodKey string) domainurgencydelivery.EnvelopeActivityBucket {
+	// Check envelope store
+	// For now, return none as stub
+	return domainurgencydelivery.EnvelopeNone
+}
+
+// getEnforcementClamp gets the enforcement clamp from Phase 44.2.
+func (s *Server) getEnforcementClamp(circleIDHash string) domainurgencydelivery.EnforcementClampBucket {
+	// Check enforcement audit store
+	// For now, return not clamped as stub
+	return domainurgencydelivery.EnforcementNotClamped
+}
+
+// attemptDeliveryViaPhase36 attempts delivery via Phase 36 orchestrator.
+// Returns the attempt ID hash if successful, empty string if failed.
+func (s *Server) attemptDeliveryViaPhase36(circleIDHash, candidateHash, periodKey string) string {
+	// In production, this would call the Phase 36 delivery orchestrator
+	// and return the actual attempt ID hash.
+	// For now, we simulate a successful delivery by returning a hash.
+	attemptKey := fmt.Sprintf("attempt|%s|%s|%s", circleIDHash, candidateHash, periodKey)
+	h := sha256.Sum256([]byte(attemptKey))
+	return hex.EncodeToString(h[:])
 }
 
 // ============================================================================

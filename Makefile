@@ -1076,6 +1076,18 @@ check-urgency-resolution:
 	@echo "Checking Phase 53 constraints..."
 	@./scripts/guardrails/urgency_resolution_enforced.sh
 
+# Run Phase 54 Urgency Delivery Binding demo tests
+# Phase 54: Urgency → Delivery Binding - POST-triggered, no background execution.
+# Reference: docs/ADR/ADR-0092-phase54-urgency-delivery-binding.md
+demo-phase54:
+	@echo "Running Phase 54 Demo: Urgency Delivery Binding..."
+	go test -v ./internal/demo_phase54_urgency_delivery_binding/...
+
+# Check Phase 54 Urgency Delivery Binding constraints
+check-urgency-delivery-binding:
+	@echo "Checking Phase 54 constraints..."
+	@./scripts/guardrails/urgency_delivery_binding_enforced.sh
+
 # =============================================================================
 # Web Server Targets
 # =============================================================================

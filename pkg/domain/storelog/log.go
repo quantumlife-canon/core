@@ -257,9 +257,9 @@ const (
 	// CRITICAL: Observer bindings are intents only - no real wiring occurs.
 	// CRITICAL: Effect MUST be effect_no_power in Phase 46.
 	// CRITICAL: Bounded retention: 30 days OR 200 records max.
-	RecordTypePackInstall     = "PACK_INSTALL"
-	RecordTypePackRemoval     = "PACK_REMOVAL"
-	RecordTypeMarketplaceAck  = "MARKETPLACE_ACK"
+	RecordTypePackInstall    = "PACK_INSTALL"
+	RecordTypePackRemoval    = "PACK_REMOVAL"
+	RecordTypeMarketplaceAck = "MARKETPLACE_ACK"
 
 	// Phase 47: Pack Coverage Realization record types
 	// CRITICAL: Contains ONLY abstract buckets and hashes - never identifiers.
@@ -267,7 +267,7 @@ const (
 	// CRITICAL: NEVER changes interrupt policy, delivery, or execution.
 	// CRITICAL: Track B: Expand observers, not actions.
 	// CRITICAL: Bounded retention: 30 days OR 200 records max.
-	RecordTypeCoveragePlan    = "COVERAGE_PLAN"
+	RecordTypeCoveragePlan     = "COVERAGE_PLAN"
 	RecordTypeCoverageProofAck = "COVERAGE_PROOF_ACK"
 
 	// Phase 48: Market Signal Binding (Non-Extractive Marketplace v1) record types
@@ -316,6 +316,12 @@ const (
 	// CRITICAL: Bounded retention: 30 days OR 500 entries max.
 	RecordTypeUrgencyResolution = "URGENCY_RESOLUTION"
 	RecordTypeUrgencyAck        = "URGENCY_ACK"
+
+	// Phase 54: Urgency → Delivery Binding record types
+	// Reference: docs/ADR/ADR-0092-phase54-urgency-delivery-binding.md
+	// CRITICAL: Append-only, hash-only, POST-triggered only - NO BACKGROUND EXECUTION.
+	// CRITICAL: Bounded retention: 30 days OR 200 entries max.
+	RecordTypeUrgencyDeliveryReceipt = "URGENCY_DELIVERY_RECEIPT"
 )
 
 // Common errors

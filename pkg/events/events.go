@@ -2012,9 +2012,9 @@ const (
 	// CRITICAL: Payloads are bucket-only: scope, duration, active bool, status_hash.
 	// CRITICAL: No identifiers in payloads.
 	// CRITICAL: HOLD-only outcomes. Never SURFACE, INTERRUPT_CANDIDATE, DELIVER, EXECUTE.
-	Phase44TransferProposed     EventType = "phase44.transfer.proposed"
-	Phase44TransferAccepted     EventType = "phase44.transfer.accepted"
-	Phase44TransferRevoked      EventType = "phase44.transfer.revoked"
+	Phase44TransferProposed      EventType = "phase44.transfer.proposed"
+	Phase44TransferAccepted      EventType = "phase44.transfer.accepted"
+	Phase44TransferRevoked       EventType = "phase44.transfer.revoked"
 	Phase44TransferEffectApplied EventType = "phase44.transfer.effect_applied"
 	Phase44TransferProofRendered EventType = "phase44.transfer.proof.rendered"
 
@@ -2205,6 +2205,25 @@ const (
 	Phase53UrgencyDismissed EventType = "phase53.urgency.dismissed"
 	// Phase53UrgencyRejected - urgency resolution was rejected (invalid inputs).
 	Phase53UrgencyRejected EventType = "phase53.urgency.rejected"
+
+	// =========================================================================
+	// Phase 54: Urgency → Delivery Binding events
+	// Reference: docs/ADR/ADR-0092-phase54-urgency-delivery-binding.md
+	// CRITICAL: POST-triggered only, no background execution, hash-only.
+	// =========================================================================
+
+	// Phase54UrgencyDeliveryRequested - urgency delivery binding was requested.
+	Phase54UrgencyDeliveryRequested EventType = "phase54.urgency_delivery.requested"
+	// Phase54UrgencyDeliveryComputed - urgency delivery decision was computed.
+	Phase54UrgencyDeliveryComputed EventType = "phase54.urgency_delivery.computed"
+	// Phase54UrgencyDeliveryRejected - urgency delivery was rejected.
+	Phase54UrgencyDeliveryRejected EventType = "phase54.urgency_delivery.rejected"
+	// Phase54UrgencyDeliveryAttempted - delivery was attempted via Phase 36.
+	Phase54UrgencyDeliveryAttempted EventType = "phase54.urgency_delivery.delivery_attempted"
+	// Phase54UrgencyDeliveryDelivered - delivery was successfully completed.
+	Phase54UrgencyDeliveryDelivered EventType = "phase54.urgency_delivery.delivered"
+	// Phase54UrgencyDeliveryPersisted - urgency delivery receipt was persisted.
+	Phase54UrgencyDeliveryPersisted EventType = "phase54.urgency_delivery.persisted"
 )
 
 // Event represents a system event for audit and observability.
