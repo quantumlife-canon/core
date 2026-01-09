@@ -2132,6 +2132,24 @@ const (
 
 	// Phase49VendorProofRendered - vendor proof page was rendered.
 	Phase49VendorProofRendered EventType = "phase49.vendor_proof.rendered"
+
+	// =========================================================================
+	// Phase 50: Signed Vendor Claims + Pack Manifests Events
+	// =========================================================================
+	// Reference: docs/ADR/ADR-0088-phase50-signed-vendor-claims-and-pack-manifests.md
+
+	// Phase50ClaimSubmitted - a signed vendor claim was submitted for verification.
+	Phase50ClaimSubmitted EventType = "phase50.claim.submitted"
+	// Phase50ClaimVerified - a signed vendor claim signature was verified.
+	Phase50ClaimVerified EventType = "phase50.claim.verified"
+	// Phase50ClaimPersisted - a signed vendor claim record was persisted.
+	Phase50ClaimPersisted EventType = "phase50.claim.persisted"
+	// Phase50ManifestSubmitted - a signed pack manifest was submitted for verification.
+	Phase50ManifestSubmitted EventType = "phase50.manifest.submitted"
+	// Phase50ManifestVerified - a signed pack manifest signature was verified.
+	Phase50ManifestVerified EventType = "phase50.manifest.verified"
+	// Phase50ManifestPersisted - a signed pack manifest record was persisted.
+	Phase50ManifestPersisted EventType = "phase50.manifest.persisted"
 )
 
 // Event represents a system event for audit and observability.

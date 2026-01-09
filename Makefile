@@ -1019,6 +1019,22 @@ check-vendor-contracts:
 	@./scripts/guardrails/vendor_reality_contracts_enforced.sh
 
 # =============================================================================
+# Phase 50: Signed Vendor Claims + Pack Manifests
+# =============================================================================
+# Provides Ed25519-based authenticity primitives for vendor claims and pack manifests.
+# This is authenticity-only - NO power to change decisions, outcomes, or delivery.
+# Hash-only storage: only fingerprints stored, never raw keys or signatures.
+# Reference: docs/ADR/ADR-0088-phase50-signed-vendor-claims-and-pack-manifests.md
+demo-phase50:
+	@echo "Running Phase 50 Demo: Signed Vendor Claims + Pack Manifests..."
+	go test -v ./internal/demo_phase50_signed_claims/...
+
+# Check Phase 50 Signed Claims constraints
+check-signed-claims:
+	@echo "Checking Phase 50 constraints..."
+	@./scripts/guardrails/signed_claims_enforced.sh
+
+# =============================================================================
 # Web Server Targets
 # =============================================================================
 # These are convenience targets for running the QuantumLife web server.

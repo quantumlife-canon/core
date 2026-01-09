@@ -288,6 +288,14 @@ const (
 	// CRITICAL: Bounded retention: 30 days OR 200 records max.
 	RecordTypeVendorContract           = "VENDOR_CONTRACT"
 	RecordTypeVendorContractRevocation = "VENDOR_CONTRACT_REVOCATION"
+
+	// Phase 50: Signed Vendor Claims + Pack Manifests record types
+	// CRITICAL: Contains ONLY abstract buckets and hashes - never identifiers.
+	// CRITICAL: Authenticity-only - "verified" means signature checks out, NOT reputation.
+	// CRITICAL: Hash-only storage - no raw keys, signatures, vendor names, emails, URLs.
+	// CRITICAL: Bounded retention: 30 days OR 200 records max.
+	RecordTypeSignedClaim    = "SIGNED_CLAIM"
+	RecordTypeSignedManifest = "SIGNED_MANIFEST"
 )
 
 // Common errors

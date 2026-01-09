@@ -68,6 +68,7 @@ import (
 	internalcoverageplan "quantumlife/internal/coverageplan"
 	internalmarketsignal "quantumlife/internal/marketsignal"
 	internalvendorcontract "quantumlife/internal/vendorcontract"
+	internalsignedclaims "quantumlife/internal/signedclaims"
 	internalmarketplace "quantumlife/internal/marketplace"
 	internalinvitation "quantumlife/internal/invitation"
 	"quantumlife/internal/journey"
@@ -123,6 +124,7 @@ import (
 	domaincoverageplan "quantumlife/pkg/domain/coverageplan"
 	domainmarketsignal "quantumlife/pkg/domain/marketsignal"
 	domainvendorcontract "quantumlife/pkg/domain/vendorcontract"
+	domainsignedclaims "quantumlife/pkg/domain/signedclaims"
 	domainmarketplace "quantumlife/pkg/domain/marketplace"
 	domaininvitation "quantumlife/pkg/domain/invitation"
 	domainmirror "quantumlife/pkg/domain/mirror"
@@ -270,6 +272,11 @@ type Server struct {
 	vendorContractStore   *persist.VendorContractStore            // Phase 49: Vendor contract store
 	vendorProofAckStore   *persist.VendorProofAckStore            // Phase 49: Vendor proof ack store
 	vendorContractEngine  *internalvendorcontract.Engine          // Phase 49: Vendor contract engine
+	// Phase 50: Signed Vendor Claims + Pack Manifests
+	signedClaimStore       *persist.SignedClaimStore              // Phase 50: Signed claim store
+	signedManifestStore    *persist.SignedManifestStore           // Phase 50: Signed manifest store
+	signedClaimProofAckStore *persist.SignedClaimProofAckStore    // Phase 50: Signed claim proof ack store
+	signedClaimsEngine     *internalsignedclaims.Engine           // Phase 50: Signed claims engine
 	// Phase 18 Web Control Center
 	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
 	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
@@ -885,6 +892,12 @@ func main() {
 	vendorProofAckStore := persist.NewVendorProofAckStore(clk.Now)
 	vendorContractEngine := internalvendorcontract.NewEngine(clk.Now)
 
+	// Phase 50: Signed Vendor Claims + Pack Manifests stores and engine
+	signedClaimStore := persist.NewSignedClaimStore(clk.Now)
+	signedManifestStore := persist.NewSignedManifestStore(clk.Now)
+	signedClaimProofAckStore := persist.NewSignedClaimProofAckStore(clk.Now)
+	signedClaimsEngine := internalsignedclaims.NewEngine(clk.Now)
+
 	// Phase 18 Web Control Center: Create stores
 	runStore := runlog.NewInMemoryRunStore()
 	suppressionSet := suppress.NewSuppressionSet()
@@ -1009,6 +1022,11 @@ func main() {
 		vendorContractStore:  vendorContractStore,
 		vendorProofAckStore:  vendorProofAckStore,
 		vendorContractEngine: vendorContractEngine,
+		// Phase 50: Signed Vendor Claims + Pack Manifests
+		signedClaimStore:        signedClaimStore,
+		signedManifestStore:     signedManifestStore,
+		signedClaimProofAckStore: signedClaimProofAckStore,
+		signedClaimsEngine:      signedClaimsEngine,
 		// Phase 18 Web Control Center
 		runStore:       runStore,
 		suppressionSet: suppressionSet,
@@ -1156,6 +1174,10 @@ func main() {
 	mux.HandleFunc("/vendor/contract/revoke", server.handleVendorContractRevoke)       // Phase 49: Revoke contract (POST)
 	mux.HandleFunc("/proof/vendor", server.handleVendorProof)                          // Phase 49: Vendor proof (GET)
 	mux.HandleFunc("/proof/vendor/dismiss", server.handleVendorProofDismiss)           // Phase 49: Dismiss vendor proof (POST)
+	mux.HandleFunc("/proof/claims", server.handleSignedClaimsProof)                    // Phase 50: Signed claims proof (GET)
+	mux.HandleFunc("/claims/submit", server.handleClaimSubmit)                         // Phase 50: Submit signed claim (POST)
+	mux.HandleFunc("/manifests/submit", server.handleManifestSubmit)                   // Phase 50: Submit signed manifest (POST)
+	mux.HandleFunc("/proof/claims/dismiss", server.handleSignedClaimsProofDismiss)     // Phase 50: Dismiss signed claims proof (POST)
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18 Web Control Center: Core routes
@@ -11893,6 +11915,426 @@ func (s *Server) getVendorCue() domainvendorcontract.VendorProofCue {
 	}
 
 	return s.vendorContractEngine.BuildCue(proofLines, dismissed)
+}
+
+// ============================================================================
+// Phase 50: Signed Vendor Claims + Pack Manifests Handlers
+// ============================================================================
+
+// handleSignedClaimsProof handles GET /proof/claims.
+// Phase 50: Shows verified signed claims and manifests for the circle.
+func (s *Server) handleSignedClaimsProof(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	periodKey := now.Format("2006-01-02")
+	circleIDHash := domainsignedclaims.ComputeSafeRefHash([]byte("default"))
+
+	// Get claims and manifests for this circle and period
+	claims := s.signedClaimStore.ListByCircleAndPeriod(circleIDHash, periodKey)
+	manifests := s.signedManifestStore.ListByCircleAndPeriod(circleIDHash, periodKey)
+
+	// Build display data
+	displayData := s.signedClaimsEngine.BuildProofDisplayData(claims, manifests, periodKey)
+
+	// Check if dismissed
+	isDismissed := s.signedClaimProofAckStore.IsProofDismissed(circleIDHash, periodKey)
+
+	// Render whisper-style proof page
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `<!DOCTYPE html>
+<html>
+<head>
+    <title>Signed Claims Proof</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 600px; margin: 40px auto; padding: 0 20px; background: #fafafa; color: #333; }
+        .card { background: white; border-radius: 8px; padding: 20px; margin: 20px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .header { font-size: 14px; color: #666; margin-bottom: 10px; }
+        .claim { padding: 10px; margin: 10px 0; border-left: 3px solid #4caf50; background: #f9fff9; }
+        .claim.unverified { border-left-color: #ff9800; background: #fff9f0; }
+        .manifest { padding: 10px; margin: 10px 0; border-left: 3px solid #2196f3; background: #f0f7ff; }
+        .manifest.unverified { border-left-color: #ff9800; background: #fff9f0; }
+        .fingerprint { font-family: monospace; font-size: 12px; color: #888; }
+        .hash { font-family: monospace; font-size: 12px; color: #666; }
+        .status { font-weight: bold; }
+        .status.ok { color: #4caf50; }
+        .status.bad { color: #f44336; }
+        .empty { color: #999; font-style: italic; }
+        .dismiss-form { margin-top: 20px; }
+        .dismiss-btn { background: #f5f5f5; border: 1px solid #ddd; padding: 8px 16px; border-radius: 4px; cursor: pointer; }
+        a { color: #2196f3; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="header">Signed Claims Proof — %s</div>
+`, periodKey)
+
+	if len(claims) == 0 && len(manifests) == 0 {
+		fmt.Fprintf(w, `<p class="empty">No signed claims or manifests for this period.</p>`)
+	} else {
+		// Show claims
+		if len(claims) > 0 {
+			fmt.Fprintf(w, `<h4>Vendor Claims</h4>`)
+			for _, c := range claims {
+				statusClass := "ok"
+				statusText := "Verified"
+				unverifiedClass := ""
+				if c.Status != domainsignedclaims.VerifiedOK {
+					statusClass = "bad"
+					statusText = "Unverified"
+					unverifiedClass = " unverified"
+				}
+				fmt.Fprintf(w, `<div class="claim%s">
+                    <div class="status %s">%s</div>
+                    <div class="hash">Claim: %s...</div>
+                    <div class="fingerprint">Key: %s...</div>
+                    <div>Kind: %s</div>
+                </div>`, unverifiedClass, statusClass, statusText, string(c.ClaimHash)[:16], string(c.KeyFingerprint)[:16], c.Kind)
+			}
+		}
+
+		// Show manifests
+		if len(manifests) > 0 {
+			fmt.Fprintf(w, `<h4>Pack Manifests</h4>`)
+			for _, m := range manifests {
+				statusClass := "ok"
+				statusText := "Verified"
+				unverifiedClass := ""
+				if m.Status != domainsignedclaims.VerifiedOK {
+					statusClass = "bad"
+					statusText = "Unverified"
+					unverifiedClass = " unverified"
+				}
+				fmt.Fprintf(w, `<div class="manifest%s">
+                    <div class="status %s">%s</div>
+                    <div class="hash">Manifest: %s...</div>
+                    <div class="fingerprint">Key: %s...</div>
+                    <div class="hash">Pack: %s...</div>
+                </div>`, unverifiedClass, statusClass, statusText, string(m.ManifestHash)[:16], string(m.KeyFingerprint)[:16], string(m.PackHash)[:16])
+			}
+		}
+	}
+
+	if displayData.HasVerifiedClaims || displayData.HasVerifiedManifests {
+		if !isDismissed {
+			fmt.Fprintf(w, `
+        <form class="dismiss-form" method="POST" action="/proof/claims/dismiss">
+            <button class="dismiss-btn" type="submit">Dismiss</button>
+        </form>`)
+		}
+	}
+
+	fmt.Fprintf(w, `
+        <p><a href="/">← Back</a></p>
+    </div>
+</body>
+</html>`)
+}
+
+// handleClaimSubmit handles POST /claims/submit.
+// Phase 50: Submits a signed vendor claim for verification.
+func (s *Server) handleClaimSubmit(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	periodKey := now.Format("2006-01-02")
+
+	// Parse form
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+
+	// Get form values
+	circleID := r.FormValue("circle_id")
+	pubkeyB64 := r.FormValue("pubkey_b64")
+	signatureB64 := r.FormValue("signature_b64")
+	kindStr := r.FormValue("kind")
+	scopeStr := r.FormValue("vendor_scope")
+	capStr := r.FormValue("cap")
+	refHashStr := r.FormValue("ref_hash")
+	provenanceStr := r.FormValue("provenance")
+
+	// Validate required fields
+	if circleID == "" || pubkeyB64 == "" || signatureB64 == "" || kindStr == "" || scopeStr == "" || capStr == "" || refHashStr == "" || provenanceStr == "" {
+		http.Error(w, "Missing required fields", http.StatusBadRequest)
+		return
+	}
+
+	// Size limits
+	if len(pubkeyB64) > 100 || len(signatureB64) > 200 || len(refHashStr) > 64 {
+		http.Error(w, "Field size exceeded", http.StatusBadRequest)
+		return
+	}
+
+	// Parse enums
+	kind := domainsignedclaims.ClaimKind(kindStr)
+	if err := kind.Validate(); err != nil {
+		http.Error(w, "Invalid kind", http.StatusBadRequest)
+		return
+	}
+	scope := domainsignedclaims.VendorScope(scopeStr)
+	if err := scope.Validate(); err != nil {
+		http.Error(w, "Invalid vendor_scope", http.StatusBadRequest)
+		return
+	}
+	cap := domainsignedclaims.PressureCap(capStr)
+	if err := cap.Validate(); err != nil {
+		http.Error(w, "Invalid cap", http.StatusBadRequest)
+		return
+	}
+	provenance := domainsignedclaims.Provenance(provenanceStr)
+	if err := provenance.Validate(); err != nil {
+		http.Error(w, "Invalid provenance", http.StatusBadRequest)
+		return
+	}
+	refHash := domainsignedclaims.SafeRefHash(refHashStr)
+	if err := refHash.Validate(); err != nil {
+		http.Error(w, "Invalid ref_hash", http.StatusBadRequest)
+		return
+	}
+
+	// Compute circle ID hash
+	circleIDHash := domainsignedclaims.ComputeSafeRefHash([]byte(circleID))
+
+	// Build claim
+	claim := domainsignedclaims.SignedVendorClaim{
+		Kind:         kind,
+		Scope:        scope,
+		Cap:          cap,
+		RefHash:      refHash,
+		Provenance:   provenance,
+		CircleIDHash: circleIDHash,
+		PeriodKey:    periodKey,
+	}
+
+	// Emit submitted event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase50ClaimSubmitted,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"period_key": periodKey,
+			"kind":       string(kind),
+		},
+	})
+
+	// Verify claim
+	result := s.signedClaimsEngine.VerifyClaim(
+		claim,
+		domainsignedclaims.SignatureB64(signatureB64),
+		domainsignedclaims.PublicKeyB64(pubkeyB64),
+	)
+
+	// Emit verified event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase50ClaimVerified,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"period_key": periodKey,
+			"status":     string(result.Status),
+		},
+	})
+
+	// Store record (whether verified or not)
+	if result.Status == domainsignedclaims.VerifiedOK || result.Status == domainsignedclaims.VerifiedBadSig {
+		_ = s.signedClaimStore.AppendClaim(result.Record)
+
+		// Emit persisted event
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase50ClaimPersisted,
+			Timestamp: now,
+			Metadata: map[string]string{
+				"period_key": periodKey,
+				"claim_hash": string(result.ClaimHash)[:16],
+			},
+		})
+	}
+
+	// Return result
+	w.Header().Set("Content-Type", "application/json")
+	fmt.Fprintf(w, `{"status":"%s","claim_hash":"%s","key_fingerprint":"%s"}`,
+		result.Status, result.ClaimHash, result.KeyFingerprint)
+}
+
+// handleManifestSubmit handles POST /manifests/submit.
+// Phase 50: Submits a signed pack manifest for verification.
+func (s *Server) handleManifestSubmit(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	periodKey := now.Format("2006-01-02")
+
+	// Parse form
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid form data", http.StatusBadRequest)
+		return
+	}
+
+	// Get form values
+	circleID := r.FormValue("circle_id")
+	pubkeyB64 := r.FormValue("pubkey_b64")
+	signatureB64 := r.FormValue("signature_b64")
+	packHashStr := r.FormValue("pack_hash")
+	versionStr := r.FormValue("pack_version")
+	bindingsHashStr := r.FormValue("bindings_hash")
+	provenanceStr := r.FormValue("provenance")
+
+	// Validate required fields
+	if circleID == "" || pubkeyB64 == "" || signatureB64 == "" || packHashStr == "" || versionStr == "" || provenanceStr == "" {
+		http.Error(w, "Missing required fields", http.StatusBadRequest)
+		return
+	}
+
+	// Size limits
+	if len(pubkeyB64) > 100 || len(signatureB64) > 200 || len(packHashStr) > 64 {
+		http.Error(w, "Field size exceeded", http.StatusBadRequest)
+		return
+	}
+
+	// Parse enums and hashes
+	version := domainsignedclaims.PackVersionBucket(versionStr)
+	if err := version.Validate(); err != nil {
+		http.Error(w, "Invalid pack_version", http.StatusBadRequest)
+		return
+	}
+	provenance := domainsignedclaims.Provenance(provenanceStr)
+	if err := provenance.Validate(); err != nil {
+		http.Error(w, "Invalid provenance", http.StatusBadRequest)
+		return
+	}
+	packHash := domainsignedclaims.SafeRefHash(packHashStr)
+	if err := packHash.Validate(); err != nil {
+		http.Error(w, "Invalid pack_hash", http.StatusBadRequest)
+		return
+	}
+
+	// bindings_hash is optional - use a zero hash if not provided
+	var bindingsHash domainsignedclaims.SafeRefHash
+	if bindingsHashStr != "" {
+		bindingsHash = domainsignedclaims.SafeRefHash(bindingsHashStr)
+		if err := bindingsHash.Validate(); err != nil {
+			http.Error(w, "Invalid bindings_hash", http.StatusBadRequest)
+			return
+		}
+	} else {
+		// Use zero hash for empty bindings
+		bindingsHash = domainsignedclaims.SafeRefHash("0000000000000000000000000000000000000000000000000000000000000000")
+	}
+
+	// Compute circle ID hash
+	circleIDHash := domainsignedclaims.ComputeSafeRefHash([]byte(circleID))
+
+	// Build manifest
+	manifest := domainsignedclaims.SignedPackManifest{
+		PackHash:     packHash,
+		Version:      version,
+		BindingsHash: bindingsHash,
+		Provenance:   provenance,
+		CircleIDHash: circleIDHash,
+		PeriodKey:    periodKey,
+	}
+
+	// Emit submitted event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase50ManifestSubmitted,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"period_key": periodKey,
+			"version":    string(version),
+		},
+	})
+
+	// Verify manifest
+	result := s.signedClaimsEngine.VerifyManifest(
+		manifest,
+		domainsignedclaims.SignatureB64(signatureB64),
+		domainsignedclaims.PublicKeyB64(pubkeyB64),
+	)
+
+	// Emit verified event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase50ManifestVerified,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"period_key": periodKey,
+			"status":     string(result.Status),
+		},
+	})
+
+	// Store record (whether verified or not)
+	if result.Status == domainsignedclaims.VerifiedOK || result.Status == domainsignedclaims.VerifiedBadSig {
+		_ = s.signedManifestStore.AppendManifest(result.Record)
+
+		// Emit persisted event
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase50ManifestPersisted,
+			Timestamp: now,
+			Metadata: map[string]string{
+				"period_key":    periodKey,
+				"manifest_hash": string(result.ManifestHash)[:16],
+			},
+		})
+	}
+
+	// Return result
+	w.Header().Set("Content-Type", "application/json")
+	fmt.Fprintf(w, `{"status":"%s","manifest_hash":"%s","key_fingerprint":"%s"}`,
+		result.Status, result.ManifestHash, result.KeyFingerprint)
+}
+
+// handleSignedClaimsProofDismiss handles POST /proof/claims/dismiss.
+// Phase 50: Dismisses signed claims proof cue.
+func (s *Server) handleSignedClaimsProofDismiss(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	periodKey := now.Format("2006-01-02")
+	circleIDHash := domainsignedclaims.ComputeSafeRefHash([]byte("default"))
+
+	// Create ack
+	ack := domainsignedclaims.SignedClaimProofAck{
+		AckKind:      domainsignedclaims.ProofAckDismissed,
+		CircleIDHash: circleIDHash,
+		PeriodKey:    periodKey,
+	}
+
+	// Store ack
+	_ = s.signedClaimProofAckStore.AppendAck(ack)
+
+	// Redirect back to proof page
+	http.Redirect(w, r, "/proof/claims", http.StatusSeeOther)
+}
+
+// getSignedClaimsCue returns the signed claims proof cue for the whisper.
+func (s *Server) getSignedClaimsCue() (bool, int) {
+	now := s.clk.Now()
+	periodKey := now.Format("2006-01-02")
+	circleIDHash := domainsignedclaims.ComputeSafeRefHash([]byte("default"))
+
+	// Check if dismissed
+	if s.signedClaimProofAckStore.IsProofDismissed(circleIDHash, periodKey) {
+		return false, 0
+	}
+
+	// Count verified claims and manifests
+	claims := s.signedClaimStore.ListVerifiedByPeriod(periodKey)
+	manifests := s.signedManifestStore.ListVerifiedByPeriod(periodKey)
+
+	count := len(claims) + len(manifests)
+	return count > 0, count
 }
 
 // ============================================================================
