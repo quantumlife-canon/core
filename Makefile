@@ -981,6 +981,16 @@ check-marketplace:
 	@echo "Checking Phase 46 constraints..."
 	@./scripts/guardrails/marketplace_enforced.sh
 
+# Run Phase 47 Demo: Coverage Realization
+demo-phase47:
+	@echo "Running Phase 47 Demo: Coverage Realization..."
+	go test -v ./internal/demo_phase47_coverage_realization/...
+
+# Check Phase 47 Coverage Realization constraints
+check-coverage-realization:
+	@echo "Checking Phase 47 constraints..."
+	@./scripts/guardrails/coverage_realization_enforced.sh
+
 # =============================================================================
 # Web Server Targets
 # =============================================================================

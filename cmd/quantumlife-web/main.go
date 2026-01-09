@@ -65,6 +65,7 @@ import (
 	internalenforcementaudit "quantumlife/internal/enforcementaudit"
 	internalenforcementclamp "quantumlife/internal/enforcementclamp"
 	internalcirclesemantics "quantumlife/internal/circlesemantics"
+	internalcoverageplan "quantumlife/internal/coverageplan"
 	internalmarketplace "quantumlife/internal/marketplace"
 	internalinvitation "quantumlife/internal/invitation"
 	"quantumlife/internal/journey"
@@ -117,6 +118,7 @@ import (
 	domaintrusttransfer "quantumlife/pkg/domain/trusttransfer"
 	domainenforcementaudit "quantumlife/pkg/domain/enforcementaudit"
 	domaincirclesemantics "quantumlife/pkg/domain/circlesemantics"
+	domaincoverageplan "quantumlife/pkg/domain/coverageplan"
 	domainmarketplace "quantumlife/pkg/domain/marketplace"
 	domaininvitation "quantumlife/pkg/domain/invitation"
 	domainmirror "quantumlife/pkg/domain/mirror"
@@ -252,6 +254,10 @@ type Server struct {
 	marketplaceInstallStore  *persist.MarketplaceInstallStore      // Phase 46: Install record store
 	marketplaceRemovalStore  *persist.MarketplaceRemovalStore      // Phase 46: Removal record store
 	marketplaceAckStore      *persist.MarketplaceAckStore          // Phase 46: Proof ack store
+	// Phase 47: Pack Coverage Realization
+	coveragePlanStore        *persist.CoveragePlanStore            // Phase 47: Coverage plan store
+	coverageProofAckStore    *persist.CoverageProofAckStore        // Phase 47: Coverage proof ack store
+	coveragePlanEngine       *internalcoverageplan.Engine          // Phase 47: Coverage plan engine
 	// Phase 18 Web Control Center
 	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
 	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
@@ -397,6 +403,8 @@ type templateData struct {
 	PackDetailPage       *domainmarketplace.PackDetailPage
 	PackSlug             string
 	MarketplaceProofPage *domainmarketplace.MarketplaceProofPage
+	// Phase 47: Pack Coverage Realization
+	CoverageProofPage *domaincoverageplan.CoverageProofPage
 	// Phase 18 Web Control Center
 	RunSnapshots     []*runlog.RunSnapshot      // List of run snapshots for /runs
 	RunSnapshot      *runlog.RunSnapshot        // Single run snapshot for /runs/:id
@@ -844,6 +852,13 @@ func main() {
 	marketplaceRemovalStore := persist.NewMarketplaceRemovalStore(clk.Now)
 	marketplaceAckStore := persist.NewMarketplaceAckStore(clk.Now)
 
+	// Phase 47: Pack Coverage Realization stores and engine
+	coveragePlanStore := persist.NewCoveragePlanStore(clk.Now)
+	coverageProofAckStore := persist.NewCoverageProofAckStore(clk.Now)
+	coveragePlanEngine := internalcoverageplan.NewEngine(func() string {
+		return clk.Now().Format("2006-01-02")
+	})
+
 	// Phase 18 Web Control Center: Create stores
 	runStore := runlog.NewInMemoryRunStore()
 	suppressionSet := suppress.NewSuppressionSet()
@@ -956,6 +971,10 @@ func main() {
 		marketplaceInstallStore: marketplaceInstallStore,
 		marketplaceRemovalStore: marketplaceRemovalStore,
 		marketplaceAckStore:     marketplaceAckStore,
+		// Phase 47: Pack Coverage Realization
+		coveragePlanStore:     coveragePlanStore,
+		coverageProofAckStore: coverageProofAckStore,
+		coveragePlanEngine:    coveragePlanEngine,
 		// Phase 18 Web Control Center
 		runStore:       runStore,
 		suppressionSet: suppressionSet,
@@ -1094,6 +1113,8 @@ func main() {
 	mux.HandleFunc("/marketplace/remove", server.handleMarketplaceRemove)              // Phase 46: Remove pack (POST)
 	mux.HandleFunc("/proof/marketplace", server.handleMarketplaceProof)                // Phase 46: Marketplace proof (GET)
 	mux.HandleFunc("/proof/marketplace/dismiss", server.handleMarketplaceProofDismiss) // Phase 46: Dismiss proof (POST)
+	mux.HandleFunc("/proof/coverage", server.handleCoverageProof)                      // Phase 47: Coverage proof (GET)
+	mux.HandleFunc("/proof/coverage/dismiss", server.handleCoverageProofDismiss)       // Phase 47: Dismiss coverage proof (POST)
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18 Web Control Center: Core routes
@@ -2781,7 +2802,10 @@ func (s *Server) handleGmailSync(w http.ResponseWriter, r *http.Request) {
 	// Phase 31.1: Gmail Receipt Observers
 	// Extract message metadata for receipt classification
 	// CRITICAL: Raw data is used for classification ONLY and is NOT stored
-	if len(messages) > 0 && s.commerceIngestEngine != nil {
+	// Phase 47: Check coverage plan - only run if capabilities are enabled
+	receiptObserverEnabled := s.isCoverageCapabilityEnabled(domaincoverageplan.CapReceiptObserver)
+	commerceObserverEnabled := s.isCoverageCapabilityEnabled(domaincoverageplan.CapCommerceObserver)
+	if len(messages) > 0 && s.commerceIngestEngine != nil && (receiptObserverEnabled || commerceObserverEnabled) {
 		// Emit receipt scan started event
 		s.eventEmitter.Emit(events.Event{
 			Type:      events.Phase31_1ReceiptScanStarted,
@@ -7647,7 +7671,9 @@ func (s *Server) handleTrueLayerSync(w http.ResponseWriter, r *http.Request) {
 	// Phase 31.3b: Commerce from Finance (TrueLayer → CommerceSignals)
 	// CRITICAL: Only real TrueLayer API responses are processed (Phase 31.3 validated)
 	// Use ProviderCategory, MCC, PaymentChannel ONLY - NEVER MerchantName, Amount, timestamps
-	if syncOutput != nil && syncOutput.Success && len(syncOutput.TransactionData) > 0 {
+	// Phase 47: Check coverage plan - only run if finance commerce observer capability is enabled
+	financeCommerceEnabled := s.isCoverageCapabilityEnabled(domaincoverageplan.CapFinanceCommerceObserver)
+	if syncOutput != nil && syncOutput.Success && len(syncOutput.TransactionData) > 0 && financeCommerceEnabled {
 		if s.financeTxScanEngine != nil && s.commerceObserverStore != nil {
 			// Emit ingest started event
 			s.eventEmitter.Emit(events.Event{
@@ -8805,6 +8831,23 @@ func (s *Server) handleObserveNotification(w http.ResponseWriter, r *http.Reques
 
 	now := s.clk.Now()
 	periodKey := now.Format("2006-01-02")
+
+	// Phase 47: Check coverage plan - reject if notification metadata capability is disabled
+	if !s.isCoverageCapabilityEnabled(domaincoverageplan.CapNotificationMetadata) {
+		// Emit ignored event with calm rejection reason
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase38NotificationIgnored,
+			Timestamp: now,
+			Metadata: map[string]string{
+				"reason":     "coverage_disabled",
+				"period_key": periodKey,
+			},
+		})
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, `{"status":"ignored","reason":"coverage_disabled"}`)
+		return
+	}
 
 	// Parse request body
 	var req struct {
@@ -11224,6 +11267,169 @@ func (s *Server) buildMarketplaceInputs() internalmarketplace.MarketplaceInputs 
 		InstalledPacks: s.marketplaceInstallStore.ListInstalled(),
 		RemovedPacks:   s.marketplaceRemovalStore.ListAll(),
 	}
+}
+
+// ============================================================================
+// Phase 47: Pack Coverage Realization Handlers
+// ============================================================================
+// Reference: docs/ADR/ADR-0085-phase47-pack-coverage-realization.md
+// CRITICAL: Coverage realization expands OBSERVERS only, NEVER grants permission.
+// CRITICAL: NEVER changes interrupt policy, delivery, or execution.
+// CRITICAL: Track B: Expand observers, not actions.
+
+// handleCoverageProof renders the coverage proof page.
+func (s *Server) handleCoverageProof(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	periodKey := now.Format("2006-01-02")
+	circleIDHash := domaincoverageplan.HashString("default-circle")
+
+	// Get installed packs from marketplace store
+	installedPacks := s.marketplaceInstallStore.ListInstalled()
+
+	// Build current coverage plan from installed packs
+	currentPlan := s.coveragePlanEngine.BuildPlan(circleIDHash, installedPacks)
+
+	// Emit plan built event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase47CoveragePlanBuilt,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"plan_hash":    currentPlan.PlanHash,
+			"capabilities": fmt.Sprintf("%d", len(currentPlan.Capabilities)),
+		},
+	})
+
+	// Get previous plan from store (if exists)
+	prevPlan, hasPrev := s.coveragePlanStore.LastPlan(circleIDHash)
+
+	// If no change in plan hash, use previous
+	if hasPrev && prevPlan.PlanHash == currentPlan.PlanHash {
+		currentPlan = prevPlan
+	} else {
+		// Persist new plan if changed
+		_ = s.coveragePlanStore.AppendPlan(currentPlan)
+
+		// Emit plan persisted event
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase47CoveragePlanPersisted,
+			Timestamp: now,
+			Metadata: map[string]string{
+				"plan_hash": currentPlan.PlanHash,
+			},
+		})
+	}
+
+	// Compute delta
+	var delta domaincoverageplan.CoverageDelta
+	if hasPrev {
+		delta = s.coveragePlanEngine.DiffPlans(prevPlan, currentPlan)
+	} else {
+		// First plan - all capabilities are "added"
+		delta = s.coveragePlanEngine.DiffPlans(
+			s.coveragePlanEngine.EmptyPlan(circleIDHash),
+			currentPlan,
+		)
+	}
+
+	// Emit delta computed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase47CoverageDeltaComputed,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"delta_hash": delta.DeltaHash,
+			"added":      fmt.Sprintf("%d", len(delta.Added)),
+			"removed":    fmt.Sprintf("%d", len(delta.Removed)),
+		},
+	})
+
+	// Build proof page
+	var prevPlanPtr *domaincoverageplan.CoveragePlan
+	if hasPrev {
+		prevPlanPtr = &prevPlan
+	}
+	page := s.coveragePlanEngine.BuildProofPage(circleIDHash, prevPlanPtr, currentPlan, delta)
+
+	// Emit proof rendered event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase47CoverageProofRendered,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"status_hash": page.StatusHash,
+			"plan_hash":   page.PlanHash,
+		},
+	})
+
+	// Check if cue should be shown
+	acked := s.coverageProofAckStore.IsProofDismissed(circleIDHash, periodKey)
+	cue := s.coveragePlanEngine.BuildCue(page, acked)
+
+	// Emit cue computed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase47CoverageCueComputed,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"available": fmt.Sprintf("%t", cue.Available),
+		},
+	})
+
+	data := templateData{
+		CoverageProofPage: &page,
+	}
+	s.render(w, "coverage-proof", data)
+}
+
+// handleCoverageProofDismiss handles dismissing the coverage proof.
+func (s *Server) handleCoverageProofDismiss(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	periodKey := now.Format("2006-01-02")
+	circleIDHash := domaincoverageplan.HashString("default-circle")
+
+	// Create and store ack
+	ack := s.coveragePlanEngine.BuildAck(circleIDHash, periodKey, domaincoverageplan.AckDismissed)
+	if err := ack.Validate(); err == nil {
+		_ = s.coverageProofAckStore.AppendAck(ack)
+	}
+
+	// Emit ack recorded event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase47CoverageAckRecorded,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"ack_kind":    string(domaincoverageplan.AckDismissed),
+			"status_hash": ack.StatusHash,
+		},
+	})
+
+	// Redirect to today
+	http.Redirect(w, r, "/today", http.StatusSeeOther)
+}
+
+// getCoveragePlan returns the current coverage plan for the default circle.
+// Used by wiring code to determine which observers are enabled.
+func (s *Server) getCoveragePlan() domaincoverageplan.CoveragePlan {
+	circleIDHash := domaincoverageplan.HashString("default-circle")
+
+	// Get installed packs from marketplace store
+	installedPacks := s.marketplaceInstallStore.ListInstalled()
+
+	// Build current coverage plan from installed packs
+	return s.coveragePlanEngine.BuildPlan(circleIDHash, installedPacks)
+}
+
+// isCoverageCapabilityEnabled checks if a capability is enabled in the current coverage plan.
+func (s *Server) isCoverageCapabilityEnabled(cap domaincoverageplan.CoverageCapability) bool {
+	plan := s.getCoveragePlan()
+	return s.coveragePlanEngine.IsCapabilityEnabled(plan, cap)
 }
 
 // ============================================================================
@@ -15671,6 +15877,94 @@ const templates = `
 <div class="proof-page">
     <h1 class="proof-title">Marketplace Proof</h1>
     <p class="proof-line">No data available.</p>
+    <a href="/today" class="proof-back-link">Back</a>
+</div>
+{{end}}
+{{end}}
+
+{{/* ======================================================================= */}}
+{{/* Phase 47: Pack Coverage Realization Templates                          */}}
+{{/* Reference: docs/ADR/ADR-0085-phase47-pack-coverage-realization.md      */}}
+{{/* CRITICAL: Coverage realization expands OBSERVERS only, NEVER grants    */}}
+{{/*           permission to SURFACE/INTERRUPT/DELIVER/EXECUTE.             */}}
+{{/* CRITICAL: Proof page shows capabilities, NOT pack IDs.                 */}}
+{{/* ======================================================================= */}}
+
+{{define "coverage-proof"}}
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coverage Proof</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; background: #f5f5f5; }
+        .proof-page { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .proof-title { font-size: 1.5rem; margin-bottom: 1rem; color: #333; }
+        .proof-line { color: #666; margin-bottom: 0.5rem; font-size: 0.9rem; }
+        .proof-section { margin-top: 1.5rem; }
+        .proof-section-title { font-size: 1.1rem; color: #444; margin-bottom: 0.75rem; border-bottom: 1px solid #eee; padding-bottom: 0.5rem; }
+        .proof-entry { background: #fafafa; padding: 8px 12px; border-radius: 4px; margin-bottom: 0.5rem; font-size: 0.85rem; }
+        .proof-entry.added { background: #ecfdf5; border-left: 3px solid #10b981; }
+        .proof-entry.removed { background: #fef2f2; border-left: 3px solid #ef4444; }
+        .proof-actions { margin-top: 1.5rem; }
+        .proof-dismiss-btn { background: #6b7280; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 0.9rem; }
+        .proof-dismiss-btn:hover { background: #4b5563; }
+        .proof-back-link { display: inline-block; margin-top: 1rem; color: #3b82f6; text-decoration: none; }
+        .proof-back-link:hover { text-decoration: underline; }
+        .proof-empty { color: #999; font-style: italic; }
+    </style>
+</head>
+<body>
+{{template "coverage-proof-content" .}}
+</body>
+</html>
+{{end}}
+
+{{define "coverage-proof-content"}}
+{{if .CoverageProofPage}}
+<div class="proof-page">
+    <h1 class="proof-title">{{.CoverageProofPage.Title}}</h1>
+    {{range .CoverageProofPage.Lines}}
+    <p class="proof-line">{{.}}</p>
+    {{end}}
+
+    {{if .CoverageProofPage.Added}}
+    <div class="proof-section">
+        <h2 class="proof-section-title">Coverage Added</h2>
+        {{range .CoverageProofPage.Added}}
+        <div class="proof-entry added">{{.}}</div>
+        {{end}}
+    </div>
+    {{end}}
+
+    {{if .CoverageProofPage.Removed}}
+    <div class="proof-section">
+        <h2 class="proof-section-title">Coverage Removed</h2>
+        {{range .CoverageProofPage.Removed}}
+        <div class="proof-entry removed">{{.}}</div>
+        {{end}}
+    </div>
+    {{end}}
+
+    {{if and (not .CoverageProofPage.Added) (not .CoverageProofPage.Removed)}}
+    <div class="proof-section">
+        <p class="proof-empty">No coverage changes.</p>
+    </div>
+    {{end}}
+
+    <div class="proof-actions">
+        <form method="POST" action="/proof/coverage/dismiss">
+            <button type="submit" class="proof-dismiss-btn">Dismiss</button>
+        </form>
+    </div>
+
+    <a href="/today" class="proof-back-link">Back</a>
+</div>
+{{else}}
+<div class="proof-page">
+    <h1 class="proof-title">Coverage Proof</h1>
+    <p class="proof-line">No coverage data available.</p>
     <a href="/today" class="proof-back-link">Back</a>
 </div>
 {{end}}

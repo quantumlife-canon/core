@@ -260,6 +260,15 @@ const (
 	RecordTypePackInstall     = "PACK_INSTALL"
 	RecordTypePackRemoval     = "PACK_REMOVAL"
 	RecordTypeMarketplaceAck  = "MARKETPLACE_ACK"
+
+	// Phase 47: Pack Coverage Realization record types
+	// CRITICAL: Contains ONLY abstract buckets and hashes - never identifiers.
+	// CRITICAL: Coverage realization expands OBSERVERS only, NEVER grants permission.
+	// CRITICAL: NEVER changes interrupt policy, delivery, or execution.
+	// CRITICAL: Track B: Expand observers, not actions.
+	// CRITICAL: Bounded retention: 30 days OR 200 records max.
+	RecordTypeCoveragePlan    = "COVERAGE_PLAN"
+	RecordTypeCoverageProofAck = "COVERAGE_PROOF_ACK"
 )
 
 // Common errors

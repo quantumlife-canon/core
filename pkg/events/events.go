@@ -2068,6 +2068,29 @@ const (
 
 	// Phase46MarketplaceCueComputed - marketplace cue was computed.
 	Phase46MarketplaceCueComputed EventType = "phase46.marketplace.cue.computed"
+
+	// =============================================================================
+	// Phase 47: Pack Coverage Realization Events
+	// =============================================================================
+	// Reference: docs/ADR/ADR-0085-phase47-pack-coverage-realization.md
+
+	// Phase47CoveragePlanBuilt - coverage plan was built from installed packs.
+	Phase47CoveragePlanBuilt EventType = "phase47.coverage.plan_built"
+
+	// Phase47CoveragePlanPersisted - coverage plan was persisted to store.
+	Phase47CoveragePlanPersisted EventType = "phase47.coverage.plan_persisted"
+
+	// Phase47CoverageDeltaComputed - coverage delta was computed between plans.
+	Phase47CoverageDeltaComputed EventType = "phase47.coverage.delta_computed"
+
+	// Phase47CoverageProofRendered - coverage proof page was rendered.
+	Phase47CoverageProofRendered EventType = "phase47.coverage.proof.rendered"
+
+	// Phase47CoverageAckRecorded - coverage proof acknowledgment was recorded.
+	Phase47CoverageAckRecorded EventType = "phase47.coverage.ack.recorded"
+
+	// Phase47CoverageCueComputed - coverage cue was computed.
+	Phase47CoverageCueComputed EventType = "phase47.coverage.cue.computed"
 )
 
 // Event represents a system event for audit and observability.
