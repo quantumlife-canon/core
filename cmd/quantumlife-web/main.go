@@ -66,6 +66,7 @@ import (
 	internalenforcementclamp "quantumlife/internal/enforcementclamp"
 	internalcirclesemantics "quantumlife/internal/circlesemantics"
 	internalcoverageplan "quantumlife/internal/coverageplan"
+	internalmarketsignal "quantumlife/internal/marketsignal"
 	internalmarketplace "quantumlife/internal/marketplace"
 	internalinvitation "quantumlife/internal/invitation"
 	"quantumlife/internal/journey"
@@ -119,6 +120,7 @@ import (
 	domainenforcementaudit "quantumlife/pkg/domain/enforcementaudit"
 	domaincirclesemantics "quantumlife/pkg/domain/circlesemantics"
 	domaincoverageplan "quantumlife/pkg/domain/coverageplan"
+	domainmarketsignal "quantumlife/pkg/domain/marketsignal"
 	domainmarketplace "quantumlife/pkg/domain/marketplace"
 	domaininvitation "quantumlife/pkg/domain/invitation"
 	domainmirror "quantumlife/pkg/domain/mirror"
@@ -258,6 +260,10 @@ type Server struct {
 	coveragePlanStore        *persist.CoveragePlanStore            // Phase 47: Coverage plan store
 	coverageProofAckStore    *persist.CoverageProofAckStore        // Phase 47: Coverage proof ack store
 	coveragePlanEngine       *internalcoverageplan.Engine          // Phase 47: Coverage plan engine
+	// Phase 48: Market Signal Binding
+	marketSignalStore        *persist.MarketSignalStore            // Phase 48: Market signal store
+	marketProofAckStore      *persist.MarketProofAckStore          // Phase 48: Market proof ack store
+	marketSignalEngine       *internalmarketsignal.Engine          // Phase 48: Market signal engine
 	// Phase 18 Web Control Center
 	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
 	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
@@ -405,6 +411,8 @@ type templateData struct {
 	MarketplaceProofPage *domainmarketplace.MarketplaceProofPage
 	// Phase 47: Pack Coverage Realization
 	CoverageProofPage *domaincoverageplan.CoverageProofPage
+	// Phase 48: Market Signal Binding
+	MarketProofPage *domainmarketsignal.MarketProofPage
 	// Phase 18 Web Control Center
 	RunSnapshots     []*runlog.RunSnapshot      // List of run snapshots for /runs
 	RunSnapshot      *runlog.RunSnapshot        // Single run snapshot for /runs/:id
@@ -859,6 +867,11 @@ func main() {
 		return clk.Now().Format("2006-01-02")
 	})
 
+	// Phase 48: Market Signal Binding stores and engine
+	marketSignalStore := persist.NewMarketSignalStore(clk.Now)
+	marketProofAckStore := persist.NewMarketProofAckStore(clk.Now)
+	marketSignalEngine := internalmarketsignal.NewEngine(clk.Now)
+
 	// Phase 18 Web Control Center: Create stores
 	runStore := runlog.NewInMemoryRunStore()
 	suppressionSet := suppress.NewSuppressionSet()
@@ -975,6 +988,10 @@ func main() {
 		coveragePlanStore:     coveragePlanStore,
 		coverageProofAckStore: coverageProofAckStore,
 		coveragePlanEngine:    coveragePlanEngine,
+		// Phase 48: Market Signal Binding
+		marketSignalStore:   marketSignalStore,
+		marketProofAckStore: marketProofAckStore,
+		marketSignalEngine:  marketSignalEngine,
 		// Phase 18 Web Control Center
 		runStore:       runStore,
 		suppressionSet: suppressionSet,
@@ -1115,6 +1132,8 @@ func main() {
 	mux.HandleFunc("/proof/marketplace/dismiss", server.handleMarketplaceProofDismiss) // Phase 46: Dismiss proof (POST)
 	mux.HandleFunc("/proof/coverage", server.handleCoverageProof)                      // Phase 47: Coverage proof (GET)
 	mux.HandleFunc("/proof/coverage/dismiss", server.handleCoverageProofDismiss)       // Phase 47: Dismiss coverage proof (POST)
+	mux.HandleFunc("/proof/market", server.handleMarketProof)                          // Phase 48: Market proof (GET)
+	mux.HandleFunc("/proof/market/dismiss", server.handleMarketProofDismiss)           // Phase 48: Dismiss market proof (POST)
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18 Web Control Center: Core routes
@@ -11433,6 +11452,113 @@ func (s *Server) isCoverageCapabilityEnabled(cap domaincoverageplan.CoverageCapa
 }
 
 // ============================================================================
+// Phase 48: Market Signal Binding Handlers
+// ============================================================================
+
+// handleMarketProof handles the /proof/market page.
+// CRITICAL: No recommendations, no nudges, no ranking, no persuasion.
+// CRITICAL: This is signal exposure only - not a marketplace funnel.
+func (s *Server) handleMarketProof(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	periodKey := now.Format("2006-01-02")
+	circleIDHash := domainmarketsignal.HashString("default-circle")
+
+	// Get current signals for this circle+period
+	signals := s.marketSignalStore.ListByCirclePeriod(circleIDHash, periodKey)
+
+	// Build proof page (no recommendation language!)
+	proofPage := s.marketSignalEngine.BuildProofPage(signals)
+
+	// Emit proof viewed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase48MarketProofViewed,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"signal_count": fmt.Sprintf("%d", len(signals)),
+			"status_hash":  proofPage.StatusHash,
+		},
+	})
+
+	// Render template
+	data := templateData{
+		Title:           "Market Signals",
+		CurrentTime:     now.Format(time.RFC3339),
+		MarketProofPage: &proofPage,
+	}
+
+	s.render(w, "market-proof", data)
+}
+
+// handleMarketProofDismiss handles dismissing the market proof.
+func (s *Server) handleMarketProofDismiss(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+	periodKey := now.Format("2006-01-02")
+	circleIDHash := domainmarketsignal.HashString("default-circle")
+
+	// Create and store ack
+	ack := domainmarketsignal.MarketProofAck{
+		CircleHash: circleIDHash,
+		PeriodKey:  periodKey,
+		AckKind:    domainmarketsignal.AckDismissed,
+	}
+	ack.StatusHash = ack.ComputeStatusHash()
+
+	if err := ack.Validate(); err == nil {
+		_ = s.marketProofAckStore.AppendAck(ack)
+	}
+
+	// Emit dismissed event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase48MarketProofDismissed,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"ack_kind":    string(domainmarketsignal.AckDismissed),
+			"status_hash": ack.StatusHash,
+		},
+	})
+
+	// Redirect to today
+	http.Redirect(w, r, "/today", http.StatusSeeOther)
+}
+
+// getMarketSignals returns the current market signals for the default circle.
+// Used to check if cue should be shown.
+func (s *Server) getMarketSignals() []domainmarketsignal.MarketSignal {
+	now := s.clk.Now()
+	periodKey := now.Format("2006-01-02")
+	circleIDHash := domainmarketsignal.HashString("default-circle")
+
+	return s.marketSignalStore.ListByCirclePeriod(circleIDHash, periodKey)
+}
+
+// isMarketProofDismissed checks if market proof was dismissed for today.
+func (s *Server) isMarketProofDismissed() bool {
+	now := s.clk.Now()
+	periodKey := now.Format("2006-01-02")
+	circleIDHash := domainmarketsignal.HashString("default-circle")
+
+	return s.marketProofAckStore.IsProofDismissed(circleIDHash, periodKey)
+}
+
+// getMarketCue returns the market proof cue for the whisper.
+func (s *Server) getMarketCue() domainmarketsignal.MarketProofCue {
+	signals := s.getMarketSignals()
+	dismissed := s.isMarketProofDismissed()
+
+	return s.marketSignalEngine.BuildCue(signals, dismissed)
+}
+
+// ============================================================================
 // Phase 30A: Identity + Replay Handlers
 // ============================================================================
 
@@ -15965,6 +16091,88 @@ const templates = `
 <div class="proof-page">
     <h1 class="proof-title">Coverage Proof</h1>
     <p class="proof-line">No coverage data available.</p>
+    <a href="/today" class="proof-back-link">Back</a>
+</div>
+{{end}}
+{{end}}
+
+{{/* ======================================================================= */}}
+{{/* Phase 48: Market Signal Binding (Non-Extractive Marketplace v1)        */}}
+{{/* ======================================================================= */}}
+{{/* CRITICAL: No recommendations, no nudges, no ranking, no persuasion.    */}}
+{{/* CRITICAL: This is signal exposure only - not a marketplace funnel.     */}}
+{{/* CRITICAL: No pricing, no urgency, no calls to action.                  */}}
+{{/* ======================================================================= */}}
+
+{{define "market-proof"}}
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Market Signals</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; background: #f5f5f5; }
+        .proof-page { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .proof-title { font-size: 1.5rem; margin-bottom: 1rem; color: #333; }
+        .proof-line { color: #666; margin-bottom: 0.5rem; font-size: 0.9rem; }
+        .proof-section { margin-top: 1.5rem; }
+        .proof-section-title { font-size: 1.1rem; color: #444; margin-bottom: 0.75rem; border-bottom: 1px solid #eee; padding-bottom: 0.5rem; }
+        .proof-entry { background: #fafafa; padding: 8px 12px; border-radius: 4px; margin-bottom: 0.5rem; font-size: 0.85rem; }
+        .proof-entry .signal-necessity { color: #6b7280; }
+        .proof-entry .signal-gap { color: #9ca3af; font-style: italic; }
+        .proof-actions { margin-top: 1.5rem; }
+        .proof-dismiss-btn { background: #6b7280; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 0.9rem; }
+        .proof-dismiss-btn:hover { background: #4b5563; }
+        .proof-back-link { display: inline-block; margin-top: 1rem; color: #3b82f6; text-decoration: none; }
+        .proof-back-link:hover { text-decoration: underline; }
+        .proof-empty { color: #999; font-style: italic; }
+    </style>
+</head>
+<body>
+{{template "market-proof-content" .}}
+</body>
+</html>
+{{end}}
+
+{{define "market-proof-content"}}
+{{if .MarketProofPage}}
+<div class="proof-page">
+    <h1 class="proof-title">{{.MarketProofPage.Title}}</h1>
+    {{range .MarketProofPage.Lines}}
+    <p class="proof-line">{{.}}</p>
+    {{end}}
+
+    {{if .MarketProofPage.Signals}}
+    <div class="proof-section">
+        <h2 class="proof-section-title">Signals</h2>
+        {{range .MarketProofPage.Signals}}
+        <div class="proof-entry">
+            <span class="signal-necessity">{{.NecessityKind}}</span>
+            <span class="signal-gap">{{.GapKind}}</span>
+        </div>
+        {{end}}
+    </div>
+    {{end}}
+
+    {{if not .MarketProofPage.Signals}}
+    <div class="proof-section">
+        <p class="proof-empty">No market signals.</p>
+    </div>
+    {{end}}
+
+    <div class="proof-actions">
+        <form method="POST" action="/proof/market/dismiss">
+            <button type="submit" class="proof-dismiss-btn">Dismiss</button>
+        </form>
+    </div>
+
+    <a href="/today" class="proof-back-link">Back</a>
+</div>
+{{else}}
+<div class="proof-page">
+    <h1 class="proof-title">Market Signals</h1>
+    <p class="proof-line">No market signal data available.</p>
     <a href="/today" class="proof-back-link">Back</a>
 </div>
 {{end}}

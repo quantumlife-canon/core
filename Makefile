@@ -991,6 +991,17 @@ check-coverage-realization:
 	@echo "Checking Phase 47 constraints..."
 	@./scripts/guardrails/coverage_realization_enforced.sh
 
+# Run Phase 48 Demo: Market Signal Binding
+# Reference: docs/ADR/ADR-0086-phase48-market-signal-binding.md
+demo-phase48:
+	@echo "Running Phase 48 Demo: Market Signal Binding..."
+	go test -v ./internal/demo_phase48_market_signal/...
+
+# Check Phase 48 Market Signal Binding constraints
+check-market-signal:
+	@echo "Checking Phase 48 constraints..."
+	@./scripts/guardrails/market_signal_enforced.sh
+
 # =============================================================================
 # Web Server Targets
 # =============================================================================

@@ -269,6 +269,16 @@ const (
 	// CRITICAL: Bounded retention: 30 days OR 200 records max.
 	RecordTypeCoveragePlan    = "COVERAGE_PLAN"
 	RecordTypeCoverageProofAck = "COVERAGE_PROOF_ACK"
+
+	// Phase 48: Market Signal Binding (Non-Extractive Marketplace v1) record types
+	// CRITICAL: Contains ONLY abstract buckets and hashes - never identifiers.
+	// CRITICAL: Signal exposure only - no recommendations, nudges, ranking, or persuasion.
+	// CRITICAL: effect_no_power only. proof_only visibility only.
+	// CRITICAL: No pricing, no urgency, no calls to action.
+	// CRITICAL: Max 3 signals per circle per period.
+	// CRITICAL: Bounded retention: 30 days OR 200 records max.
+	RecordTypeMarketSignal   = "MARKET_SIGNAL"
+	RecordTypeMarketProofAck = "MARKET_PROOF_ACK"
 )
 
 // Common errors

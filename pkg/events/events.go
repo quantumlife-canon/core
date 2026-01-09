@@ -2091,6 +2091,21 @@ const (
 
 	// Phase47CoverageCueComputed - coverage cue was computed.
 	Phase47CoverageCueComputed EventType = "phase47.coverage.cue.computed"
+
+	// =========================================================================
+	// Phase 48: Market Signal Binding (Non-Extractive Marketplace v1)
+	// =========================================================================
+	// Binds unmet necessities to available packs WITHOUT recommendations,
+	// nudges, ranking, persuasion, or execution. Signal exposure only.
+
+	// Phase48MarketSignalGenerated - market signal was generated from inputs.
+	Phase48MarketSignalGenerated EventType = "phase48.market.signal_generated"
+
+	// Phase48MarketProofViewed - user viewed /proof/market page.
+	Phase48MarketProofViewed EventType = "phase48.market.proof.viewed"
+
+	// Phase48MarketProofDismissed - user dismissed market proof cue.
+	Phase48MarketProofDismissed EventType = "phase48.market.proof.dismissed"
 )
 
 // Event represents a system event for audit and observability.
