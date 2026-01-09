@@ -948,6 +948,17 @@ check-trust-transfer:
 	@echo "Checking Phase 44 constraints..."
 	@./scripts/guardrails/trust_transfer_enforced.sh
 
+# Run Phase 44.2 Demo: Enforcement Wiring Audit
+# Reference: docs/ADR/ADR-0082-phase44-2-enforcement-wiring-audit.md
+demo-phase44-2:
+	@echo "Running Phase 44.2 Demo: Enforcement Wiring Audit..."
+	go test -v ./internal/demo_phase44_2_enforcement_audit/...
+
+# Check Phase 44.2 Enforcement Wiring constraints
+check-enforcement-wiring:
+	@echo "Checking Phase 44.2 constraints..."
+	@./scripts/guardrails/enforcement_wiring_enforced.sh
+
 # =============================================================================
 # Web Server Targets
 # =============================================================================

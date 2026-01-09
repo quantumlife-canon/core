@@ -62,6 +62,8 @@ import (
 	internaldelegatedholding "quantumlife/internal/delegatedholding"
 	internalheldproof "quantumlife/internal/heldproof"
 	internaltrusttransfer "quantumlife/internal/trusttransfer"
+	internalenforcementaudit "quantumlife/internal/enforcementaudit"
+	internalenforcementclamp "quantumlife/internal/enforcementclamp"
 	internalinvitation "quantumlife/internal/invitation"
 	"quantumlife/internal/journey"
 	"quantumlife/internal/loop"
@@ -111,6 +113,7 @@ import (
 	domaindelegatedholding "quantumlife/pkg/domain/delegatedholding"
 	domainheldproof "quantumlife/pkg/domain/heldproof"
 	domaintrusttransfer "quantumlife/pkg/domain/trusttransfer"
+	domainenforcementaudit "quantumlife/pkg/domain/enforcementaudit"
 	domaininvitation "quantumlife/pkg/domain/invitation"
 	domainmirror "quantumlife/pkg/domain/mirror"
 	"quantumlife/pkg/domain/obligation"
@@ -230,6 +233,11 @@ type Server struct {
 	trustTransferContractStore   *persist.TrustTransferContractStore   // Phase 44: Trust transfer contract store
 	trustTransferRevocationStore *persist.TrustTransferRevocationStore // Phase 44: Trust transfer revocation store
 	trustTransferEngine          *internaltrusttransfer.Engine         // Phase 44: Trust transfer engine
+	enforcementAuditStore        *persist.EnforcementAuditStore        // Phase 44.2: Enforcement audit store
+	enforcementAuditAckStore     *persist.EnforcementAuditAckStore     // Phase 44.2: Enforcement audit ack store
+	enforcementAuditEngine       *internalenforcementaudit.Engine      // Phase 44.2: Enforcement audit engine
+	enforcementClampEngine       *internalenforcementclamp.Engine      // Phase 44.2: Enforcement clamp engine
+	enforcementManifest          internalenforcementaudit.EnforcementManifest // Phase 44.2: Enforcement manifest
 	// Phase 18 Web Control Center
 	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
 	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
@@ -365,6 +373,8 @@ type templateData struct {
 	TrustTransferStatusPage *domaintrusttransfer.TrustTransferStatusPage
 	TrustTransferProofPage  *domaintrusttransfer.TrustTransferProofPage
 	TrustTransferCue        *domaintrusttransfer.TrustTransferCue
+	// Phase 44.2: Enforcement Wiring Audit
+	EnforcementAuditProofPage *domainenforcementaudit.AuditProofPage
 	// Phase 18 Web Control Center
 	RunSnapshots     []*runlog.RunSnapshot      // List of run snapshots for /runs
 	RunSnapshot      *runlog.RunSnapshot        // Single run snapshot for /runs/:id
@@ -786,6 +796,18 @@ func main() {
 		clk,
 	)
 
+	// Phase 44.2: Create enforcement audit stores and engines
+	enforcementAuditStore := persist.NewEnforcementAuditStore(nil)
+	enforcementAuditAckStore := persist.NewEnforcementAuditAckStore(nil)
+	enforcementClampEngine := internalenforcementclamp.NewEngine()
+	enforcementAuditEngine := internalenforcementaudit.NewEngine(
+		&enforcementAuditStoreAdapter{store: enforcementAuditStore, clk: clk},
+		&enforcementAuditAckStoreAdapter{store: enforcementAuditAckStore, clk: clk},
+		clk,
+	)
+	// Build complete manifest (all enforcement wrappers are wired)
+	enforcementManifest := internalenforcementaudit.BuildCompleteManifest()
+
 	// Phase 18 Web Control Center: Create stores
 	runStore := runlog.NewInMemoryRunStore()
 	suppressionSet := suppress.NewSuppressionSet()
@@ -883,6 +905,11 @@ func main() {
 		trustTransferContractStore:   trustTransferContractStore,              // Phase 44
 		trustTransferRevocationStore: trustTransferRevocationStore,            // Phase 44
 		trustTransferEngine:          trustTransferEngine,                     // Phase 44
+		enforcementAuditStore:        enforcementAuditStore,                   // Phase 44.2
+		enforcementAuditAckStore:     enforcementAuditAckStore,                // Phase 44.2
+		enforcementAuditEngine:       enforcementAuditEngine,                  // Phase 44.2
+		enforcementClampEngine:       enforcementClampEngine,                  // Phase 44.2
+		enforcementManifest:          enforcementManifest,                     // Phase 44.2
 		// Phase 18 Web Control Center
 		runStore:       runStore,
 		suppressionSet: suppressionSet,
@@ -1008,6 +1035,9 @@ func main() {
 	mux.HandleFunc("/delegate/transfer/accept", server.handleTrustTransferAccept)          // Phase 44: Accept transfer (POST)
 	mux.HandleFunc("/delegate/transfer/revoke", server.handleTrustTransferRevoke)          // Phase 44: Revoke transfer (POST)
 	mux.HandleFunc("/proof/transfer", server.handleTrustTransferProof)                     // Phase 44: Trust transfer proof (GET)
+	mux.HandleFunc("/proof/enforcement", server.handleEnforcementAuditProof)             // Phase 44.2: Enforcement audit proof (GET)
+	mux.HandleFunc("/proof/enforcement/run", server.handleEnforcementAuditRun)           // Phase 44.2: Run enforcement audit (POST)
+	mux.HandleFunc("/proof/enforcement/dismiss", server.handleEnforcementAuditDismiss)   // Phase 44.2: Dismiss audit (POST)
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18 Web Control Center: Core routes
@@ -10105,6 +10135,38 @@ func (a *trustTransferRevocationStoreAdapter) ListRevocations() []domaintrusttra
 	return a.store.ListRevocations()
 }
 
+// enforcementAuditStoreAdapter adapts EnforcementAuditStore to internalenforcementaudit.AuditStore.
+type enforcementAuditStoreAdapter struct {
+	store *persist.EnforcementAuditStore
+	clk   clock.Clock
+}
+
+func (a *enforcementAuditStoreAdapter) AppendRun(run domainenforcementaudit.AuditRun) error {
+	return a.store.AppendRun(run, a.clk.Now())
+}
+
+func (a *enforcementAuditStoreAdapter) GetLatestRun() *domainenforcementaudit.AuditRun {
+	return a.store.GetLatestRun()
+}
+
+func (a *enforcementAuditStoreAdapter) ListRuns() []domainenforcementaudit.AuditRun {
+	return a.store.ListRuns()
+}
+
+// enforcementAuditAckStoreAdapter adapts EnforcementAuditAckStore to internalenforcementaudit.AckStore.
+type enforcementAuditAckStoreAdapter struct {
+	store *persist.EnforcementAuditAckStore
+	clk   clock.Clock
+}
+
+func (a *enforcementAuditAckStoreAdapter) AppendAck(ack domainenforcementaudit.AuditAck) error {
+	return a.store.AppendAck(ack, a.clk.Now())
+}
+
+func (a *enforcementAuditAckStoreAdapter) IsAcked(runHash string) bool {
+	return a.store.IsAcked(runHash)
+}
+
 // handleHeldProof shows the held proof page.
 // Phase 43: Shows abstract proof of items held under agreement.
 // CRITICAL: Proof-only. No decisions. No behavior changes.
@@ -10484,6 +10546,136 @@ func (s *Server) buildTrustTransferCueForToday() *domaintrusttransfer.TrustTrans
 
 	circleHash := "default" // In production, from session
 	return s.trustTransferEngine.BuildCue(circleHash)
+}
+
+// ============================================================================
+// Phase 44.2: Enforcement Wiring Audit Handlers
+// ============================================================================
+
+// handleEnforcementAuditProof shows the enforcement audit proof page.
+// Phase 44.2: Shows proof that HOLD-only constraints bind the runtime.
+func (s *Server) handleEnforcementAuditProof(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+
+	// Build proof page
+	var page *domainenforcementaudit.AuditProofPage
+	if s.enforcementAuditEngine != nil {
+		page = s.enforcementAuditEngine.BuildProofPage()
+	} else {
+		page = domainenforcementaudit.NewDefaultProofPage()
+		page.PeriodKey = now.UTC().Format("2006-01-02-15")
+		page.PageHash = page.ComputeHash()
+	}
+
+	// Emit event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase442AuditViewed,
+		Timestamp: now,
+		Metadata: map[string]string{
+			"status":   page.Status.CanonicalString(),
+			"run_hash": page.RunHash,
+		},
+	})
+
+	data := templateData{
+		Title:                     "Enforcement Audit",
+		EnforcementAuditProofPage: page,
+	}
+	s.render(w, "enforcement-audit", data)
+}
+
+// handleEnforcementAuditRun runs an enforcement audit.
+// Phase 44.2: POST-only. Runs audit and returns to proof page.
+func (s *Server) handleEnforcementAuditRun(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+
+	// Emit request event
+	s.eventEmitter.Emit(events.Event{
+		Type:      events.Phase442AuditRequested,
+		Timestamp: now,
+	})
+
+	// Run audit
+	if s.enforcementAuditEngine != nil {
+		probes := internalenforcementaudit.DefaultProbeInputs()
+		run := s.enforcementAuditEngine.RunAudit(s.enforcementManifest, probes)
+
+		// Emit computed event
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase442AuditComputed,
+			Timestamp: now,
+			Metadata: map[string]string{
+				"status":          run.Status.CanonicalString(),
+				"run_hash":        run.RunHash,
+				"critical_bucket": run.CriticalFailsBucket,
+			},
+		})
+
+		// Emit persisted event
+		s.eventEmitter.Emit(events.Event{
+			Type:      events.Phase442AuditPersisted,
+			Timestamp: now,
+			Metadata: map[string]string{
+				"run_hash": run.RunHash,
+			},
+		})
+
+		// Emit failed event if status is fail
+		if run.Status == domainenforcementaudit.StatusFail {
+			s.eventEmitter.Emit(events.Event{
+				Type:      events.Phase442AuditFailed,
+				Timestamp: now,
+				Metadata: map[string]string{
+					"status":          run.Status.CanonicalString(),
+					"critical_bucket": run.CriticalFailsBucket,
+				},
+			})
+		}
+	}
+
+	// Redirect to proof page
+	http.Redirect(w, r, "/proof/enforcement", http.StatusSeeOther)
+}
+
+// handleEnforcementAuditDismiss dismisses the enforcement audit.
+// Phase 44.2: POST-only. Acknowledges the audit run.
+func (s *Server) handleEnforcementAuditDismiss(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := s.clk.Now()
+
+	// Get latest run and acknowledge it
+	if s.enforcementAuditEngine != nil {
+		latestRun := s.enforcementAuditEngine.GetLatestRun()
+		if latestRun != nil {
+			_, _ = s.enforcementAuditEngine.AcknowledgeRun(latestRun.RunHash)
+
+			// Emit dismissed event
+			s.eventEmitter.Emit(events.Event{
+				Type:      events.Phase442AuditDismissed,
+				Timestamp: now,
+				Metadata: map[string]string{
+					"run_hash": latestRun.RunHash,
+				},
+			})
+		}
+	}
+
+	// Redirect to today
+	http.Redirect(w, r, "/today", http.StatusSeeOther)
 }
 
 // ============================================================================
@@ -12315,6 +12507,8 @@ const templates = `
     {{template "trust-transfer-content" .}}
 {{else if eq .Title "Shared Holding Proof"}}
     {{template "trust-transfer-proof-content" .}}
+{{else if eq .Title "Enforcement Audit"}}
+    {{template "enforcement-audit-content" .}}
 {{else}}
     {{template "legacy-content" .}}
 {{end}}
@@ -14437,6 +14631,58 @@ const templates = `
     <h1 class="trust-transfer-proof-title">Shared holding</h1>
     <p class="trust-transfer-proof-line">No transfer active.</p>
     <a href="/delegate/transfer" class="trust-transfer-proof-back-link">Back</a>
+</div>
+{{end}}
+{{end}}
+
+{{/* ================================================================
+     Phase 44.2: Enforcement Audit Templates
+     ================================================================ */}}
+{{define "enforcement-audit"}}
+{{template "base18" .}}
+{{end}}
+
+{{define "enforcement-audit-content"}}
+{{if .EnforcementAuditProofPage}}
+<div class="enforcement-audit-page">
+    <header class="enforcement-audit-header">
+        <h1 class="enforcement-audit-title">Enforcement Wiring</h1>
+        {{if eq .EnforcementAuditProofPage.Status.CanonicalString "pass"}}
+        <span class="enforcement-audit-status enforcement-audit-status-pass">Verified</span>
+        {{else}}
+        <span class="enforcement-audit-status enforcement-audit-status-fail">Review needed</span>
+        {{end}}
+    </header>
+
+    <section class="enforcement-audit-lines">
+        {{range .EnforcementAuditProofPage.Lines}}
+        <p class="enforcement-audit-line">{{.}}</p>
+        {{end}}
+    </section>
+
+    <section class="enforcement-audit-actions">
+        <form method="POST" action="/proof/enforcement/run" class="enforcement-audit-form">
+            <button type="submit" class="enforcement-audit-run-btn">Run Audit</button>
+        </form>
+        {{if .EnforcementAuditProofPage.RunHash}}
+        <form method="POST" action="/proof/enforcement/dismiss" class="enforcement-audit-form">
+            <button type="submit" class="enforcement-audit-dismiss-btn">Dismiss</button>
+        </form>
+        {{end}}
+    </section>
+
+    <footer class="enforcement-audit-footer">
+        <a href="/today" class="enforcement-audit-back-link">Back</a>
+    </footer>
+</div>
+{{else}}
+<div class="enforcement-audit-page">
+    <h1 class="enforcement-audit-title">Enforcement Wiring</h1>
+    <p class="enforcement-audit-line">No audit has been run yet.</p>
+    <form method="POST" action="/proof/enforcement/run" class="enforcement-audit-form">
+        <button type="submit" class="enforcement-audit-run-btn">Run Audit</button>
+    </form>
+    <a href="/today" class="enforcement-audit-back-link">Back</a>
 </div>
 {{end}}
 {{end}}

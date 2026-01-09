@@ -2017,6 +2017,17 @@ const (
 	Phase44TransferRevoked      EventType = "phase44.transfer.revoked"
 	Phase44TransferEffectApplied EventType = "phase44.transfer.effect_applied"
 	Phase44TransferProofRendered EventType = "phase44.transfer.proof.rendered"
+
+	// Phase 44.2: Enforcement Wiring Audit events
+	// CRITICAL: Payloads are bucket-only: status, severity, run_hash.
+	// CRITICAL: No identifiers in payloads.
+	// CRITICAL: Proves HOLD-only constraints actually bind the runtime.
+	Phase442AuditRequested EventType = "phase44_2.audit.requested"
+	Phase442AuditComputed  EventType = "phase44_2.audit.computed"
+	Phase442AuditPersisted EventType = "phase44_2.audit.persisted"
+	Phase442AuditViewed    EventType = "phase44_2.audit.viewed"
+	Phase442AuditDismissed EventType = "phase44_2.audit.dismissed"
+	Phase442AuditFailed    EventType = "phase44_2.audit.failed"
 )
 
 // Event represents a system event for audit and observability.

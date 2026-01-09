@@ -233,6 +233,14 @@ const (
 	// CRITICAL: Bounded retention: 30 days OR 200 records max.
 	RecordTypeTrustTransferContract   = "TRUST_TRANSFER_CONTRACT"
 	RecordTypeTrustTransferRevocation = "TRUST_TRANSFER_REVOCATION"
+
+	// Phase 44.2: Enforcement Wiring Audit record types
+	// CRITICAL: Contains ONLY abstract buckets and hashes - never identifiers.
+	// CRITICAL: Proves HOLD-only constraints actually bind the runtime.
+	// CRITICAL: Hash-only deduplication. No raw content stored.
+	// CRITICAL: Bounded retention: 30 days OR 100 records max.
+	RecordTypeEnforcementAuditRun = "ENFORCEMENT_AUDIT_RUN"
+	RecordTypeEnforcementAuditAck = "ENFORCEMENT_AUDIT_ACK"
 )
 
 // Common errors
