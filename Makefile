@@ -1050,6 +1050,21 @@ check-transparency-log:
 	@./scripts/guardrails/transparency_log_enforced.sh
 
 # =============================================================================
+# Phase 52: Proof Hub + Connected Status
+# =============================================================================
+# Single proof hub page showing connected status abstractly.
+# NO POWER: Observation/proof only, no execution or delivery.
+# Reference: docs/ADR/ADR-0090-phase52-proof-hub-connected-status.md
+demo-phase52:
+	@echo "Running Phase 52 Demo: Proof Hub..."
+	go test -v ./internal/demo_phase52_proof_hub/...
+
+# Check Phase 52 Proof Hub constraints
+check-proof-hub:
+	@echo "Checking Phase 52 constraints..."
+	@./scripts/guardrails/proof_hub_enforced.sh
+
+# =============================================================================
 # Web Server Targets
 # =============================================================================
 # These are convenience targets for running the QuantumLife web server.

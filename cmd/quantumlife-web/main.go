@@ -70,6 +70,7 @@ import (
 	internalvendorcontract "quantumlife/internal/vendorcontract"
 	internalsignedclaims "quantumlife/internal/signedclaims"
 	internaltransparencylog "quantumlife/internal/transparencylog"
+	internalproofhub "quantumlife/internal/proofhub"
 	internalmarketplace "quantumlife/internal/marketplace"
 	internalinvitation "quantumlife/internal/invitation"
 	"quantumlife/internal/journey"
@@ -127,6 +128,7 @@ import (
 	domainvendorcontract "quantumlife/pkg/domain/vendorcontract"
 	domainsignedclaims "quantumlife/pkg/domain/signedclaims"
 	domaintransparencylog "quantumlife/pkg/domain/transparencylog"
+	domainproofhub "quantumlife/pkg/domain/proofhub"
 	domainmarketplace "quantumlife/pkg/domain/marketplace"
 	domaininvitation "quantumlife/pkg/domain/invitation"
 	domainmirror "quantumlife/pkg/domain/mirror"
@@ -282,6 +284,9 @@ type Server struct {
 	// Phase 51: Transparency Log / Claim Ledger
 	transparencyLogStore  *persist.TransparencyLogStore          // Phase 51: Transparency log store
 	transparencyLogEngine *internaltransparencylog.Engine        // Phase 51: Transparency log engine
+	// Phase 52: Proof Hub + Connected Status
+	proofHubAckStore *persist.ProofHubAckStore                   // Phase 52: Proof hub ack store
+	proofHubEngine   *internalproofhub.Engine                    // Phase 52: Proof hub engine
 	// Phase 18 Web Control Center
 	runStore       *runlog.InMemoryRunStore // Run snapshot store for /runs
 	suppressionSet *suppress.SuppressionSet // Suppression rules for /suppressions
@@ -907,6 +912,10 @@ func main() {
 	transparencyLogStore := persist.NewTransparencyLogStore(clk.Now)
 	transparencyLogEngine := internaltransparencylog.NewEngine()
 
+	// Phase 52: Proof Hub + Connected Status
+	proofHubAckStore := persist.NewProofHubAckStore(clk.Now)
+	proofHubEngine := internalproofhub.New(&proofHubClock{clk: clk})
+
 	// Phase 18 Web Control Center: Create stores
 	runStore := runlog.NewInMemoryRunStore()
 	suppressionSet := suppress.NewSuppressionSet()
@@ -1039,6 +1048,9 @@ func main() {
 		// Phase 51: Transparency Log
 		transparencyLogStore:  transparencyLogStore,
 		transparencyLogEngine: transparencyLogEngine,
+		// Phase 52: Proof Hub + Connected Status
+		proofHubAckStore: proofHubAckStore,
+		proofHubEngine:   proofHubEngine,
 		// Phase 18 Web Control Center
 		runStore:       runStore,
 		suppressionSet: suppressionSet,
@@ -1194,6 +1206,9 @@ func main() {
 	mux.HandleFunc("/proof/transparency", server.handleTransparencyLog)               // Phase 51: View transparency log (GET)
 	mux.HandleFunc("/proof/transparency/export", server.handleTransparencyLogExport)  // Phase 51: Export transparency log (GET)
 	mux.HandleFunc("/proof/transparency/import", server.handleTransparencyLogImport)  // Phase 51: Import transparency log (POST)
+	// Phase 52: Proof Hub + Connected Status routes
+	mux.HandleFunc("/proof/hub", server.handleProofHub)                               // Phase 52: View proof hub (GET)
+	mux.HandleFunc("/proof/hub/dismiss", server.handleProofHubDismiss)                // Phase 52: Dismiss proof hub cue (POST)
 	mux.HandleFunc("/demo", server.handleDemo)
 
 	// Phase 18 Web Control Center: Core routes
@@ -12667,6 +12682,182 @@ h1 { font-size: 1.5rem; font-weight: 500; margin: 0 0 8px 0; color: #333; }
 </body>
 </html>
 `, page.StatusHash)
+}
+
+// ============================================================================
+// Phase 52: Proof Hub + Connected Status Handlers
+// ============================================================================
+
+// proofHubClock wraps the server clock for the proof hub engine.
+type proofHubClock struct {
+	clk clock.Clock
+}
+
+func (c *proofHubClock) Now() time.Time {
+	return c.clk.Now()
+}
+
+// handleProofHub handles GET /proof/hub.
+// Phase 52: Displays the proof hub page showing connected status.
+func (s *Server) handleProofHub(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Reject forbidden params
+	forbiddenParams := []string{"vendorID", "packID", "merchant", "email", "url", "sender", "subject", "amount"}
+	for _, param := range forbiddenParams {
+		if r.URL.Query().Get(param) != "" {
+			http.Error(w, "Forbidden parameter: "+param, http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Get circle hash from context (use demo hash if not set)
+	circleIDHash := s.getCircleIDHash()
+
+	// Build inputs
+	inputs := s.proofHubEngine.BuildInputs(circleIDHash)
+
+	// Build page
+	page := s.proofHubEngine.BuildPage(inputs)
+
+	// Check if cue should be shown
+	showCue := s.proofHubEngine.ShouldShowCue(circleIDHash, page.PeriodKey, page.StatusHash)
+
+	// Build cue if showing
+	var cue *domainproofhub.ProofHubCue
+	if showCue {
+		c := s.proofHubEngine.BuildCue(page, false)
+		cue = &c
+	}
+	page.Cue = cue
+
+	// Render
+	s.renderProofHubPage(w, page)
+}
+
+// handleProofHubDismiss handles POST /proof/hub/dismiss.
+// Phase 52: Dismisses the proof hub cue for the current period+status.
+func (s *Server) handleProofHubDismiss(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Reject forbidden params
+	forbiddenParams := []string{"vendorID", "packID", "merchant", "email", "url", "sender", "subject", "amount"}
+	for _, param := range forbiddenParams {
+		if r.FormValue(param) != "" {
+			http.Error(w, "Forbidden parameter: "+param, http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Get status hash from form
+	statusHash := r.FormValue("status_hash")
+	if statusHash == "" {
+		http.Error(w, "Missing status_hash", http.StatusBadRequest)
+		return
+	}
+
+	// Get circle hash and period
+	circleIDHash := s.getCircleIDHash()
+	periodKey := internalproofhub.ComputePeriodKey(s.clk.Now())
+
+	// Record dismissal
+	_, err := s.proofHubAckStore.RecordDismissed(circleIDHash, periodKey, statusHash)
+	if err != nil {
+		http.Error(w, "Failed to record dismissal", http.StatusInternalServerError)
+		return
+	}
+
+	// Redirect back to proof hub
+	http.Redirect(w, r, "/proof/hub", http.StatusSeeOther)
+}
+
+// getCircleIDHash returns the circle ID hash from session or a demo default.
+func (s *Server) getCircleIDHash() string {
+	// For demo purposes, return a fixed hash
+	// In production, this would come from session/auth context
+	return "demo_circle_" + "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"[:64]
+}
+
+// renderProofHubPage renders the proof hub page.
+// It displays sections, badges, lines and the StatusHash for verification.
+func (s *Server) renderProofHubPage(w http.ResponseWriter, page domainproofhub.ProofHubPage) {
+	// Render proof hub page with Title, PeriodKey, Sections, and StatusHash
+	fmt.Fprintf(w, `<!DOCTYPE html>
+<html>
+<head>
+<title>%s</title>
+<style>
+body { font-family: system-ui, sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; background: #fafafa; }
+.card { background: white; border-radius: 8px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 16px; }
+h1 { font-size: 1.5rem; font-weight: 500; margin: 0 0 8px 0; color: #333; }
+.period { color: #888; font-size: 0.85rem; margin-bottom: 16px; }
+.section { margin-bottom: 20px; }
+.section-title { font-size: 1rem; color: #555; margin-bottom: 8px; font-weight: 500; }
+.badges { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.badge { background: #f0f0f0; padding: 4px 10px; border-radius: 12px; font-size: 0.8rem; color: #555; }
+.badge-ok { background: #e8f5e9; color: #2e7d32; }
+.badge-warn { background: #fff3e0; color: #ef6c00; }
+.line { color: #777; font-size: 0.9rem; margin: 4px 0; }
+.status-hash { margin-top: 24px; padding-top: 16px; border-top: 1px solid #eee; font-family: monospace; font-size: 0.75rem; color: #999; }
+.dismiss-btn { padding: 8px 16px; background: #e0e0e0; border: none; border-radius: 4px; cursor: pointer; margin-top: 16px; }
+.back-link { display: inline-block; margin-top: 16px; color: #666; text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="card">
+<h1>%s</h1>
+<p class="period">Period: %s</p>
+`, page.Title, page.Title, page.PeriodKey)
+
+	// Render sections
+	for _, section := range page.Sections {
+		fmt.Fprintf(w, `<div class="section">
+<h2 class="section-title">%s</h2>
+<div class="badges">
+`, section.Title)
+		for _, badge := range section.Badges {
+			badgeClass := "badge"
+			if badge.Value == "connect_yes" || badge.Value == "yes" || badge.Value == "status_ok" {
+				badgeClass = "badge badge-ok"
+			} else if badge.Value == "connect_no" || badge.Value == "no" || badge.Value == "status_error" || badge.Value == "sync_never" {
+				badgeClass = "badge badge-warn"
+			}
+			fmt.Fprintf(w, `<span class="%s">%s: %s</span>
+`, badgeClass, badge.Label, badge.Value)
+		}
+		fmt.Fprintf(w, `</div>
+`)
+		for _, line := range section.Lines {
+			fmt.Fprintf(w, `<p class="line">%s</p>
+`, line)
+		}
+		fmt.Fprintf(w, `</div>
+`)
+	}
+
+	// Status hash
+	fmt.Fprintf(w, `<div class="status-hash">status: %s</div>
+`, page.StatusHash)
+
+	// Dismiss button
+	fmt.Fprintf(w, `<form method="POST" action="/proof/hub/dismiss">
+<input type="hidden" name="status_hash" value="%s">
+<button type="submit" class="dismiss-btn">Dismiss</button>
+</form>
+`, page.StatusHash)
+
+	// Back link
+	fmt.Fprintf(w, `<a href="/today" class="back-link">Back to Today</a>
+</div>
+</body>
+</html>
+`)
 }
 
 // ============================================================================

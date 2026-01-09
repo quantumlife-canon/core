@@ -303,6 +303,12 @@ const (
 	// CRITICAL: Bounded retention: 30 days OR 5000 entries max.
 	RecordTypeTransparencyLogEntry  = "TRANSPARENCY_LOG_ENTRY"
 	RecordTypeTransparencyLogImport = "TRANSPARENCY_LOG_IMPORT"
+
+	// Phase 52: Proof Hub + Connected Status record types
+	// Reference: docs/ADR/ADR-0090-phase52-proof-hub-connected-status.md
+	// CRITICAL: Append-only, hash-only, observation/proof only - NO POWER.
+	// CRITICAL: Bounded retention: 30 days OR 200 entries max.
+	RecordTypeProofHubAck = "PROOF_HUB_ACK"
 )
 
 // Common errors

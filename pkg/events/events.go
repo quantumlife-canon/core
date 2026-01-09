@@ -2167,6 +2167,25 @@ const (
 	Phase51TransparencyAppended EventType = "phase51.transparency.appended"
 	// Phase51TransparencyDeduped - a duplicate entry was detected and skipped.
 	Phase51TransparencyDeduped EventType = "phase51.transparency.deduped"
+
+	// =========================================================================
+	// Phase 52: Proof Hub + Connected Status
+	// Reference: docs/ADR/ADR-0090-phase52-proof-hub-connected-status.md
+	// CRITICAL: Events contain only hashes, buckets, period keys - NEVER raw IDs.
+	// =========================================================================
+
+	// Phase52ProofHubRequested - proof hub page was requested.
+	Phase52ProofHubRequested EventType = "phase52.proofhub.requested"
+	// Phase52ProofHubRendered - proof hub page was rendered.
+	Phase52ProofHubRendered EventType = "phase52.proofhub.rendered"
+	// Phase52ProofHubAcknowledged - proof hub cue was acknowledged/dismissed.
+	Phase52ProofHubAcknowledged EventType = "phase52.proofhub.acknowledged"
+	// Phase52ProofHubCueComputed - proof hub cue was computed.
+	Phase52ProofHubCueComputed EventType = "phase52.proofhub.cue.computed"
+	// Phase52ProofHubInputsBuilt - proof hub inputs were built.
+	Phase52ProofHubInputsBuilt EventType = "phase52.proofhub.inputs.built"
+	// Phase52ProofHubStatusHashed - proof hub status was hashed.
+	Phase52ProofHubStatusHashed EventType = "phase52.proofhub.status.hashed"
 )
 
 // Event represents a system event for audit and observability.
