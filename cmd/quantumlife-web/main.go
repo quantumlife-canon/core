@@ -12052,6 +12052,20 @@ func (s *Server) handleClaimSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// SECURITY: Reject forbidden fields that could leak identifiers or bypass clock
+	// These fields must NEVER be accepted - we use hash refs only and server-derived period.
+	forbiddenFields := []string{
+		"vendorID", "vendor_id", "packID", "pack_id",
+		"merchant", "url", "email", "name",
+		"periodKey", "period_key", "period",
+	}
+	for _, field := range forbiddenFields {
+		if r.FormValue(field) != "" {
+			http.Error(w, "Forbidden field: "+field, http.StatusBadRequest)
+			return
+		}
+	}
+
 	// Get form values
 	circleID := r.FormValue("circle_id")
 	pubkeyB64 := r.FormValue("pubkey_b64")
@@ -12178,6 +12192,20 @@ func (s *Server) handleManifestSubmit(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Invalid form data", http.StatusBadRequest)
 		return
+	}
+
+	// SECURITY: Reject forbidden fields that could leak identifiers or bypass clock
+	// These fields must NEVER be accepted - we use hash refs only and server-derived period.
+	forbiddenFields := []string{
+		"vendorID", "vendor_id", "packID", "pack_id",
+		"merchant", "url", "email", "name",
+		"periodKey", "period_key", "period",
+	}
+	for _, field := range forbiddenFields {
+		if r.FormValue(field) != "" {
+			http.Error(w, "Forbidden field: "+field, http.StatusBadRequest)
+			return
+		}
 	}
 
 	// Get form values

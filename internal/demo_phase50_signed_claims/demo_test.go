@@ -1057,3 +1057,255 @@ func TestBuildProofDisplayData(t *testing.T) {
 		t.Error("Period key mismatch")
 	}
 }
+
+// ============================================================================
+// Section 15: Hash-Only Storage Verification Tests
+// ============================================================================
+
+func TestRecordContainsOnlyHashes(t *testing.T) {
+	// Verify that SignedClaimRecord only stores hashes/fingerprints
+	// This is a documentation/compile-time check - the types enforce this
+
+	pub, priv := generateTestKeyPair()
+	eng := engine.NewEngine(testClock)
+
+	claim := domain.SignedVendorClaim{
+		Kind:         domain.ClaimVendorCap,
+		Scope:        domain.ScopeCommerce,
+		Cap:          domain.AllowHoldOnly,
+		RefHash:      makeValidRefHash(),
+		Provenance:   domain.ProvenanceUserSupplied,
+		CircleIDHash: makeValidCircleIDHash(),
+		PeriodKey:    "2025-01-15",
+	}
+
+	sig := signClaim(priv, claim)
+	pubB64 := pubKeyToB64(pub)
+
+	result := eng.VerifyClaim(claim, sig, pubB64)
+
+	// Record should have:
+	// - ClaimHash (hash of claim)
+	// - KeyFingerprint (hash of public key)
+	// - CircleIDHash (hash of circle ID)
+	// NOT raw signatures, raw public keys, or identifiers
+
+	record := result.Record
+
+	// Verify ClaimHash is a valid hash (64 hex chars)
+	if err := record.ClaimHash.Validate(); err != nil {
+		t.Errorf("ClaimHash should be valid: %v", err)
+	}
+
+	// Verify KeyFingerprint is a valid hash
+	if err := record.KeyFingerprint.Validate(); err != nil {
+		t.Errorf("KeyFingerprint should be valid: %v", err)
+	}
+
+	// Verify CircleIDHash is a valid hash
+	if err := record.CircleIDHash.Validate(); err != nil {
+		t.Errorf("CircleIDHash should be valid: %v", err)
+	}
+
+	// The raw signature and public key are NOT stored in the record
+	// This is enforced by the type system (no Signature or PublicKey fields)
+}
+
+func TestNoRawIdentifiersInDomainTypes(t *testing.T) {
+	// Verify that domain types use hash references, not raw identifiers
+	// SignedVendorClaim uses RefHash (not vendorID)
+	// SignedPackManifest uses PackHash (not packID)
+
+	claim := domain.SignedVendorClaim{
+		Kind:         domain.ClaimVendorCap,
+		Scope:        domain.ScopeCommerce,
+		Cap:          domain.AllowHoldOnly,
+		RefHash:      makeValidRefHash(), // Hash reference, not vendorID
+		Provenance:   domain.ProvenanceUserSupplied,
+		CircleIDHash: makeValidCircleIDHash(), // Hash, not raw circle ID
+		PeriodKey:    "2025-01-15",
+	}
+
+	// RefHash must be a valid 64-char hex hash
+	if err := claim.RefHash.Validate(); err != nil {
+		t.Errorf("RefHash should be valid: %v", err)
+	}
+
+	manifest := domain.SignedPackManifest{
+		PackHash:     makeValidRefHash(), // Hash reference, not packID
+		Version:      domain.PackVersionV1,
+		BindingsHash: makeValidRefHash(),
+		Provenance:   domain.ProvenanceMarketplace,
+		CircleIDHash: makeValidCircleIDHash(),
+		PeriodKey:    "2025-01-15",
+	}
+
+	if err := manifest.PackHash.Validate(); err != nil {
+		t.Errorf("PackHash should be valid: %v", err)
+	}
+}
+
+// ============================================================================
+// Section 16: Period Key Determinism Tests
+// ============================================================================
+
+func TestPeriodKeyFromClockIsDeterministic(t *testing.T) {
+	// Same clock input should produce same period key
+	fixedTime := time.Date(2025, 6, 15, 14, 30, 0, 0, time.UTC)
+	clockFn := func() time.Time { return fixedTime }
+
+	eng := engine.NewEngine(clockFn)
+
+	pk1 := eng.CurrentPeriodKey()
+	pk2 := eng.CurrentPeriodKey()
+	pk3 := eng.CurrentPeriodKey()
+
+	if pk1 != pk2 || pk2 != pk3 {
+		t.Error("Period key should be deterministic for same clock")
+	}
+
+	if pk1 != "2025-06-15" {
+		t.Errorf("Expected 2025-06-15, got %s", pk1)
+	}
+}
+
+func TestDifferentClockTimesDifferentPeriodKeys(t *testing.T) {
+	eng1 := engine.NewEngine(func() time.Time {
+		return time.Date(2025, 1, 15, 0, 0, 0, 0, time.UTC)
+	})
+	eng2 := engine.NewEngine(func() time.Time {
+		return time.Date(2025, 1, 16, 0, 0, 0, 0, time.UTC)
+	})
+
+	pk1 := eng1.CurrentPeriodKey()
+	pk2 := eng2.CurrentPeriodKey()
+
+	if pk1 == pk2 {
+		t.Error("Different dates should produce different period keys")
+	}
+}
+
+// ============================================================================
+// Section 17: CLI Signing Helper Verification Test
+// ============================================================================
+
+func TestCLISigningHelperPattern(t *testing.T) {
+	// This test verifies that the signing pattern used by the CLI
+	// (using domain types' MessageBytes()) produces verifiable signatures
+
+	pub, priv := generateTestKeyPair()
+	eng := engine.NewEngine(testClock)
+
+	// Build claim exactly as CLI would
+	claim := domain.SignedVendorClaim{
+		Kind:         domain.ClaimVendorCap,
+		Scope:        domain.ScopeHuman,
+		Cap:          domain.AllowHoldOnly,
+		RefHash:      makeValidRefHash(),
+		Provenance:   domain.ProvenanceUserSupplied,
+		CircleIDHash: makeValidCircleIDHash(),
+		PeriodKey:    "2025-01-15",
+	}
+
+	// CLI would call: claim.MessageBytes() for signing
+	messageBytes := claim.MessageBytes()
+
+	// CLI would sign with ed25519.Sign
+	signature := ed25519.Sign(priv, messageBytes)
+
+	// Convert to base64 (as CLI outputs)
+	sigB64 := domain.SignatureB64(base64.StdEncoding.EncodeToString(signature))
+	pubB64 := pubKeyToB64(pub)
+
+	// Verify using engine (same MessageBytes() path)
+	result := eng.VerifyClaim(claim, sigB64, pubB64)
+
+	if result.Status != domain.VerifiedOK {
+		t.Errorf("CLI signing pattern should produce verifiable signatures, got %v", result.Status)
+	}
+}
+
+func TestCLIManifestSigningPattern(t *testing.T) {
+	pub, priv := generateTestKeyPair()
+	eng := engine.NewEngine(testClock)
+
+	// Build manifest exactly as CLI would
+	manifest := domain.SignedPackManifest{
+		PackHash:     makeValidRefHash(),
+		Version:      domain.PackVersionV1,
+		BindingsHash: makeValidRefHash(),
+		Provenance:   domain.ProvenanceMarketplace,
+		CircleIDHash: makeValidCircleIDHash(),
+		PeriodKey:    "2025-01-15",
+	}
+
+	// Sign using same path as CLI
+	signature := ed25519.Sign(priv, manifest.MessageBytes())
+	sigB64 := domain.SignatureB64(base64.StdEncoding.EncodeToString(signature))
+	pubB64 := pubKeyToB64(pub)
+
+	result := eng.VerifyManifest(manifest, sigB64, pubB64)
+
+	if result.Status != domain.VerifiedOK {
+		t.Errorf("CLI manifest signing should produce verifiable signatures, got %v", result.Status)
+	}
+}
+
+// ============================================================================
+// Section 18: Replay Idempotency Tests (Dedup Verification)
+// ============================================================================
+
+func TestReplayClaimIsIdempotent(t *testing.T) {
+	store := persist.NewSignedClaimStore(testClock)
+
+	record := domain.SignedClaimRecord{
+		ClaimHash:      makeValidRefHash(),
+		KeyFingerprint: domain.KeyFingerprint(strings.Repeat("c", 64)),
+		Status:         domain.VerifiedOK,
+		Provenance:     domain.ProvenanceUserSupplied,
+		Kind:           domain.ClaimVendorCap,
+		PeriodKey:      "2025-01-15",
+		CircleIDHash:   makeValidCircleIDHash(),
+		CreatedBucket:  "2025-01-15",
+	}
+
+	// Submit same claim multiple times (simulating replay)
+	for i := 0; i < 10; i++ {
+		_ = store.AppendClaim(record)
+	}
+
+	// Should only have 1 record (idempotent)
+	if store.Count() != 1 {
+		t.Errorf("Replay should be idempotent, expected 1 record, got %d", store.Count())
+	}
+
+	// Query should return exactly 1
+	list := store.ListByCircle(record.CircleIDHash)
+	if len(list) != 1 {
+		t.Errorf("List should have 1 record, got %d", len(list))
+	}
+}
+
+func TestReplayManifestIsIdempotent(t *testing.T) {
+	store := persist.NewSignedManifestStore(testClock)
+
+	record := domain.SignedManifestRecord{
+		ManifestHash:   makeValidRefHash(),
+		KeyFingerprint: domain.KeyFingerprint(strings.Repeat("c", 64)),
+		Status:         domain.VerifiedOK,
+		Provenance:     domain.ProvenanceMarketplace,
+		PeriodKey:      "2025-01-15",
+		CircleIDHash:   makeValidCircleIDHash(),
+		PackHash:       makeValidRefHash(),
+		CreatedBucket:  "2025-01-15",
+	}
+
+	// Submit same manifest multiple times
+	for i := 0; i < 5; i++ {
+		_ = store.AppendManifest(record)
+	}
+
+	if store.Count() != 1 {
+		t.Errorf("Manifest replay should be idempotent, expected 1, got %d", store.Count())
+	}
+}

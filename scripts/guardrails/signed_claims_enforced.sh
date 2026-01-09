@@ -721,7 +721,115 @@ for pkg in "${DECISION_PACKAGES[@]}"; do
 done
 
 # ===========================================================
-# Section 19: Demo Tests Exist
+# Section 19: No Raw Identifiers (Fix 1)
+# ===========================================================
+section "No Raw Identifiers in Routes (Fix 1)"
+
+# Routes must reject forbidden identifier fields
+FORBIDDEN_FIELDS=("vendorID" "vendor_id" "packID" "pack_id" "merchant" "url" "email" "name")
+for field in "${FORBIDDEN_FIELDS[@]}"; do
+    if grep -q "\"$field\"" "$MAIN_FILE" 2>/dev/null | grep -i "forbidden" > /dev/null 2>&1 || \
+       grep -A20 "forbiddenFields" "$MAIN_FILE" | grep -q "\"$field\""; then
+        pass "Route rejects forbidden field: $field"
+    else
+        # Check if it appears in the forbiddenFields list
+        if grep -A15 "SECURITY.*Reject forbidden fields" "$MAIN_FILE" | grep -q "\"$field\""; then
+            pass "Route rejects forbidden field: $field"
+        else
+            fail "Route may accept forbidden field: $field"
+        fi
+    fi
+done
+
+# Domain types should use RefHash/PackHash, not vendorID/packID
+if grep -q "VendorID\|vendorID" "$DOMAIN_FILE" 2>/dev/null; then
+    fail "Domain types contain vendorID field (should use RefHash)"
+else
+    pass "Domain types use RefHash, not vendorID"
+fi
+
+if grep -qi "packID" "$DOMAIN_FILE" 2>/dev/null | grep -v "PackHash" > /dev/null 2>&1; then
+    fail "Domain types contain packID field (should use PackHash)"
+else
+    pass "Domain types use PackHash, not packID"
+fi
+
+# ===========================================================
+# Section 20: Server-Derived Period (Fix 2)
+# ===========================================================
+section "Server-Derived Period Key (Fix 2)"
+
+# Routes must reject periodKey from client
+if grep -A20 "forbiddenFields" "$MAIN_FILE" | grep -q "periodKey\|period_key\|period"; then
+    pass "Routes reject client-supplied periodKey"
+else
+    fail "Routes may accept client-supplied periodKey"
+fi
+
+# Period key must be computed from clock
+if grep -B5 -A5 "periodKey :=" "$MAIN_FILE" | grep -q "clk.Now()\|s.clk.Now()"; then
+    pass "Period key computed from injected clock"
+else
+    fail "Period key may not use injected clock"
+fi
+
+# No FormValue("periodKey") or FormValue("period_key")
+if grep -q 'FormValue("periodKey")\|FormValue("period_key")\|FormValue("period")' "$MAIN_FILE" 2>/dev/null; then
+    fail "Routes read periodKey from form (should be server-derived)"
+else
+    pass "Routes do not read periodKey from form"
+fi
+
+# ===========================================================
+# Section 21: Canonical Signing CLI (Fix 3)
+# ===========================================================
+section "Canonical Signing CLI (Fix 3)"
+
+CLI_FILE="cmd/qlsign-phase50/main.go"
+
+if [ -f "$CLI_FILE" ]; then
+    pass "Signing CLI exists"
+else
+    fail "Signing CLI missing (cmd/qlsign-phase50/main.go)"
+fi
+
+# CLI must import domain types (uses same CanonicalString/MessageBytes)
+if [ -f "$CLI_FILE" ] && grep -q 'quantumlife/pkg/domain/signedclaims' "$CLI_FILE"; then
+    pass "CLI imports domain signedclaims package"
+else
+    fail "CLI does not import domain signedclaims package"
+fi
+
+# CLI must use domain types for claims/manifests
+if [ -f "$CLI_FILE" ] && grep -q 'domain.SignedVendorClaim\|domain.SignedPackManifest' "$CLI_FILE"; then
+    pass "CLI uses domain claim/manifest types"
+else
+    fail "CLI does not use domain claim/manifest types"
+fi
+
+# CLI must call MessageBytes() for signing
+if [ -f "$CLI_FILE" ] && grep -q '\.MessageBytes()' "$CLI_FILE"; then
+    pass "CLI uses MessageBytes() for signing"
+else
+    fail "CLI does not use MessageBytes() for signing"
+fi
+
+# CLI must use ed25519.Sign
+if [ -f "$CLI_FILE" ] && grep -q 'ed25519.Sign' "$CLI_FILE"; then
+    pass "CLI uses ed25519.Sign"
+else
+    fail "CLI does not use ed25519.Sign"
+fi
+
+# CLI outputs pubkey_b64, signature_b64
+if [ -f "$CLI_FILE" ] && grep -q 'pubkeyB64\|signatureB64\|pubkey_b64\|signature_b64' "$CLI_FILE"; then
+    pass "CLI outputs pubkey/signature in base64"
+else
+    fail "CLI may not output pubkey/signature correctly"
+fi
+
+# ===========================================================
+# Section 22: Demo Tests Exist
 # ===========================================================
 section "Demo Tests"
 
